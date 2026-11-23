@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Restricted DSH <-> MatePad task bridge.
 // Only fixed-profile tasks are accepted; no arbitrary shell command endpoint.
-// Bind to loopback by default. Use a private tunnel to expose it remotely.
+// Bind to loopback only; network exposure is intentionally unsupported.
 import { createServer } from 'node:http';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -30,8 +30,8 @@ const log = (...args) => console.log(new Date().toISOString(), ...args);
 
 if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) throw new Error('invalid port');
 if (!TOKEN || TOKEN.length < 32) throw new Error('Set BRIDGE_TOKEN to a random secret of at least 32 characters');
-if (HOST === '0.0.0.0' && process.env.BRIDGE_ALLOW_PUBLIC !== 'yes') {
-  throw new Error('Refusing 0.0.0.0 bind without BRIDGE_ALLOW_PUBLIC=yes; expose only behind an authenticated private tunnel');
+if (HOST !== '127.0.0.1' && HOST !== '::1') {
+  throw new Error('Bridge must bind to a loopback address (127.0.0.1 or ::1)');
 }
 const iso = () => new Date().toISOString();
 const safeId = (s) => String(s || '').replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 120);
@@ -73,9 +73,12 @@ async function jobs() {
   for (const name of files) {
     try {
       const item = JSON.parse(await readFile(join(INBOX, name), 'utf8'));
-      item.status = s.jobs[item.id]?.status || 'queued';
-      item.leaseUntil = s.jobs[item.id]?.leaseUntil || null;
-      all.push(item);
+      if (typeof item.id !== 'string' || !/^job-\d+-[0-9a-f]{8}$/.test(item.id) || name !== `${item.id}.json` || !PROFILES.has(item.profile)) continue;
+      all.push({
+        ...PROFILES_TASK[item.profile], id: item.id, profile: item.profile,
+        workspace: 'threads-harmony',
+        status: s.jobs[item.id]?.status || 'queued', leaseUntil: s.jobs[item.id]?.leaseUntil || null,
+      });
     } catch {}
   }
   return all;
@@ -95,7 +98,7 @@ async function handle(req, res) {
   if (req.method === 'GET' && url.pathname === '/next') {
     const worker = String(url.searchParams.get('worker') || 'matepad').slice(0, 80);
     const s = await state(); const list = await jobs();
-    const candidate = list.find((item) => item.status === 'queued' || (item.status === 'running' && Date.parse(item.leaseUntil) < Date.now()));
+    const candidate = list.find((item) => item.status === 'queued' || (item.status === 'running' && item.leaseUntil && Date.parse(item.leaseUntil) < Date.now()));
     if (!candidate) { res.writeHead(204); return res.end(); }
     s.jobs[candidate.id] = { status: 'running', worker, leaseUntil: new Date(Date.now() + STALE_MS).toISOString(), updatedAt: iso() };
     await saveState(s);
@@ -103,10 +106,12 @@ async function handle(req, res) {
   }
   if (req.method === 'POST' && url.pathname === '/jobs') {
     const payload = JSON.parse((await readBody(req)).toString('utf8'));
+    if (!payload || !PROFILES.has(payload.profile) || Object.keys(payload).some((key) => key !== 'profile')) {
+      return json(res, 400, { error: 'submit only a profile: doctor, preflight, or build' });
+    }
     const profile = PROFILES_TASK[payload.profile];
-    if (!profile) return json(res, 400, { error: 'profile must be one of doctor, preflight, build' });
     const id = `job-${Date.now()}-${randomUUID().slice(0, 8)}`;
-    const job = { id, ...profile, profile: payload.profile, workspace: 'threads-harmony', createdAt: iso() };
+    const job = { ...profile, id, profile: payload.profile, workspace: 'threads-harmony', createdAt: iso() };
     await mkdir(INBOX, { recursive: true }); await writeFile(join(INBOX, `${id}.json`), JSON.stringify(job, null, 2), { flag: 'wx' });
     return json(res, 201, { ok: true, job });
   }

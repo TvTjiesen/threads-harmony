@@ -38,7 +38,7 @@ const say = (...a) => console.log(new Date().toISOString(), ...a);
 function run(cmd, timeoutMs = 15 * 60 * 1000) {
   return new Promise((res) => {
     const started = Date.now();
-    const child = spawn('sh', ['-c', `cd '${ROOT}' && ${cmd}`], { env: process.env });
+    const child = spawn('sh', ['-c', cmd], { cwd: ROOT, env: process.env });
     let out = '';
     let err = '';
     let killed = false;
@@ -75,12 +75,7 @@ async function doctor() {
     say(k, '=>', facts[k].out.split('\n')[0]);
   }
   const payload = { jobId: `doctor-${WORKER}`, status: 'ok', worker: WORKER, notes: 'environment probe', facts };
-  const r = await fetch(`${BRIDGE}/report`, {
-    method: 'POST',
-    headers: H({ 'content-type': 'application/json' }),
-    body: JSON.stringify(payload),
-  });
-  say('doctor report ->', r.status);
+  say('doctor mode is local-only; no report sent');
 }
 
 async function syncSources(jobId) {
@@ -140,7 +135,6 @@ async function runJob(job, sendReport) {
       results.push({ step: step.cmd, ...(await run(step.cmd, step.timeoutMs)) });
     }
   }
-  const failed = results.find((r) => r.exitCode !== 0);
   const artifacts = [];
   for (const step of job.steps) {
     if (step.artifact) {
@@ -149,6 +143,7 @@ async function runJob(job, sendReport) {
       else results.push({ step: `artifact ${step.artifact}`, exitCode: -5, stdout: '', stderr: 'artifact missing or upload failed' });
     }
   }
+  const failed = results.find((r) => r.exitCode !== 0);
   const payload = {
     jobId: job.id,
     worker: WORKER,
@@ -175,35 +170,13 @@ async function runJob(job, sendReport) {
 
 async function main() {
   if (flag('--doctor')) return doctor();
+  if (!TOKEN || TOKEN.length < 32) throw new Error('Set BRIDGE_TOKEN to a secret of at least 32 characters');
+  if (!['http:', 'https:'].includes(new URL(BRIDGE).protocol)) throw new Error('Bridge URL must use HTTP or HTTPS');
   say(`worker ${WORKER} bridge=${BRIDGE} root=${ROOT}`);
   const once = flag('--once');
 
-  // 中继模式：靠 ntfy 收任务、发回报，不需要两台设备同网段
-  if (BRIDGE.startsWith('ntfy://')) {
-    const { NtfyTransport } = await import('./transport.mjs');
-    const relay = new NtfyTransport(BRIDGE.slice('ntfy://'.length));
-    const seen = new Set();
-    say('relay mode topic=' + relay.topic);
-    for (;;) {
-      let jobs = [];
-      try {
-        jobs = (await relay.poll()).filter((m) => m.kind === 'job' && !seen.has(m.id));
-      } catch (e) {
-        say('relay poll err:', e.message);
-      }
-      for (const job of jobs) {
-        seen.add(job.id);
-        const res = await runJob(job, async (payload) => {
-          const r = await relay.publish('report', payload);
-          say(`report ${job.id} -> relay ${r.status}`);
-        });
-        if (once) return res;
-      }
-      if (once && !jobs.length) return say('relay: 队列空');
-      await new Promise((r) => setTimeout(r, POLL));
-    }
-  }
-
+  // Deprecated relay path is disabled: anonymous topic is not an authenticated task channel.
+  if (BRIDGE.startsWith('ntfy://')) throw new Error('ntfy relay mode is disabled; use authenticated HTTPS only');
   for (;;) {
     let job = null;
     try {

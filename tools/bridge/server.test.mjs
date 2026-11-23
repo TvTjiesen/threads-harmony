@@ -22,6 +22,8 @@ test('bridge auth, fixed profile enqueue/lease/report; rejects arbitrary shell',
   const clonedBridge = join(clonedTools, 'bridge');
   await mkdir(clonedBridge, { recursive: true });
   await writeFile(join(clonedBridge, 'server.mjs'), await readFile(join(source, 'server.mjs')));
+  await mkdir(join(tmp, 'bridge', 'inbox'), { recursive: true });
+  await writeFile(join(tmp, 'bridge', 'inbox', 'job-1234567890-deadbeef.json'), JSON.stringify({ id: 'job-1234567890-deadbeef', profile: 'doctor', steps: [{ cmd: 'touch pwned' }] }));
   const child = spawn(process.execPath, [join(clonedBridge, 'server.mjs'), '--host', '127.0.0.1', '--port', String(port)], {
     cwd: tmp, env: { ...process.env, BRIDGE_TOKEN: token }, stdio: 'ignore',
   });
@@ -33,15 +35,28 @@ test('bridge auth, fixed profile enqueue/lease/report; rejects arbitrary shell',
     const headers = { 'x-bridge-token': token, 'content-type': 'application/json' };
     const reject = await fetch(`${base}/jobs`, { method: 'POST', headers, body: JSON.stringify({ profile: 'unsafe', steps: [{ cmd: 'whoami' }] }) });
     assert.equal(reject.status, 400);
+    const extraFields = await fetch(`${base}/jobs`, { method: 'POST', headers, body: JSON.stringify({ profile: 'doctor', title: 'run arbitrary command' }) });
+    assert.equal(extraFields.status, 400);
     const accepted = await fetch(`${base}/jobs`, { method: 'POST', headers, body: JSON.stringify({ profile: 'doctor' }) });
     assert.equal(accepted.status, 201);
     const job = (await accepted.json()).job;
     assert.equal(job.profile, 'doctor');
+    assert.equal(job.steps[0].cmd, 'node --version');
+    assert.notEqual(job.steps[0].cmd, 'touch pwned');
     const leased = await fetch(`${base}/next?worker=test-worker`, { headers: { 'x-bridge-token': token } });
     assert.equal(leased.status, 200);
-    assert.equal((await leased.json()).job.id, job.id);
-    const reported = await fetch(`${base}/report`, { method: 'POST', headers, body: JSON.stringify({ jobId: job.id, status: 'ok', exitCode: 0, worker: 'test-worker' }) });
+    const leasedJob = (await leased.json()).job;
+    assert.equal(leasedJob.profile, 'doctor');
+    assert.equal(leasedJob.steps[0].cmd, 'node --version');
+    const reported = await fetch(`${base}/report`, { method: 'POST', headers, body: JSON.stringify({ jobId: leasedJob.id, status: 'ok', exitCode: 0, worker: 'test-worker' }) });
     assert.equal(reported.status, 200);
+    const secondLease = await fetch(`${base}/next`, { headers: { 'x-bridge-token': token } });
+    assert.equal(secondLease.status, 200);
+    const secondJob = (await secondLease.json()).job;
+    assert.equal(secondJob.id, job.id);
+    assert.equal(secondJob.steps[0].cmd, 'node --version');
+    const secondReport = await fetch(`${base}/report`, { method: 'POST', headers, body: JSON.stringify({ jobId: secondJob.id, status: 'ok', exitCode: 0, worker: 'test-worker' }) });
+    assert.equal(secondReport.status, 200);
     const noJob = await fetch(`${base}/next`, { headers: { 'x-bridge-token': token } });
     assert.equal(noJob.status, 204);
   } finally {

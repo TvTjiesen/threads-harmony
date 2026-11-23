@@ -3,6 +3,7 @@
 # Pass the bridge URL and token as shell variables, never commit them.
 set -eu
 : "${BRIDGE_URL:?Set BRIDGE_URL to the authenticated private-tunnel URL}"
+case "$BRIDGE_URL" in https://*) ;; *) echo 'BRIDGE_URL must use HTTPS' >&2; exit 2 ;; esac
 : "${BRIDGE_TOKEN:?Set BRIDGE_TOKEN from the Windows operator}"
 : "${PROJECT_ROOT:?Set PROJECT_ROOT to the local Stage project root}"
 exec node "$(dirname "$0")/worker.mjs" --bridge "$BRIDGE_URL" --root "$PROJECT_ROOT" --worker matepad-codearts --poll 2500

@@ -76,6 +76,10 @@ test('bridge auth, fixed profile enqueue/lease/report; rejects arbitrary shell',
     await writeFile(join(tmp, 'bridge', 'state.json'), JSON.stringify(expiredLeaseState));
     const queryWithHeader = await fetch(`${base}/next?worker=test-worker&token=${encodeURIComponent(token)}`, { headers: { 'x-bridge-token': token } });
     assert.equal(queryWithHeader.status, 400);
+    const concurrentTask = await fetch(`${base}/jobs`, { method: 'POST', headers, body: JSON.stringify({ profile: 'preflight' }) });
+    assert.equal(concurrentTask.status, 201);
+    const concurrentClaims = await Promise.all(['worker-one', 'worker-two'].map((worker) => fetch(`${base}/next?worker=${worker}`, { headers: { 'x-bridge-token': token } })));
+    assert.deepEqual(concurrentClaims.map((response) => response.status).sort(), [200, 204]);
     const noJob = await fetch(`${base}/next`, { headers: { 'x-bridge-token': token } });
     assert.equal(noJob.status, 204);
     const wrongHost = spawn(process.execPath, [join(clonedBridge, 'server.mjs'), '--host', '0.0.0.0', '--port', String(port + 1)], { cwd: tmp, env: { ...process.env, BRIDGE_TOKEN: token }, stdio: 'ignore' });

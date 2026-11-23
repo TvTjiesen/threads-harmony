@@ -62,7 +62,7 @@ DevEco Studio 版本：<关于页面显示的版本>
 
 - 项目私有远端：`https://github.com/TvTjiesen/threads-harmony`（私有；默认分支 `main`）。Windows 本地分支已推送到远端。MatePad 端是否能登录、克隆和推送仍待实测；不要把远端存在当成两台机器已经同步。
 - 交接单位是 Git commit：DSH 改动后推送分支/提交；CodeArts 在 MatePad 拉取该提交，在自己的工作区构建，并把脱敏日志、构建结果和可分享产物关联回同一个提交。禁止同时改同一分支；建议 CodeArts 建 `matepad/<task>` 分支、提交后 PR 或合并，由 DSH 复核。
-- Git 负责**共享已提交并推送的文件和版本**，不会实时同步未提交内容，也不负责唤醒对端 Agent 或执行命令。Agent 自动接单需要另有受控任务通道。
+- Git 负责**共享已提交并推送的文件和版本**，不会实时同步未提交内容，也不负责唤醒对端 Agent 或执行命令。Agent 自动接单需要另有受控任务通道。首次往返的验收条件：MatePad 自己读取指定远端提交的 SHA 与 `AI-WORKFLOW.md`，在独立 `matepad/<task>` 分支提交不含设备路径、账号、日志、签名或凭据的结果说明并 push；Windows 再 fetch 并核对回执提交的父提交与目标 SHA。只有双方读到相同 commit，才算工作区共享打通。
 
 ### 受限任务桥（尚未接通；不可连接公网裸 HTTP）
 
@@ -73,7 +73,7 @@ DevEco Studio 版本：<关于页面显示的版本>
 
 ### 实施状态
 
-- 已创建 GitHub 私有仓库 `TvTjiesen/threads-harmony`，Windows `main` 已 push，代码包括 ArkWeb 原型、工具脚本及文档；不含签名文件。MatePad 尚未接入。
+- 已创建 GitHub 私有仓库 `TvTjiesen/threads-harmony`，Windows `main` 已 push，代码包括 ArkWeb 原型、工具脚本及文档；不含签名文件。Windows 已在新克隆目录完成并 push `matepad/first-handoff`（回执明确标注由 Windows 代交），所以这**不是** MatePad 端往返证据；MatePad 尚未接入。最近 Windows `main` 安全修复已在提交 `5a696dee472c69c8cae2e2f70a41d21ea4cd88af` 推送，MatePad 首次拉取应以该 SHA 为准。
 - `ds-harness-remote` 是人类远程访问 DSH，不是 CodeArts Agent 自动接单协议。
 - 受限任务桥的认证、固定任务、防任意 shell 及隔离队列测试已在 Windows 通过；服务仍未启动，CodeArts 未配置，MatePad 也未回执，因此两 Agent 尚未实时协作。下一步先完成 Git 首次往返，再验证同一提交在 MatePad 构建。
 

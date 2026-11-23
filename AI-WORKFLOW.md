@@ -62,7 +62,7 @@ DevEco Studio 版本：<关于页面显示的版本>
 
 - 项目私有远端：`https://github.com/TvTjiesen/threads-harmony`（私有；默认分支 `main`）。Windows 本地分支已推送到远端。MatePad 端是否能登录、克隆和推送仍待实测；不要把远端存在当成两台机器已经同步。
 - 交接单位是 Git commit：DSH 改动后推送分支/提交；CodeArts 在 MatePad 拉取该提交，在自己的工作区构建，并把脱敏日志、构建结果和可分享产物关联回同一个提交。禁止同时改同一分支；建议 CodeArts 建 `matepad/<task>` 分支、提交后 PR 或合并，由 DSH 复核。
-- Git 负责**共享已提交并推送的文件和版本**，不会实时同步未提交内容，也不负责唤醒对端 Agent 或执行命令。Agent 自动接单需要另有受控任务通道。首次只读连通性验证：在 MatePad 上使用已有、支持 GitHub 登录的 Git 界面读取远端分支与目标文件。若只在已登录的浏览器中打开固定提交及其文件，这只能证明用户可访问，不能证明 CodeArts 能访问。CodeArts 沙箱里的 Node 请求不继承浏览器或 IDE 登录；不要导出凭据供其使用。若现有工具没有登录入口，或遇到权限、网络错误，仅回报失败步骤和脱敏错误，不重试其他认证方式。只有确认既有 Git GUI/CLI 能安全写入时，才做交接分支 push 验证。完整首次往返的验收仍是 MatePad 自己读取指定远端提交 SHA 与该文件，在独立 `matepad/<task>` 分支提交无敏感信息结果说明并 push；Windows 再 fetch 并核对。
+- Git 负责**共享已提交并推送的文件和版本**，不会实时同步未提交内容，也不负责唤醒对端 Agent 或执行命令。Agent 自动接单需要另有受控任务通道。首次只读连通性验证：在 MatePad 上使用已有、支持 GitHub 登录的 Git 界面读取远端分支与目标文件。若只在已登录的浏览器中打开固定提交及其文件，这只能证明用户可访问，不能证明 CodeArts 能访问。CodeArts 沙箱里的 Node 请求不继承浏览器或 IDE 登录；不要导出凭据供其使用。若现有工具没有登录入口，或遇到权限、网络错误，仅回报失败步骤和脱敏错误，不重试其他认证方式。若验证成功，请只回报：工具名称、目标 SHA、`AI-WORKFLOW.md` 是否可读、分支名/提交哈希（如已有写入）；不要附账号、令牌、Cookie、设备路径或日志。只有确认既有 Git GUI/CLI 能安全写入时，才做交接分支 push 验证。完整首次往返的验收仍是 MatePad 自己读取指定远端提交 SHA 与该文件，在独立 `matepad/<task>` 分支提交无敏感信息结果说明并 push；Windows 再 fetch 并核对。
 
 ### 受限任务桥（尚未接通；不可连接公网裸 HTTP）
 
@@ -73,7 +73,7 @@ DevEco Studio 版本：<关于页面显示的版本>
 
 ### 实施状态
 
-- 已创建 GitHub 私有仓库 `TvTjiesen/threads-harmony`，Windows `main` 已 push，代码不含签名文件。Windows 曾在新克隆目录推送 `matepad/first-handoff`，回执明确标注由 Windows 代交，**不是** MatePad 往返证据。MatePad 目前尚无私库读取或推送的实测结果。最近核实的远端基线为 `98d812c5a0c29afac12c4dadde86081834cc7074`（2026-11-24）。
+- 已创建 GitHub 私有仓库 `TvTjiesen/threads-harmony`，Windows `main` 已 push，代码不含签名文件。Windows 曾在新克隆目录推送 `matepad/first-handoff`，回执明确标注由 Windows 代交，**不是** MatePad 往返证据。MatePad 目前尚无私库读取或推送的实测结果。最近核实的远端基线为 `6b5cdfac4315f9deb642bedacf69af8aa9dc8f9c`（2026-11-24；仍需 MatePad 侧确认读取）。
 - `ds-harness-remote` 是人类远程访问 DSH，不是 CodeArts Agent 自动接单协议。
 - 受限任务桥的认证、固定任务、防任意 shell 及隔离队列测试已在 Windows 通过；服务仍未启动，CodeArts 未配置，MatePad 也未回执，因此两 Agent 尚未实时协作。下一步先完成 Git 首次往返，再验证同一提交在 MatePad 构建。
 

@@ -62,7 +62,7 @@ DevEco Studio 版本：<关于页面显示的版本>
 
 - 项目私有远端：`https://github.com/TvTjiesen/threads-harmony`（私有；默认分支 `main`）。Windows 本地分支已推送到远端。MatePad 端是否能登录、克隆和推送仍待实测；不要把远端存在当成两台机器已经同步。
 - 交接单位是 Git commit：DSH 改动后推送分支/提交；CodeArts 在 MatePad 拉取该提交，在自己的工作区构建，并把脱敏日志、构建结果和可分享产物关联回同一个提交。禁止同时改同一分支；建议 CodeArts 建 `matepad/<task>` 分支、提交后 PR 或合并，由 DSH 复核。
-- Git 负责**共享已提交并推送的文件和版本**，不会实时同步未提交内容，也不负责唤醒对端 Agent 或执行命令。Agent 自动接单需要另有受控任务通道。首次只读连通性验证：MatePad Agent 仅请求 `https://api.github.com/repos/TvTjiesen/threads-harmony/commits/ab94268e5429c0f380ba9f368338da5ec60c10a4`，用用户已登录的官方 IDE/CLI 凭据，不打印或回传授权头；若 200，仅报告 `sha`、是否能读取仓库内 `AI-WORKFLOW.md` 与 HTTP 状态。若 404/401/403/网络错误则停止，回传状态码和错误摘要，不尝试绕认证。只有确认既有 Git GUI/CLI 能安全写入时，才做交接分支 push 验证。完整首次往返的验收仍是 MatePad 自己读取指定远端提交 SHA 与该文件，在独立 `matepad/<task>` 分支提交无敏感信息结果说明并 push；Windows 再 fetch 并核对。
+- Git 负责**共享已提交并推送的文件和版本**，不会实时同步未提交内容，也不负责唤醒对端 Agent 或执行命令。Agent 自动接单需要另有受控任务通道。首次只读连通性验证：在 MatePad 上使用已有、支持 GitHub 登录的 Git 界面读取远端分支与目标文件。若只在已登录的浏览器中打开固定提交及其文件，这只能证明用户可访问，不能证明 CodeArts 能访问。CodeArts 沙箱里的 Node 请求不继承浏览器或 IDE 登录；不要导出凭据供其使用。若现有工具没有登录入口，或遇到权限、网络错误，仅回报失败步骤和脱敏错误，不重试其他认证方式。只有确认既有 Git GUI/CLI 能安全写入时，才做交接分支 push 验证。完整首次往返的验收仍是 MatePad 自己读取指定远端提交 SHA 与该文件，在独立 `matepad/<task>` 分支提交无敏感信息结果说明并 push；Windows 再 fetch 并核对。
 
 ### 受限任务桥（尚未接通；不可连接公网裸 HTTP）
 
@@ -73,7 +73,7 @@ DevEco Studio 版本：<关于页面显示的版本>
 
 ### 实施状态
 
-- 已创建 GitHub 私有仓库 `TvTjiesen/threads-harmony`，Windows `main` 已 push，代码包括 ArkWeb 原型、工具脚本及文档；不含签名文件。Windows 已在新克隆目录完成并 push `matepad/first-handoff`（回执明确标注由 Windows 代交），所以这**不是** MatePad 端往返证据；MatePad 尚未接入。此前 Windows 文档更新提交为 `0b4496912029457e3559d46b7e17b8776fa34ccb`，其后在 `ab94268e5429c0f380ba9f368338da5ec60c10a4` 进一步更新首次只读验证步骤，并包含安全修复提交 `5a696dee472c69c8cae2e2f70a41d21ea4cd88af`。MatePad 首次读取应以 `ab94268e5429c0f380ba9f368338da5ec60c10a4` 为准（2026-11-24 最新 main）。
+- 已创建 GitHub 私有仓库 `TvTjiesen/threads-harmony`，Windows `main` 已 push，代码包括 ArkWeb 原型、工具脚本及文档；不含签名文件。Windows 已在新克隆目录完成并 push `matepad/first-handoff`（回执明确标注由 Windows 代交），所以这**不是** MatePad 端往返证据；MatePad 尚未接入。此前 Windows 文档更新提交为 `0b4496912029457e3559d46b7e17b8776fa34ccb`，其后在 `ab94268e5429c0f380ba9f368338da5ec60c10a4` 进一步更新首次只读验证步骤，并包含安全修复提交 `5a696dee472c69c8cae2e2f70a41d21ea4cd88af`。MatePad 首次读取应以 `ab94268e5429c0f380ba9f368338da5ec60c10a4` 为准（已确认发布的首轮验证基线；不要求它仍是最新 main）。
 - `ds-harness-remote` 是人类远程访问 DSH，不是 CodeArts Agent 自动接单协议。
 - 受限任务桥的认证、固定任务、防任意 shell 及隔离队列测试已在 Windows 通过；服务仍未启动，CodeArts 未配置，MatePad 也未回执，因此两 Agent 尚未实时协作。下一步先完成 Git 首次往返，再验证同一提交在 MatePad 构建。
 

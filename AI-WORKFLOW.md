@@ -4,7 +4,7 @@
 
 目标是尽量全自动：用户描述需求后，AI 能读取/修改同一份项目、调用 HarmonyOS 工具链构建、收集错误并迭代修复；用户不写代码，只在账号授权、签名、安装等敏感操作时介入。**MatePad 本机 CodeArts → 本机 Hvigor 构建链已在独立探针工程实测成功；Windows DSH 与 MatePad 仍未打通同一份工程/远程执行/日志自动回传闭环。**
 
-当前进度：CodeArts 26.9.501 报告可调用 MatePad 系统 CLT 工具；`hvigorw --version` 为 7.26.11、`ohpm -v` 为 6.0.1、`hdc -v` 为 3.2.0f，退出码均为 0。它在 `/storage/Users/currentUser/Download/aitest/HarmonyLocalProbe` 创建了独立 Stage/API 26 工程，并先后构建空白 HAP 与 ArkWeb Threads 原型 HAP，构建命令 `hvigorw assembleHap --no-daemon -p product=default` 均成功。后一产物为未签名 HAP，27,231 字节。它仍未签名、安装或真机运行；Threads 页面加载、登录和设备兼容性未验证。
+当前进度：CodeArts 26.9.501 报告可调用 MatePad 系统 CLT 工具；`hvigorw --version` 为 7.26.11、`ohpm -v` 为 6.0.1、`hdc -v` 为 3.2.0f，退出码均为 0。它在 `/storage/Users/currentUser/Download/aitest/HarmonyLocalProbe` 创建了独立 Stage/API 26 工程，并先后构建空白 HAP 与 ArkWeb Threads 原型 HAP，构建命令 `hvigorw assembleHap --no-daemon -p product=default` 均成功。最初产物为未签名 HAP，27,231 字节；随后用户通过 DevEco Studio 将独立探针签名、安装并启动在「此电脑」。原生工具栏已显示，但 Threads 内容停留在白屏加载；联网与登录未通过验收。Windows 仓库中含代理面板的版本不是这个已运行的构建。
 
 这不等于 Windows DSH 已连接 MatePad，也不等于两个工作区已同步。Windows DSH 仓库 `threads-harmony` 与 MatePad 的 HarmonyLocalProbe 是两份独立目录；建立唯一事实源前，不要双端并行改同一业务代码。
 
@@ -38,10 +38,10 @@
 
 ## 设备验收与跨端回传
 
-1. **先确认本机运行目标（已完成）**：DevEco Studio 顶部目标显示为「此电脑」，探针工程 `test` 经自动签名后已在本机安装并启动成功（`bm install` → `aa start` → `Launch ... success`）。Threads 工程仍需单独跑一次这一步。
+1. **先确认本机运行目标（已完成）**：DevEco Studio 顶部目标显示为「此电脑」，探针工程 `test` 经自动签名后已在本机安装并启动成功（`bm install` → `aa start` → `Launch ... success`）。独立的 Threads 探针也已签名安装并启动；共享仓库中的新版仍需按同样流程验证。
 2. **签名与安装**：本机目标确认后，用户在 DevEco 图形界面选择/配置调试签名并授权安装；CodeArts/DSH 不读取签名材料，用户不发送密码、证书或私钥。分别回报签名成功、安装成功、启动成功与否及脱敏错误原文。
 3. **首轮不登录测试**：启动后检查 Threads 首页是否加载、页面滚动、图片、返回/刷新。不要先登录；公开内容/登录入口加载有结果后再单独处理认证跳转。
-4. **Windows DSH 同步**：MatePad `HarmonyLocalProbe` 与 Windows `threads-harmony` 不是同一个目录。可先按 `SOURCE-HANDOFF.md` 生成已编译基线的纯源码 ZIP；检查安全后才导入、对照 overlay 并重建。暂不设置远端；后续若选择私有 Git，先由用户授权。代码同步不提供远程执行；每轮让 CodeArts 构建并回传真实结果。双端不得同时改同一份业务源码。
+4. **Windows DSH 同步**：MatePad `HarmonyLocalProbe` 与 Windows `threads-harmony` 不是同一个目录。私有远端已获授权并建立；先在 MatePad 将远端克隆到新目录，不覆盖已跑通的 `HarmonyLocalProbe`。确认 Git 同步后，按 `SOURCE-HANDOFF.md` 审核并导入独立探针的纯源码；同一个提交能否在 MatePad 重建，要另行验收。代码同步不提供远程执行。
 5. **收尾记录**：每一项分别记录“源码交接”“本机重建”“签名”“安装/启动”“页面功能”状态到 `STATUS.md`/`TEST-MATRIX.md`。没有实机证据的功能标记“未测”。
 
 ## 每轮给 DSH 的反馈模板
@@ -62,7 +62,7 @@ DevEco Studio 版本：<关于页面显示的版本>
 
 - 项目私有远端：`https://github.com/TvTjiesen/threads-harmony`（私有；默认分支 `main`）。Windows 本地分支已推送到远端。MatePad 端是否能登录、克隆和推送仍待实测；不要把远端存在当成两台机器已经同步。
 - 交接单位是 Git commit：DSH 改动后推送分支/提交；CodeArts 在 MatePad 拉取该提交，在自己的工作区构建，并把脱敏日志、构建结果和可分享产物关联回同一个提交。禁止同时改同一分支；建议 CodeArts 建 `matepad/<task>` 分支、提交后 PR 或合并，由 DSH 复核。
-- Git 负责**实时共享文件/版本**，不负责唤醒对端 Agent 或执行命令。Agent 自动接单需要另有受控任务通道。
+- Git 负责**共享已提交并推送的文件和版本**，不会实时同步未提交内容，也不负责唤醒对端 Agent 或执行命令。Agent 自动接单需要另有受控任务通道。
 
 ### 受限任务桥（试验，不可连接公网裸 HTTP）
 

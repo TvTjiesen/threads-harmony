@@ -62,6 +62,7 @@ test('bridge auth, fixed profile enqueue/lease/report; rejects arbitrary shell',
     assert.equal((await fetch(`${base}/artifact?job=${leasedJob.id}&name=entry-default-unsigned.hap`, { method: 'POST', headers, body: 'not an artifact' })).status, 404);
     const expiredLeaseState = JSON.parse(await readFile(join(tmp, 'bridge', 'state.json'), 'utf8'));
     expiredLeaseState.jobs[leasedJob.id].status = 'running';
+    expiredLeaseState.jobs[leasedJob.id].worker = 'test-worker';
     expiredLeaseState.jobs[leasedJob.id].leaseUntil = new Date(Date.now() - 1000).toISOString();
     await writeFile(join(tmp, 'bridge', 'state.json'), JSON.stringify(expiredLeaseState));
     const expiredReport = await fetch(`${base}/report`, { method: 'POST', headers, body: JSON.stringify({ jobId: leasedJob.id, status: 'ok', worker: 'test-worker' }) });

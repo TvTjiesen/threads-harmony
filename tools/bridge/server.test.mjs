@@ -49,6 +49,7 @@ test('bridge auth, fixed profile enqueue/lease/report; rejects arbitrary shell',
     const leased = await fetch(`${base}/next?worker=test-worker`, { headers: { 'x-bridge-token': token } });
     assert.equal(leased.status, 200);
     const leasedJob = (await leased.json()).job;
+    assert.equal((await fetch(`${base}/next?worker=bad%20worker`, { headers })).status, 400);
     assert.equal(leasedJob.profile, 'doctor');
     assert.equal(leasedJob.steps[0].cmd, 'node --version');
     const wrongWorker = await fetch(`${base}/report`, { method: 'POST', headers, body: JSON.stringify({ jobId: leasedJob.id, status: 'ok', exitCode: 0, worker: 'other-worker' }) });
@@ -67,6 +68,10 @@ test('bridge auth, fixed profile enqueue/lease/report; rejects arbitrary shell',
     await writeFile(join(tmp, 'bridge', 'state.json'), JSON.stringify(expiredLeaseState));
     const expiredReport = await fetch(`${base}/report`, { method: 'POST', headers, body: JSON.stringify({ jobId: leasedJob.id, status: 'ok', worker: 'test-worker' }) });
     assert.equal(expiredReport.status, 409);
+    expiredLeaseState.jobs[leasedJob.id].leaseUntil = 'not-a-date';
+    await writeFile(join(tmp, 'bridge', 'state.json'), JSON.stringify(expiredLeaseState));
+    const malformedLeaseReport = await fetch(`${base}/report`, { method: 'POST', headers, body: JSON.stringify({ jobId: leasedJob.id, status: 'ok', worker: 'test-worker' }) });
+    assert.equal(malformedLeaseReport.status, 409);
     expiredLeaseState.jobs[leasedJob.id].status = 'completed';
     await writeFile(join(tmp, 'bridge', 'state.json'), JSON.stringify(expiredLeaseState));
     const queryWithHeader = await fetch(`${base}/next?worker=test-worker&token=${encodeURIComponent(token)}`, { headers: { 'x-bridge-token': token } });

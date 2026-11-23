@@ -63,6 +63,12 @@ async function saveState(s) {
   await mkdir(BRIDGE_DIR, { recursive: true });
   await writeFile(STATE, JSON.stringify(s, null, 2), 'utf8');
 }
+let stateQueue = Promise.resolve();
+function serializeStateChange(operation) {
+  const result = stateQueue.then(operation, operation);
+  stateQueue = result.catch(() => {});
+  return result;
+}
 async function jobs() {
   await mkdir(INBOX, { recursive: true });
   const s = await state();
@@ -95,13 +101,19 @@ async function handle(req, res) {
   }
   if (req.method === 'GET' && url.pathname === '/next') {
     if (url.searchParams.has('token')) return json(res, 400, { error: 'credentials are accepted only in x-bridge-token header' });
-    const worker = String(url.searchParams.get('worker') || 'matepad').slice(0, 80);
-    const s = await state(); const list = await jobs();
-    const candidate = list.find((item) => (item.status === 'queued' || (item.status === 'running' && item.leaseUntil && Date.parse(item.leaseUntil) < Date.now())) && s.jobs[item.id]?.worker !== worker);
-    if (!candidate) { res.writeHead(204); return res.end(); }
-    s.jobs[candidate.id] = { status: 'running', worker, leaseUntil: new Date(Date.now() + STALE_MS).toISOString(), updatedAt: iso() };
-    await saveState(s);
-    return json(res, 200, { job: candidate });
+    const workerRaw = url.searchParams.get('worker') || 'matepad';
+    if (!/^[A-Za-z0-9._-]{1,80}$/.test(workerRaw)) return json(res, 400, { error: 'invalid worker id' });
+    const worker = workerRaw;
+    const leasedJob = await serializeStateChange(async () => {
+      const s = await state(); const list = await jobs();
+      const candidate = list.find((item) => (item.status === 'queued' || (item.status === 'running' && item.leaseUntil && Date.parse(item.leaseUntil) < Date.now())));
+      if (!candidate) return null;
+      s.jobs[candidate.id] = { status: 'running', worker, leaseUntil: new Date(Date.now() + STALE_MS).toISOString(), updatedAt: iso() };
+      await saveState(s);
+      return candidate;
+    });
+    if (!leasedJob) { res.writeHead(204); return res.end(); }
+    return json(res, 200, { job: leasedJob });
   }
   if (req.method === 'POST' && url.pathname === '/jobs') {
     const payload = JSON.parse((await readBody(req)).toString('utf8'));
@@ -118,14 +130,21 @@ async function handle(req, res) {
   if (req.method === 'POST' && url.pathname === '/report') {
     const report = JSON.parse((await readBody(req, 2 * 1024 * 1024)).toString('utf8'));
     if (!report || typeof report.jobId !== 'string' || !['ok', 'failed'].includes(report.status) || typeof report.worker !== 'string') return json(res, 400, { error: 'invalid report' });
-    const id = safeId(report.jobId); const s = await state();
-    const lease = s.jobs[id];
-    if (!lease || lease.status !== 'running' || lease.worker !== report.worker || Date.parse(lease.leaseUntil) < Date.now()) return json(res, 409, { error: 'job is not actively leased to this worker' });
-    const all = await jobs();
-    if (!all.some((job) => job.id === report.jobId)) return json(res, 404, { error: 'unknown job' });
-    const rec = { jobId: report.jobId, worker: report.worker, status: report.status, exitCode: Number.isInteger(report.exitCode) ? report.exitCode : -1, failedStep: typeof report.failedStep === 'string' ? report.failedStep.slice(0, 160) : undefined, stdout: typeof report.stdout === 'string' ? report.stdout.slice(0, 200000) : '', stderr: typeof report.stderr === 'string' ? report.stderr.slice(0, 200000) : '', steps: Array.isArray(report.steps) ? report.steps.slice(0, 20) : [], artifacts: Array.isArray(report.artifacts) ? report.artifacts.slice(0, 5) : [], receivedAt: iso() };
-    await mkdir(REPORTS, { recursive: true }); await writeFile(join(REPORTS, `${id}.json`), JSON.stringify(rec, null, 2), 'utf8');
-    s.jobs[id] = { ...(s.jobs[id] || {}), status: report.status, updatedAt: iso(), worker: report.worker || '' }; await saveState(s);
+    const id = safeId(report.jobId);
+    const accepted = await serializeStateChange(async () => {
+      const s = await state();
+      const lease = s.jobs[id];
+      if (!lease || lease.status !== 'running' || lease.worker !== report.worker || !Number.isFinite(Date.parse(lease.leaseUntil)) || Date.parse(lease.leaseUntil) < Date.now()) return false;
+      const all = await jobs();
+      if (!all.some((job) => job.id === report.jobId)) return null;
+      const rec = { jobId: report.jobId, worker: report.worker, status: report.status, exitCode: Number.isInteger(report.exitCode) ? report.exitCode : -1, failedStep: typeof report.failedStep === 'string' ? report.failedStep.slice(0, 160) : undefined, stdout: typeof report.stdout === 'string' ? report.stdout.slice(0, 200000) : '', stderr: typeof report.stderr === 'string' ? report.stderr.slice(0, 200000) : '', steps: Array.isArray(report.steps) ? report.steps.slice(0, 20) : [], artifacts: Array.isArray(report.artifacts) ? report.artifacts.slice(0, 5) : [], receivedAt: iso() };
+      await mkdir(REPORTS, { recursive: true }); await writeFile(join(REPORTS, `${id}.json`), JSON.stringify(rec, null, 2), 'utf8');
+      s.jobs[id] = { ...(s.jobs[id] || {}), status: report.status, updatedAt: iso(), worker: report.worker };
+      await saveState(s);
+      return true;
+    });
+    if (accepted === false) return json(res, 409, { error: 'job is not actively leased to this worker' });
+    if (accepted === null) return json(res, 404, { error: 'unknown job' });
     log(`report ${id} status=${report.status} exit=${report.exitCode}`);
     return json(res, 200, { ok: true });
   }

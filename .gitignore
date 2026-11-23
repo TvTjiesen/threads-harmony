@@ -19,4 +19,5 @@ bridge/inbox/
 bridge/reports/
 bridge/artifacts/
 bridge/state.json
+bridge/relay-state.json
 .DS_Store

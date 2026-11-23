@@ -13,7 +13,7 @@
 - DevEco Studio 是 IDE/构建和调试入口；不要默认它自带 AI Agent。
 - 当前 DSH 会话运行在 Windows，不能直接读写 MatePad 上 DevEco Studio 的本地文件。远程桌面能看见/控制界面，不代表两端文件系统共享；即使 Git 同步已建立，也只共享代码，不等于 DSH 能在 MatePad 执行命令。
 - CodeArts MCP/Skill 是否能访问本机 DevEco 工具链已不是当前问题：本机 CodeArts 已实际调用 Hvigor 并构建原型。MCP 探针未配置，且无必要为了继续本机工作而先配置。
-- MatePad 本机构建与 Windows DSH 协作是两项不同能力。前者已验证；后者仍缺经用户批准的源码交接/同步和持续构建结果回传流程。第一次可用源码 ZIP 交接验证，不要求立即创建远端或执行桥。
+- MatePad 本机构建与 Windows DSH 协作是两项不同能力。前者已验证；后者仍缺经用户批准的源码交接/同步和持续构建结果回传流程。当前已有私有 Git 远端，首次使用已有官方 Git 界面只读验证，不要求启任务桥。
 - 任何后续桥接只开放项目目录和必要构建/测试命令，不开放任意 shell、账号凭据、个人文件与签名私钥；需用户明确授权。GitHub 私库认证必须由用户在 GitHub/DevEco 的官方登录界面完成；不得索要或传递 PAT、Cookie、SSH 私钥，也不得把它们写进命令行、环境回报或仓库。
 - 当前工程已过 Hello World 阶段；在 MatePad 完成独立探针签名/安装/真机验收之前，不要把未签名探针 HAP 当作可运行产品。
 - 不把华为账号、访问令牌、Cookie、私信内容、签名密钥或 `.p12/.pfx` 文件交给 AI，也不提交到仓库。
@@ -41,7 +41,7 @@
 1. **先确认本机运行目标（已完成）**：DevEco Studio 顶部目标显示为「此电脑」，探针工程 `test` 经自动签名后已在本机安装并启动成功（`bm install` → `aa start` → `Launch ... success`）。独立的 Threads 探针也已签名安装并启动；共享仓库中的新版仍需按同样流程验证。
 2. **签名与安装**：本机目标确认后，用户在 DevEco 图形界面选择/配置调试签名并授权安装；CodeArts/DSH 不读取签名材料，用户不发送密码、证书或私钥。分别回报签名成功、安装成功、启动成功与否及脱敏错误原文。
 3. **首轮不登录测试**：启动后检查 Threads 首页是否加载、页面滚动、图片、返回/刷新。不要先登录；公开内容/登录入口加载有结果后再单独处理认证跳转。
-4. **Windows DSH 同步**：MatePad `HarmonyLocalProbe` 与 Windows `threads-harmony` 不是同一个目录。私有远端已获授权并建立；先在 MatePad 将远端克隆到新目录，不覆盖已跑通的 `HarmonyLocalProbe`。若当前 CodeArts 沙箱没有 Git，不要安装包、改 PATH 或尝试读取 IDE Cookie；先让 DevEco Studio/CodeArts 的既有 Git 界面读取指定提交 SHA 与本文件，检查当前 CLI 是否有官方 git bundle。克隆/只读验证失败就停止，回传第一条错误。可读后再在独立分支提交无敏感信息的回执，由 Windows fetch 核验；同一提交重建要另行验收。代码同步不提供远程执行。
+4. **Windows DSH 同步**：MatePad `HarmonyLocalProbe` 与 Windows `threads-harmony` 不是同一个目录。私有远端已获授权并建立；先用 MatePad 上已有的官方 Git 界面只读读取指定提交和本文件，不覆盖 `HarmonyLocalProbe`。若 CodeArts 沙箱没有 Git，不要安装包、改 PATH 或读取 IDE Cookie。浏览器读取只证明用户可访问，不证明 Agent 可访问。失败就停止并回报第一条脱敏错误；只有确认现有 Git 工具支持安全写入后，再独立分支提交无敏感信息回执，由 Windows fetch 核验。代码同步不提供远程执行。
 5. **收尾记录**：每一项分别记录“源码交接”“本机重建”“签名”“安装/启动”“页面功能”状态到 `STATUS.md`/`TEST-MATRIX.md`。没有实机证据的功能标记“未测”。
 
 ## 每轮给 DSH 的反馈模板
@@ -66,14 +66,14 @@ DevEco Studio 版本：<关于页面显示的版本>
 
 ### 受限任务桥（尚未接通；不可连接公网裸 HTTP）
 
-- `tools/bridge/server.mjs` 仅允许绑定回环地址 `127.0.0.1` 或 `::1`，必须提供至少 32 字符 `BRIDGE_TOKEN`；认证仅使用 `x-bridge-token`。当前实现不支持网络暴露或私有隧道，切勿尝试将其转发到 LAN/公网。
+- `tools/bridge/server.mjs` 仅允许绑定回环地址 `127.0.0.1` 或 `::1`，必须提供至少 32 字符 `BRIDGE_TOKEN`；认证仅使用 `x-bridge-token`。服务端本身仍是本机回环实验，不支持网络暴露或私有隧道，切勿尝试转发到 LAN/公网。
 - 仅有固定 `doctor`、`preflight`、`build` 三个任务 profile；服务端不接任意命令，MatePad worker 另有 profile 命令 allowlist。源码同步、远程写入、产物上传均关闭；构建结果仅回传状态与截断后的日志，不传 HAP。**不含签名/安装/启动**。目前 HTTPS 客户端配置和可验证的、经过身份认证的反向隧道仍未实现，因此代码不能用于跨设备连接。
 - 不要用匿名 ntfy topic 传任意 shell 命令或源码。旧 `relay-hub.mjs` / `NtfyTransport` 仅作历史实验，未启用为生产通道。
-- 用户在 MatePad CodeArts 的工作区里启动持久 worker 后，桥可轮询固定任务、执行本机 CLT 构建并回报状态；worker 是否能在 CodeArts 的工作区终端持续运行、MatePad 到 Windows 私有隧道是否可达，尚未实测。
+- 下一阶段设想：待 MatePad 首次 Git 往返、经身份认证的 HTTPS 隧道和 worker 安全审查完成后，才评估持久 worker；不能视为当前实现能力。
 
 ### 实施状态
 
-- 已创建 GitHub 私有仓库 `TvTjiesen/threads-harmony`，Windows `main` 已 push，代码不含签名文件。Windows 曾在新克隆目录推送 `matepad/first-handoff`，回执明确标注由 Windows 代交，**不是** MatePad 往返证据。MatePad 目前尚无私库读取或推送的实测结果。最近核实的远端基线为 `faf41ceff9940b5a878c1cc7b7b48415795819ae`（2026-11-24）。
+- 已创建 GitHub 私有仓库 `TvTjiesen/threads-harmony`，Windows `main` 已 push，代码不含签名文件。Windows 曾在新克隆目录推送 `matepad/first-handoff`，回执明确标注由 Windows 代交，**不是** MatePad 往返证据。MatePad 目前尚无私库读取或推送的实测结果。最近核实的远端基线为 `98d812c5a0c29afac12c4dadde86081834cc7074`（2026-11-24）。
 - `ds-harness-remote` 是人类远程访问 DSH，不是 CodeArts Agent 自动接单协议。
 - 受限任务桥的认证、固定任务、防任意 shell 及隔离队列测试已在 Windows 通过；服务仍未启动，CodeArts 未配置，MatePad 也未回执，因此两 Agent 尚未实时协作。下一步先完成 Git 首次往返，再验证同一提交在 MatePad 构建。
 

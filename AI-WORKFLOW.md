@@ -73,7 +73,7 @@ DevEco Studio 版本：<关于页面显示的版本>
 
 ### 实施状态
 
-- 已创建 GitHub 私有仓库 `TvTjiesen/threads-harmony`，Windows `main` 已 push，代码包括 ArkWeb 原型、工具脚本及文档；不含签名文件。Windows 已在新克隆目录完成并 push `matepad/first-handoff`（回执明确标注由 Windows 代交），所以这**不是** MatePad 端往返证据；MatePad 尚未接入。此前 Windows 文档更新提交为 `0b4496912029457e3559d46b7e17b8776fa34ccb`，其后在 `ab94268e5429c0f380ba9f368338da5ec60c10a4` 进一步更新首次只读验证步骤，并包含安全修复提交 `5a696dee472c69c8cae2e2f70a41d21ea4cd88af`。MatePad 首次读取应以 `e4512bd63e2e58c78333538680d2ef202791b3d8` 为准（2026-11-24 已核对远端 main）。
+- 已创建 GitHub 私有仓库 `TvTjiesen/threads-harmony`，Windows `main` 已 push，代码不含签名文件。Windows 曾在新克隆目录推送 `matepad/first-handoff`，回执明确标注由 Windows 代交，**不是** MatePad 往返证据。MatePad 目前尚无私库读取或推送的实测结果。最近核实的远端基线为 `faf41ceff9940b5a878c1cc7b7b48415795819ae`（2026-11-24）。
 - `ds-harness-remote` 是人类远程访问 DSH，不是 CodeArts Agent 自动接单协议。
 - 受限任务桥的认证、固定任务、防任意 shell 及隔离队列测试已在 Windows 通过；服务仍未启动，CodeArts 未配置，MatePad 也未回执，因此两 Agent 尚未实时协作。下一步先完成 Git 首次往返，再验证同一提交在 MatePad 构建。
 

@@ -1,18 +1,6 @@
 #!/usr/bin/env node
-// 在 MatePad（CodeArts 的 CLT Node）上跑的执行器。粘一次、起一次，之后全靠轮询，人不用再动。
-//
-//   node worker.mjs --bridge http://10.62.244.233:47921 --root <工程目录>
-//   node worker.mjs --doctor                 # 只打印环境事实，不领任务
-//   node worker.mjs --once                   # 领一个任务就退（调试用）
-//
-// 任务步骤（server 端 /jobs 的 steps 数组）支持三种：
-//   { "cmd": "cd $ROOT && ./hvigorw assembleHap --no-daemon" }
-//   { "write": "entry/src/main/ets/pages/Index.ets", "content": "..." }
-//   { "sync": true }                          # 从 bridge 拉 overlay/ 覆盖到 $ROOT
+// 回环任务执行器（仅供本机测试）。源码由 Git 交接，worker 不接受远程写入。
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile, readFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
 
 const argv = process.argv.slice(2);
 const opt = (n, d) => {
@@ -22,7 +10,6 @@ const opt = (n, d) => {
 const flag = (n) => argv.includes(n);
 
 const BRIDGE = opt('--bridge', process.env.BRIDGE_URL || 'http://127.0.0.1:47921').replace(/\/$/, '');
-const ROOT = opt('--root', process.env.PROJECT_ROOT || process.cwd());
 const WORKER = opt('--worker', `matepad-${Date.now().toString(36)}`);
 const POLL = Number(opt('--poll', 3000));
 const TOKEN = process.env.BRIDGE_TOKEN || '';
@@ -65,7 +52,6 @@ async function doctor() {
     ['hvigorw', 'ls hvigorw 2>/dev/null || echo MISSING'],
     ['hdc', 'hdc -v'],
     ['tar', 'tar --version 2>&1 | head -1'],
-    ['root-ls', `ls -la '${ROOT}'`],
     ['disk', 'df -h . 2>/dev/null | tail -2'],
   ];
   const facts = {};
@@ -78,53 +64,21 @@ async function doctor() {
   say('doctor mode is local-only; no report sent');
 }
 
-async function syncSources(jobId) {
-  const r = await fetch(`${BRIDGE}/bundle`, { headers: H() });
-  if (!r.ok) return { exitCode: -3, stdout: '', stderr: `bundle ${r.status}` };
-  const { revision, files } = await r.json();
-  const allowed = new Set(['overlay/entry/src/main/ets/pages/Index.ets', 'overlay/entry/src/main/module.json5']);
-  let n = 0;
-  for (const f of files) {
-    if (!allowed.has(f.path)) throw new Error(`refusing unexpected bundle path: ${f.path}`);
-    const dest = join(ROOT, f.path);
-    await mkdir(dirname(dest), { recursive: true });
-    await writeFile(dest, f.content, 'utf8');
-    n++;
-  }
-  say(`synced ${n} files revision=${revision} into ${ROOT}`);
-  return { exitCode: 0, stdout: `synced ${n} files revision=${revision}`, stderr: '' };
-}
-
-async function uploadArtifact(jobId, rel) {
-  const allowed = new Set(['entry/build/default/outputs/default/entry-default-unsigned.hap']);
-  if (!allowed.has(rel)) throw new Error(`refusing artifact path: ${rel}`);
-  const p = join(ROOT, rel);
-  if (!existsSync(p)) return null;
-  const buf = await readFile(p);
-  const name = rel.split('/').pop();
-  const r = await fetch(`${BRIDGE}/artifact?job=${encodeURIComponent(jobId)}&name=${encodeURIComponent(name)}`, {
-    method: 'POST',
-    headers: H({ 'content-type': 'application/octet-stream' }),
-    body: buf,
-  });
-  say(`artifact ${rel} -> ${r.status} (${buf.length}B)`);
-  return r.ok ? { rel, bytes: buf.length } : null;
-}
-
 async function runJob(job, sendReport) {
+  if (!job || !COMMANDS_BY_PROFILE[job.profile] || !Array.isArray(job.steps)) throw new Error('invalid job profile or steps');
   say(`job ${job.id} "${job.title}" (${job.steps.length} steps)`);
   const results = [];
   for (const step of job.steps) {
-    if (step.sync) {
-      results.push({ step: 'sync', ...(await syncSources(job.id)) });
-    } else if (step.write) {
+    if (!step || typeof step !== 'object' || Array.isArray(step)) {
+      results.push({ step: 'rejected', exitCode: -6, stdout: '', stderr: 'invalid step shape' });
+      break;
+    }
+    if (Object.hasOwn(step, 'sync') || Object.hasOwn(step, 'write')) {
       results.push({ step: 'rejected', exitCode: -4, stdout: '', stderr: 'remote writes are disabled' });
       break;
-    } else if (step.artifact) {
-      if (job.profile !== 'build' || step.artifact !== 'entry/build/default/outputs/default/entry-default-unsigned.hap') {
-        results.push({ step: 'rejected', exitCode: -5, stdout: '', stderr: 'artifact not allowed for this profile' });
-        break;
-      }
+    } else if (Object.hasOwn(step, 'artifact')) {
+      results.push({ step: 'rejected', exitCode: -5, stdout: '', stderr: 'artifact declaration invalid for this job' });
+      break;
     } else if (step.cmd) {
       const allowedCommands = COMMANDS_BY_PROFILE[job.profile];
       if (!allowedCommands || !allowedCommands.has(step.cmd)) {
@@ -132,15 +86,15 @@ async function runJob(job, sendReport) {
         break;
       }
       say(`  $ ${step.cmd.slice(0, 160)}`);
-      results.push({ step: step.cmd, ...(await run(step.cmd, step.timeoutMs)) });
-    }
-  }
-  const artifacts = [];
-  for (const step of job.steps) {
-    if (step.artifact) {
-      const a = await uploadArtifact(job.id, step.artifact);
-      if (a) artifacts.push(a);
-      else results.push({ step: `artifact ${step.artifact}`, exitCode: -5, stdout: '', stderr: 'artifact missing or upload failed' });
+      if (Object.keys(step).length !== 1) {
+        results.push({ step: 'rejected', exitCode: -6, stdout: '', stderr: 'extra step properties are not allowed' });
+        break;
+      }
+      results.push({ step: step.cmd, ...(await run(step.cmd)) });
+      if (results.at(-1).exitCode !== 0) break;
+    } else {
+      results.push({ step: 'rejected', exitCode: -6, stdout: '', stderr: 'unknown step type' });
+      break;
     }
   }
   const failed = results.find((r) => r.exitCode !== 0);
@@ -153,7 +107,6 @@ async function runJob(job, sendReport) {
     stdout: results.map((r) => `## ${r.step}\n${r.stdout}`).join('\n').slice(0, 200000),
     stderr: results.map((r) => `## ${r.step}\n${r.stderr}`).filter((s) => s.includes('\n') && s.split('\n')[1]).join('\n').slice(0, 200000),
     steps: results.map((r) => ({ step: r.step, exitCode: r.exitCode, ms: r.ms })),
-    artifacts,
   };
   if (sendReport) {
     await sendReport(payload);
@@ -172,7 +125,7 @@ async function main() {
   if (flag('--doctor')) return doctor();
   if (!TOKEN || TOKEN.length < 32) throw new Error('Set BRIDGE_TOKEN to a secret of at least 32 characters');
   if (!['http:', 'https:'].includes(new URL(BRIDGE).protocol)) throw new Error('Bridge URL must use HTTP or HTTPS');
-  say(`worker ${WORKER} bridge=${BRIDGE} root=${ROOT}`);
+  say(`worker ${WORKER} bridge=${BRIDGE}`);
   const once = flag('--once');
 
   // Deprecated relay path is disabled: anonymous topic is not an authenticated task channel.
@@ -180,7 +133,7 @@ async function main() {
   for (;;) {
     let job = null;
     try {
-      const r = await fetch(`${BRIDGE}/next?worker=${encodeURIComponent(WORKER)}&token=${encodeURIComponent(TOKEN)}`, {
+      const r = await fetch(`${BRIDGE}/next?worker=${encodeURIComponent(WORKER)}`, {
         headers: H(),
       });
       if (r.status === 200) job = (await r.json()).job;

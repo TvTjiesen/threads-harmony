@@ -4,17 +4,15 @@
 // Bind to loopback only; network exposure is intentionally unsupported.
 import { createServer } from 'node:http';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { join, dirname, resolve, relative, sep } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomUUID, timingSafeEqual, createHash } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..', '..');
 const BRIDGE_DIR = join(ROOT, 'bridge');
 const INBOX = join(BRIDGE_DIR, 'inbox');
 const REPORTS = join(BRIDGE_DIR, 'reports');
-const ARTIFACTS = join(BRIDGE_DIR, 'artifacts');
 const STATE = join(BRIDGE_DIR, 'state.json');
 const argv = process.argv.slice(2);
 const argOf = (name, fallback) => {
@@ -96,9 +94,10 @@ async function handle(req, res) {
     return json(res, 200, { ok: true, time: iso(), queued: list.filter((x) => x.status === 'queued').length, running: list.filter((x) => x.status === 'running').length });
   }
   if (req.method === 'GET' && url.pathname === '/next') {
+    if (url.searchParams.has('token')) return json(res, 400, { error: 'credentials are accepted only in x-bridge-token header' });
     const worker = String(url.searchParams.get('worker') || 'matepad').slice(0, 80);
     const s = await state(); const list = await jobs();
-    const candidate = list.find((item) => item.status === 'queued' || (item.status === 'running' && item.leaseUntil && Date.parse(item.leaseUntil) < Date.now()));
+    const candidate = list.find((item) => (item.status === 'queued' || (item.status === 'running' && item.leaseUntil && Date.parse(item.leaseUntil) < Date.now())) && s.jobs[item.id]?.worker !== worker);
     if (!candidate) { res.writeHead(204); return res.end(); }
     s.jobs[candidate.id] = { status: 'running', worker, leaseUntil: new Date(Date.now() + STALE_MS).toISOString(), updatedAt: iso() };
     await saveState(s);
@@ -118,35 +117,21 @@ async function handle(req, res) {
   if (req.method === 'GET' && url.pathname === '/jobs') return json(res, 200, { jobs: await jobs() });
   if (req.method === 'POST' && url.pathname === '/report') {
     const report = JSON.parse((await readBody(req, 2 * 1024 * 1024)).toString('utf8'));
-    if (!report.jobId || !['ok', 'failed'].includes(report.status)) return json(res, 400, { error: 'invalid report' });
-    const id = safeId(report.jobId); const all = await jobs();
+    if (!report || typeof report.jobId !== 'string' || !['ok', 'failed'].includes(report.status) || typeof report.worker !== 'string') return json(res, 400, { error: 'invalid report' });
+    const id = safeId(report.jobId); const s = await state();
+    const lease = s.jobs[id];
+    if (!lease || lease.status !== 'running' || lease.worker !== report.worker || Date.parse(lease.leaseUntil) < Date.now()) return json(res, 409, { error: 'job is not actively leased to this worker' });
+    const all = await jobs();
     if (!all.some((job) => job.id === report.jobId)) return json(res, 404, { error: 'unknown job' });
-    const rec = { ...report, receivedAt: iso() };
+    const rec = { jobId: report.jobId, worker: report.worker, status: report.status, exitCode: Number.isInteger(report.exitCode) ? report.exitCode : -1, failedStep: typeof report.failedStep === 'string' ? report.failedStep.slice(0, 160) : undefined, stdout: typeof report.stdout === 'string' ? report.stdout.slice(0, 200000) : '', stderr: typeof report.stderr === 'string' ? report.stderr.slice(0, 200000) : '', steps: Array.isArray(report.steps) ? report.steps.slice(0, 20) : [], artifacts: Array.isArray(report.artifacts) ? report.artifacts.slice(0, 5) : [], receivedAt: iso() };
     await mkdir(REPORTS, { recursive: true }); await writeFile(join(REPORTS, `${id}.json`), JSON.stringify(rec, null, 2), 'utf8');
-    const s = await state(); s.jobs[id] = { ...(s.jobs[id] || {}), status: report.status, updatedAt: iso(), worker: report.worker || '' }; await saveState(s);
+    s.jobs[id] = { ...(s.jobs[id] || {}), status: report.status, updatedAt: iso(), worker: report.worker || '' }; await saveState(s);
     log(`report ${id} status=${report.status} exit=${report.exitCode}`);
     return json(res, 200, { ok: true });
-  }
-  if (req.method === 'POST' && url.pathname === '/artifact') {
-    const jobId = safeId(url.searchParams.get('job')); const name = safeId(url.searchParams.get('name'));
-    if (!jobId || !name || !/^[\w.-]+$/.test(name)) return json(res, 400, { error: 'job and safe filename required' });
-    const buf = await readBody(req, 64 * 1024 * 1024);
-    const dir = join(ARTIFACTS, jobId); await mkdir(dir, { recursive: true }); const target = join(dir, name);
-    await writeFile(target, buf);
-    return json(res, 200, { ok: true, bytes: buf.length, sha256: createHash('sha256').update(buf).digest('hex') });
-  }
-  if (req.method === 'GET' && url.pathname === '/bundle') {
-    const allowed = ['overlay/entry/src/main/ets/pages/Index.ets', 'overlay/entry/src/main/module.json5'];
-    const files = [];
-    for (const rel of allowed) {
-      const file = join(ROOT, rel);
-      if (existsSync(file)) files.push({ path: rel, content: await readFile(file, 'utf8') });
-    }
-    return json(res, 200, { revision: (await import('node:child_process')).execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim(), files });
   }
   if (req.method === 'GET' && url.pathname === '/reports') return json(res, 200, { reports: (await readdir(REPORTS).catch(() => [])).filter((f) => f.endsWith('.json')) });
   return json(res, 404, { error: 'not found' });
 }
-await Promise.all([INBOX, REPORTS, ARTIFACTS].map((dir) => mkdir(dir, { recursive: true })));
+await Promise.all([INBOX, REPORTS].map((dir) => mkdir(dir, { recursive: true })));
 const server = createServer((req, res) => handle(req, res).catch((error) => { log('handler error', error.stack || error.message); if (!res.headersSent) json(res, 500, { error: 'internal error' }); else res.destroy(); }));
 server.listen(PORT, HOST, () => log(`restricted bridge listening http://${HOST}:${PORT}; profiles=${[...PROFILES].join(',')}`));

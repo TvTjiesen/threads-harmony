@@ -67,7 +67,7 @@ DevEco Studio 版本：<关于页面显示的版本>
 ### 受限任务桥（尚未接通；不可连接公网裸 HTTP）
 
 - `tools/bridge/server.mjs` 仅允许绑定回环地址 `127.0.0.1` 或 `::1`，必须提供至少 32 字符 `BRIDGE_TOKEN`；认证仅使用 `x-bridge-token`。当前实现不支持网络暴露或私有隧道，切勿尝试将其转发到 LAN/公网。
-- 仅有固定 `doctor`、`preflight`、`build` 三个任务 profile；服务端不接任意命令，MatePad worker 另有 profile 命令 allowlist。远程任意文件写入关闭。构建只回传固定未签名 HAP 路径；**不含签名/安装/启动**。但目前 HTTPS 客户端配置和可验证的、经过身份认证的反向隧道仍未实现，因此代码不能用于跨设备连接。
+- 仅有固定 `doctor`、`preflight`、`build` 三个任务 profile；服务端不接任意命令，MatePad worker 另有 profile 命令 allowlist。源码同步、远程写入、产物上传均关闭；构建结果仅回传状态与截断后的日志，不传 HAP。**不含签名/安装/启动**。目前 HTTPS 客户端配置和可验证的、经过身份认证的反向隧道仍未实现，因此代码不能用于跨设备连接。
 - 不要用匿名 ntfy topic 传任意 shell 命令或源码。旧 `relay-hub.mjs` / `NtfyTransport` 仅作历史实验，未启用为生产通道。
 - 用户在 MatePad CodeArts 的工作区里启动持久 worker 后，桥可轮询固定任务、执行本机 CLT 构建并回报状态；worker 是否能在 CodeArts 的工作区终端持续运行、MatePad 到 Windows 私有隧道是否可达，尚未实测。
 

@@ -36,6 +36,12 @@ P0：MatePad 本机工具链与 ArkWeb 原型构建已验证；签名、安装�
 - 尚未签名、安装、部署或在真机运行；Threads 网页加载、登录、图片、返回/刷新与权限/导航真实行为未测。MCP 未配置；无需为了本地构建先做 pong 探针。
 - Windows `threads-harmony` 与 MatePad `HarmonyLocalProbe` 尚未同步；无私有远端/自动代码回传，不要双端并行改业务代码。
 
+## 跨端接入方案（2026-11-23 22:39）
+
+- **Host 插件已安装，未生效**：`ds-harness-remote@0.6.7` 已用官方 launcher 装进 `desktop` profile（`+ ds-harness-remote 0.6.7`、`Packages: +9 -54`、guard 校验通过）。`package.json` dependencies 31 项 / bundles 34 项，只新增该项，无删除。**必须重启 DSH 才生效。**
+- 选型理由、已知限制（Windows Host 锁恢复待上游验证）、重启后自检清单、鸿蒙客户端构建命令，见 [REMOTE-ACCESS.md](REMOTE-ACCESS.md)。
+- 自建桥 `tools/bridge/`（LAN HTTP + ntfy 分块中继 + 单文件 worker，端到端已验证）降级为兜底，不再作为主路径。
+
 ## 下一步
 
 1. 用户已从 CodeArts 获得只读核对：bundleName `com.example.harmonylocalprobe`；versionCode/versionName `1000000 / 1.0.0`；deviceTypes `tablet/2in1`；工程 signingConfigs 为空；`hdc list targets` 返回 0 个目标。该结果不代表 DevEco GUI 不能识别同机目标。

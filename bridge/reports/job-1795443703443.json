@@ -1,0 +1,18 @@
+{
+  "id": "BWg65C9yEEp8",
+  "kind": "report",
+  "jobId": "job-1795443703443",
+  "worker": "mb",
+  "status": "ok",
+  "exitCode": 0,
+  "stdout": "## echo from-single-file && ls -la | head -2\nfrom-single-file\ntotal 16\ndrwxr-xr-x 1 杰森 197610 0 Nov 23 22:19 .\n",
+  "stderr": "",
+  "steps": [
+    {
+      "step": "echo from-single-file && ls -la | head -2",
+      "exitCode": 0,
+      "ms": 73
+    }
+  ],
+  "artifacts": []
+}

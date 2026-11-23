@@ -1,0 +1,14 @@
+{
+  "id": "job-1795442983195-882a8d",
+  "title": "桥自检",
+  "kind": "shell",
+  "steps": [
+    {
+      "cmd": "echo ROOT=$PWD && node -v"
+    }
+  ],
+  "expect": [
+    "ROOT="
+  ],
+  "createdAt": "2026-11-23T14:09:43.195Z"
+}

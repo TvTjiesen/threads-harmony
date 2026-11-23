@@ -15,4 +15,8 @@ app/**/*.pfx
 app/**/*.cer
 app/**/*.p7b
 app/**/*.provisionprofile
+bridge/inbox/
+bridge/reports/
+bridge/artifacts/
+bridge/state.json
 .DS_Store

@@ -4,7 +4,7 @@
 
 ## 设备与共享流程
 
-MatePad 与 Windows DSH 的分工见 [AI-WORKFLOW.md](AI-WORKFLOW.md)，首次安全转交纯源码见 [SOURCE-HANDOFF.md](SOURCE-HANDOFF.md)，自动化备选路线见 [AUTOMATION-OPTIONS.md](AUTOMATION-OPTIONS.md)。未经用户确认，不建立远端仓库或传输代码；MatePad 本机编译无需工具桥。
+MatePad 与 Windows DSH 的分工见 [AI-WORKFLOW.md](AI-WORKFLOW.md)，首次安全转交纯源码见 [SOURCE-HANDOFF.md](SOURCE-HANDOFF.md)，自动化备选路线见 [AUTOMATION-OPTIONS.md](AUTOMATION-OPTIONS.md)。已获用户授权创建私有 GitHub 仓库；Windows `main` 已推送。MatePad 是否可登录、克隆和提交仍待实际验证。双端 Agent 的受控任务桥处于实现/安全测试阶段，未启动公网服务。
 
 - 主仓库在 Windows，与 DSH 当前工作区同目录；MatePad Edge 白天通过用户已有远程桌面连接此 Windows 会话，编辑同一份文件、跑构建或模拟器并更新状态。
 - 若 MatePad 的 CodeArts 是独立开发环境，不允许两端同时改同一分支；在确认 CodeArts 产品、账户和网络后，再用 Git 拉取/提交同步。

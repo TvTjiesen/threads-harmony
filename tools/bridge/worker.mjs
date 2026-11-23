@@ -26,6 +26,11 @@ const ROOT = opt('--root', process.env.PROJECT_ROOT || process.cwd());
 const WORKER = opt('--worker', `matepad-${Date.now().toString(36)}`);
 const POLL = Number(opt('--poll', 3000));
 const TOKEN = process.env.BRIDGE_TOKEN || '';
+const COMMANDS_BY_PROFILE = {
+  doctor: new Set(['node --version', 'ohpm -v', 'hvigorw --version', 'hdc -v', 'pwd', 'df -h .']),
+  preflight: new Set(['pwd', 'node --version', 'hvigorw --version', 'test -f hvigorw && echo HVIGORW_OK', 'find entry/src/main -maxdepth 5 -type f | sort']),
+  build: new Set(['hvigorw assembleHap --no-daemon -p product=default']),
+};
 const H = (extra = {}) => ({ ...(TOKEN ? { 'x-bridge-token': TOKEN } : {}), ...extra });
 
 const say = (...a) => console.log(new Date().toISOString(), ...a);
@@ -79,21 +84,25 @@ async function doctor() {
 }
 
 async function syncSources(jobId) {
-  const r = await fetch(`${BRIDGE}/bundle`);
+  const r = await fetch(`${BRIDGE}/bundle`, { headers: H() });
   if (!r.ok) return { exitCode: -3, stdout: '', stderr: `bundle ${r.status}` };
-  const { files } = await r.json();
+  const { revision, files } = await r.json();
+  const allowed = new Set(['overlay/entry/src/main/ets/pages/Index.ets', 'overlay/entry/src/main/module.json5']);
   let n = 0;
   for (const f of files) {
+    if (!allowed.has(f.path)) throw new Error(`refusing unexpected bundle path: ${f.path}`);
     const dest = join(ROOT, f.path);
     await mkdir(dirname(dest), { recursive: true });
     await writeFile(dest, f.content, 'utf8');
     n++;
   }
-  say(`synced ${n} files into ${ROOT}`);
-  return { exitCode: 0, stdout: `synced ${n} files`, stderr: '' };
+  say(`synced ${n} files revision=${revision} into ${ROOT}`);
+  return { exitCode: 0, stdout: `synced ${n} files revision=${revision}`, stderr: '' };
 }
 
 async function uploadArtifact(jobId, rel) {
+  const allowed = new Set(['entry/build/default/outputs/default/entry-default-unsigned.hap']);
+  if (!allowed.has(rel)) throw new Error(`refusing artifact path: ${rel}`);
   const p = join(ROOT, rel);
   if (!existsSync(p)) return null;
   const buf = await readFile(p);
@@ -114,20 +123,31 @@ async function runJob(job, sendReport) {
     if (step.sync) {
       results.push({ step: 'sync', ...(await syncSources(job.id)) });
     } else if (step.write) {
-      const dest = join(ROOT, step.write);
-      await mkdir(dirname(dest), { recursive: true });
-      await writeFile(dest, step.content ?? '', 'utf8');
-      results.push({ step: `write ${step.write}`, exitCode: 0, stdout: 'written', stderr: '' });
+      results.push({ step: 'rejected', exitCode: -4, stdout: '', stderr: 'remote writes are disabled' });
+      break;
+    } else if (step.artifact) {
+      if (job.profile !== 'build' || step.artifact !== 'entry/build/default/outputs/default/entry-default-unsigned.hap') {
+        results.push({ step: 'rejected', exitCode: -5, stdout: '', stderr: 'artifact not allowed for this profile' });
+        break;
+      }
     } else if (step.cmd) {
+      const allowedCommands = COMMANDS_BY_PROFILE[job.profile];
+      if (!allowedCommands || !allowedCommands.has(step.cmd)) {
+        results.push({ step: 'rejected', exitCode: -4, stdout: '', stderr: 'command not in local allowlist' });
+        break;
+      }
       say(`  $ ${step.cmd.slice(0, 160)}`);
       results.push({ step: step.cmd, ...(await run(step.cmd, step.timeoutMs)) });
     }
   }
   const failed = results.find((r) => r.exitCode !== 0);
   const artifacts = [];
-  for (const rel of job.artifacts || []) {
-    const a = await uploadArtifact(job.id, rel.replace(/\$ROOT\/?/g, ''));
-    if (a) artifacts.push(a);
+  for (const step of job.steps) {
+    if (step.artifact) {
+      const a = await uploadArtifact(job.id, step.artifact);
+      if (a) artifacts.push(a);
+      else results.push({ step: `artifact ${step.artifact}`, exitCode: -5, stdout: '', stderr: 'artifact missing or upload failed' });
+    }
   }
   const payload = {
     jobId: job.id,

@@ -1,0 +1,65 @@
+# 设备与测试矩阵
+
+状态：未测 / 通过 / 失败 / 不支持。模拟器与硬件分别记录，不把“未测”标作支持。
+
+## 设备能力
+
+| 设备/环境 | 系统/API | 构建/安装 | ArkWeb 登录 | 功能验收 | 形态/输入 | 证据/说明 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Windows 主机 | Windows，具体 build 待录 | DevEco 未安装 | 不适用 | 不适用 | DSH/键鼠 | 唯一主仓库与计划构建站 |
+| MatePad Edge / CodeArts | QXS-W00 7.0.0.111(SP16C00E111R5P5)（用户提供）；构建 SDK API 26 | 本机 Hvigor 7.26.11 构建通过；bundle `com.example.harmonylocalprobe`，deviceTypes tablet/2in1；签名、安装、启动未测 | 未测 | 未测 | PC 形态及本机 HAP 运行待测 | CodeArts 报告 hdc targets 为 0；DevEco GUI 目标是否识别未验证。Threads ArkWeb 未签名 HAP 27,231 字节；详见 [项目状态](STATUS.md)。GUI Git clone/push 未实测 |
+| Pura X View | HarmonyOS 7.0.0.115 SP10（用户提供）；具体应用 API level 待核实 | 尚无 HAP | ArkWeb 未测 | 五项未测 | 折叠形态待试 | 用户确认系统浏览器可正常使用 Threads；版本号不自动等同 SDK compileSdk/API level |
+| HarmonyOS phone emulator | SDK/API 待装 | 未配置 | 未测 | 未测 | 尺寸模拟 | 仅验证布局及可模拟 API |
+| HarmonyOS tablet/2in1 emulator | SDK/API 待装 | 未配置 | 未测 | 未测 | 窗口尺寸/输入模拟 | 不等于 MatePad Edge 真实功能验证 |
+| Android emulator/device | 尚未决策 | 无工程 | 未测 | 未测 | 后续扩展 | 先做平台技术 spike，再定最低版本/工具链 |
+
+## 核心功能（同一测试账号）
+
+| 功能 | 系统浏览器 | ArkWeb / Pura X View | MatePad 环境 | Android 未来版 |
+| --- | --- | --- | --- | --- |
+| 登录、冷启动续用 | 用户确认网页能用；具体步骤未记 | 未测 | 未测 | 未测 |
+| 浏览、分页、返回位置 | 用户确认网页能用；细项未测 | 未测 | 未测 | 未测 |
+| 回复 | 细项未测 | 未测 | 未测 | 未测 |
+| 关注/取关 | 细项未测 | 未测 | 未测 | 未测 |
+| 私信双向文本 | 细项未测 | 未测 | 未测 | 未测 |
+| 群聊双向文本/建群 | 细项未测 | 未测 | 未测 | 未测 |
+| 图片/视频 | 细项未测 | 未测 | 未测 | 未测 |
+| 后台推送/锁屏提醒 | 细项未测 | 未测 | 未测 | 未测 |
+| 深色、大字号、无障碍 | 未测 | 未测 | 未测 | 未测 |
+| 折叠、窗口、键鼠、触控笔 | 不适用 | 未测 | 未测 | 未测 |
+
+## 跨设备 Git 同步验证
+
+| 步骤 | CodeArts MatePad | Windows DSH | 证据 |
+| --- | --- | --- | --- |
+| 私有仓库服务 | Gitee 200；GitHub 当前 000（用户报告） | 待验证 | 尚未创建/授权仓库 |
+| IDE Git clone/commit/push/pull | 官方文档确认 GUI 能力；本机未实测，且无 git CLI | 待验证 | CodeArts 报告 |
+| 纯源码 ZIP 交接 | 尚未生成 | 尚未收到/导入 | 见 `SOURCE-HANDOFF.md`，用户授权后进行 |
+| Windows 同一源码构建、MatePad 往返提交 | 未测 | 未测 | 未配置 remote |
+| 合并冲突与分支协作 | 未确认 | 未测 | 两端禁止同时写同一分支，首次先串行交接 |
+
+## MatePad 首次实机验收（不登录）
+
+| 顺序 | 操作 | 记为通过的条件 | 目前 |
+| --- | --- | --- | --- |
+| 1 | 在 DevEco 打开项目结构 → default → 签名配置，检查签名菜单；再展开顶部运行目标列表 | 只记录实际菜单/目标。CodeArts 已报包名 `com.example.harmonylocalprobe`、版本 1000000/1.0.0、deviceTypes tablet/2in1、signingConfigs 为空；hdc targets=0 不等于 DevEco GUI 无目标 | **已确认**：运行目标显示为「此电脑」（本机），非模拟器 |
+| 1b | （独立探针 `test` 工程，非 Threads）自动签名 → 安装 → 启动 | 日志出现 signed HAP 的 `bm install` 与 `aa start` 且 `Launch ... success` | **通过**（2026-11-23 21:48，包名 `com.example.myappl`，`entry-default-signed.hap`）；仅证明本机签名/安装/启动链路可用 |
+| 2 | 用 DevEco 对当前工程生成调试签名构建 | 本轮构建成功且 IDE 确认已签名；之前的 unsigned HAP 不算 | **通过**（2026-11-23 22:00，HarmonyLocalProbe 日志 `entry-default-signed.hap`） |
+| 3 | 将已签名构建装到 MatePad 本机 | 部署结果明确显示安装成功；单有签名产物不算 | **通过**（`bm install` 成功，随后 `aa start`） |
+| 4 | 从本机启动应用 | MatePad 上实际出现应用窗口；Previewer 或模拟器不算 | **通过**（窗口标题 `HarmonyLocalProbe`，可见「返回/刷新」工具栏与 Threads 标题） |
+| 5 | 在应用打开 Threads 首页 | 网页正文或官方公开登录入口可见；只有原生工具栏、持续白屏或错误页不算 | **未通过/未完成**：2026-11-23 22:00 截图显示白屏 + 「加载中…」转圈，页面正文未出现 |
+| 6 | 浏览一条公开内容，滚动并查看图片 | 内容能滚动；选定的公开图片正常出现。如页面无公开图片则记未测 | 未测 |
+| 7 | 如果能进入站内链接，先点返回，再点刷新 | 返回上一页；刷新后页面可用。不具备站内历史时将返回记未测 | 未测 |
+
+若找不到本机运行目标，保存目标下拉菜单截图，不选模拟器冒充实机；若安装失败，先记 DevEco 的第一条错误或错误码；只有启动成功后才检查网页。回传只需一步一行，不包含设备标识、账号、完整跳转 URL 或会话信息。登录、登录态续用和 Pura X View 单独验收。
+
+## 每次测试记录
+
+- 日期/测试者：
+- 设备具体型号、系统 build/API、形态：
+- DevEco/SDK/Hvigor/Node 版本：
+- 工程提交/commit、构建命令、结果、签名状态：
+- 测试功能及逐步操作：
+- 预期/实际结果，失败证据或缺陷编号：
+- 结果：未测 / 通过 / 失败 / 不支持：
+- 截图只保存遮蔽账号和消息内容的版本：

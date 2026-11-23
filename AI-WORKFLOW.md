@@ -1,0 +1,64 @@
+# 非程序员 AI 协作开发流程（MatePad Edge + Windows DSH）
+
+## 目标
+
+目标是尽量全自动：用户描述需求后，AI 能读取/修改同一份项目、调用 HarmonyOS 工具链构建、收集错误并迭代修复；用户不写代码，只在账号授权、签名、安装等敏感操作时介入。**MatePad 本机 CodeArts → 本机 Hvigor 构建链已在独立探针工程实测成功；Windows DSH 与 MatePad 仍未打通同一份工程/远程执行/日志自动回传闭环。**
+
+当前进度：CodeArts 26.9.501 报告可调用 MatePad 系统 CLT 工具；`hvigorw --version` 为 7.26.11、`ohpm -v` 为 6.0.1、`hdc -v` 为 3.2.0f，退出码均为 0。它在 `/storage/Users/currentUser/Download/aitest/HarmonyLocalProbe` 创建了独立 Stage/API 26 工程，并先后构建空白 HAP 与 ArkWeb Threads 原型 HAP，构建命令 `hvigorw assembleHap --no-daemon -p product=default` 均成功。后一产物为未签名 HAP，27,231 字节。它仍未签名、安装或真机运行；Threads 页面加载、登录和设备兼容性未验证。
+
+这不等于 Windows DSH 已连接 MatePad，也不等于两个工作区已同步。Windows DSH 仓库 `threads-harmony` 与 MatePad 的 HarmonyLocalProbe 是两份独立目录；建立唯一事实源前，不要双端并行改同一业务代码。
+
+## 现实边界
+
+- DevEco Studio 是 IDE/构建和调试入口；不要默认它自带 AI Agent。
+- 当前 DSH 会话运行在 Windows，不能直接读写 MatePad 上 DevEco Studio 的本地文件。远程桌面能看见/控制界面，不代表两端文件系统共享；即使 Git 同步已建立，也只共享代码，不等于 DSH 能在 MatePad 执行命令。
+- CodeArts MCP/Skill 是否能访问本机 DevEco 工具链已不是当前问题：本机 CodeArts 已实际调用 Hvigor 并构建原型。MCP 探针未配置，且无必要为了继续本机工作而先配置。
+- MatePad 本机构建与 Windows DSH 协作是两项不同能力。前者已验证；后者仍缺经用户批准的源码交接/同步和持续构建结果回传流程。第一次可用源码 ZIP 交接验证，不要求立即创建远端或执行桥。
+- 任何后续桥接只开放项目目录和必要构建/测试命令，不开放任意 shell、账号凭据、个人文件与签名私钥；需用户明确授权。私有 Git 若用户选择，再以其授权方式配置。
+- 当前工程已过 Hello World 阶段；在 MatePad 完成独立探针签名/安装/真机验收之前，不要把未签名探针 HAP 当作可运行产品。
+- 不把华为账号、访问令牌、Cookie、私信内容、签名密钥或 `.p12/.pfx` 文件交给 AI，也不提交到仓库。
+
+## 角色分工
+
+| 参与者 | 做什么 | 不做什么 |
+|---|---|---|
+| 用户 | DevEco Studio 图形操作；选择 SDK/设备/签名；点击构建/运行；授权账号；发截图和脱敏日志 | 不需要手写 ArkTS；不照抄未经确认的签名/终端命令 |
+| Windows DSH | 拆需求；编辑项目代码；解释每个变更；准备测试清单；根据真实构建日志修复 | 不声称已经在 MatePad 构建、安装或验证；不读取 MatePad 私有文件 |
+| MatePad DevEco Studio | 打开被同步的项目；使用本机已安装 SDK 构建；连接/运行本机目标（若该版本支持） | 不把预览器画面当作设备运行成功；不在没有同步方案时维护另一份“长期主代码” |
+| CodeArts Agent（可选） | 可在 MatePad 本地项目上协助理解/编辑，前提是它对目录和 ArkTS 工程确有访问能力 | 与 DSH 不要同时编辑同一个分支/同一文件；其工具链能力逐项实测，不根据 IDE 名称推定 |
+
+## 已验证：MatePad 本机 CodeArts 构建链
+
+- CodeArts 26.9.501 在 MatePad 工作区可调用系统 CLT 的 Node、Hvigor、ohpm、hdc 与 codelinter；已报告版本分别为 Node 24.18.1、Hvigor 7.26.11、ohpm 6.0.1、hdc 3.2.0f、codelinter 6.0.140，版本查询退出码均为 0。**没有配置 pong-probe/MCP；本机直接工具调用已足以推进。**
+- CodeArts 在独立 `HarmonyLocalProbe` 工程完成 API 26 Stage 空工程与 ArkWeb Threads 原型构建；命令 `hvigorw assembleHap --no-daemon -p product=default`，退出码 0。原型 HAP 路径 `/storage/Users/currentUser/Download/aitest/HarmonyLocalProbe/entry/build/default/outputs/default/entry-default-unsigned.hap`，27,231 字节，未签名。
+- 原型已声明 INTERNET 权限，并限制主框架导航为精确 Threads 域名 HTTPS。它只证明 ArkTS 编译/打包成功；页面联网、图片、登录、交互、折叠/平板适配与 HDC 安装均尚未真机验证。
+- 下一步先由用户在 DevEco Studio 图形界面确认签名配置和设备授权；账号、证书、私钥只在本机 IDE 操作，绝不发给 DSH/CodeArts 或提交仓库。签名与安装未获用户确认前，不执行。
+- Windows DSH 与 MatePad 的代码/结果同步仍未验证；不能把 CodeArts 本机能构建说成 Windows DSH 已能触发。未建立唯一事实源前，不要双端并行改业务代码。
+- 并发上限只约束**本 DSH 会话**：主 Agent + 最多 1 个子 Agent。用户在 MatePad 另外运行 CodeArts 不受此限制；同一工程的编辑、构建、部署依然应串行。
+
+## 设备验收与跨端回传
+
+1. **先确认本机运行目标（已完成）**：DevEco Studio 顶部目标显示为「此电脑」，探针工程 `test` 经自动签名后已在本机安装并启动成功（`bm install` → `aa start` → `Launch ... success`）。Threads 工程仍需单独跑一次这一步。
+2. **签名与安装**：本机目标确认后，用户在 DevEco 图形界面选择/配置调试签名并授权安装；CodeArts/DSH 不读取签名材料，用户不发送密码、证书或私钥。分别回报签名成功、安装成功、启动成功与否及脱敏错误原文。
+3. **首轮不登录测试**：启动后检查 Threads 首页是否加载、页面滚动、图片、返回/刷新。不要先登录；公开内容/登录入口加载有结果后再单独处理认证跳转。
+4. **Windows DSH 同步**：MatePad `HarmonyLocalProbe` 与 Windows `threads-harmony` 不是同一个目录。可先按 `SOURCE-HANDOFF.md` 生成已编译基线的纯源码 ZIP；检查安全后才导入、对照 overlay 并重建。暂不设置远端；后续若选择私有 Git，先由用户授权。代码同步不提供远程执行；每轮让 CodeArts 构建并回传真实结果。双端不得同时改同一份业务源码。
+5. **收尾记录**：每一项分别记录“源码交接”“本机重建”“签名”“安装/启动”“页面功能”状态到 `STATUS.md`/`TEST-MATRIX.md`。没有实机证据的功能标记“未测”。
+
+## 每轮给 DSH 的反馈模板
+
+```text
+当前任务：<一句话>
+DevEco Studio 版本：<关于页面显示的版本>
+项目路径：<本机路径；不含账号或个人文件名更好>
+当前阶段：<欢迎页/项目已打开/构建中/运行中>
+操作：<我刚才点了什么>
+结果：<成功状态，或第一条错误及后续错误>
+附件：<截图；先遮挡账号、邮箱、二维码、通知和个人内容>
+```
+
+## 自动化实施检查点（历史初始计划）
+
+1. 用户已确认 DevEco Studio 已下载、打开并登录（2026-11-23）；登录只说明 IDE 账号状态，不说明 CLI/Agent/设备桥可用。
+2. 对照 MatePad 本机 Agent 与 HarmonyOS 原生运行限制，选定可审计的本地执行方式；未验证前不要宣称自动化完成。
+3. 取得用户明确授权后，先用无账号数据的空白探针工程验证：Agent 能读取项目、写一个无害文件、调用本机 CLI 查询/构建、回传实际退出码与日志。
+4. 探针通过后再接入 Threads 仓库；测试设备安装/启动与账号交互需逐项确认，签名私钥仍留本机。

@@ -2,15 +2,15 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "HarmonyLocalProbe entry"
+      "value": "Threads for HarmonyOS entry"
     },
     {
       "name": "EntryAbility_desc",
-      "value": "HarmonyLocalProbe"
+      "value": "Threads for HarmonyOS"
     },
     {
       "name": "EntryAbility_label",
-      "value": "HarmonyLocalProbe"
+      "value": "Threads for HarmonyOS"
     }
   ]
 }

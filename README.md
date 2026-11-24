@@ -13,7 +13,7 @@ MatePad 与 Windows DSH 的分工见 [AI-WORKFLOW.md](AI-WORKFLOW.md)，首次�
 
 ## 当前开发工程（Stage）
 
-已从 MatePad 验收的脱敏源码提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 在 Windows 仓库准备 `app/` Stage 工程副本；15 个提交内文本文件经 Git blob SHA 校验后复制，两个图标用本地自制占位 PNG 替代。`app/entry/src/main/ets/pages/Index.ets` 来自 `overlay/`，WebView attach 后再应用已存代理并加载首页；代理改为回调成功后再持久化；20 秒无响应会停止请求并提示检查网络；明确拒绝网页权限和 TLS 错误，并捕获主框架 HTTP 错误。签名配置为空，构建产物、签名材料均被忽略。HarmonyOS SDK 尚未在 Windows 验证；请由 MatePad CodeArts 认证 GitHub MCP 读取此分支最新 SHA `77cf325267f7e094b8a1e978630e5513aa8fbd99`，在 MatePad 新建独立目录并仅运行 `hvigorw assembleHap --no-daemon -p product=default`。该工作区不含本机签名配置；构建通过后，回到 MatePad DevEco 打开 `app/` 并配置本机自动签名、安装运行。不要回传或提交 HAP、日志、签名材料。
+已从 MatePad 验收的脱敏源码提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 在 Windows 仓库准备 `app/` Stage 工程副本；15 个提交内文本文件经 Git blob SHA 校验后复制，两个图标用本地自制占位 PNG 替代。`app/entry/src/main/ets/pages/Index.ets` 来自 `overlay/`，WebView attach 后再应用已存代理并加载首页；代理改为回调成功后再持久化；20 秒无响应会停止请求并提示检查网络；明确拒绝网页权限和 TLS 错误，并捕获主框架 HTTP 错误。签名配置为空，构建产物、签名材料均被忽略。HarmonyOS SDK 尚未在 Windows 验证。当前固定候选为 `2d106031f2fa6d0bd8018b053abaf9e257f40513`；曾收到一份实际构建了旧 SHA `fd9f9cf3c4d1f79bdd65f28b39b0405c86be43dc` 的成功回执，不能证明本候选通过。请由 MatePad CodeArts 认证 GitHub MCP 从精确 SHA 读取 `app/`，在 MatePad 新建独立目录并仅运行 `hvigorw assembleHap --no-daemon -p product=default`，回执明确记录实际源码 SHA。该工作区不含本机签名配置；只有当前 SHA 构建通过后，才回到 MatePad DevEco 打开 `app/` 并配置本机自动签名、安装运行。不要回传或提交 HAP、日志、签名材料。
 
 ## Windows 首次构建
 

@@ -6,7 +6,7 @@ P0：MatePad 已构建并在 DevEco 本机签名、安装、启动过独立 `Har
 
 ## 工作分工
 
-- **Windows + DSH**：主 Git 仓库、唯一源代码事实源、DevEco/SDK/构建与手机连接后安装签名。
+- **Windows + DSH**：维护主 Git 仓库，负责架构、代码、审查和自动化回归；Windows 的 ArkTS 构建和手机部署尚未验证。
 - **MatePad Edge + WorkBuddy**：鸿蒙端 WorkBuddy 通过其 HarmonyOS DevEco bridge/MCP 调用系统 CLT；回执记录 Node 24.18.1、Hvigor 7.26.11，固定 ArkWeb 候选精确构建三次成功。CodeArts 先前完成的固定基线重建仍是独立证据；不假定两客户端共享记忆或能力。定时自动触发未验证。独立工程此前通过 DevEco GUI 签名安装启动，非当前候选的证据。
 - **Pura X View**：HarmonyOS 7.0.0.115 SP10（用户提供；SDK API level 待核实）；主折叠手机验收设备。网页登录 Threads 可用，App 内 ArkWeb 仍未测。
 - **Android**：后续独立 UI/平台目标，尚无工程。
@@ -45,10 +45,7 @@ P0：MatePad 已构建并在 DevEco 本机签名、安装、启动过独立 `Har
 ## 下一步
 
 1. 固定候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513` 已由 MatePad Edge 本机 DevEco Command Line Tools 精确构建并三次复现，详见 [ArkWeb 构建回执](https://github.com/TvTjiesen/threads-harmony/blob/feat/arkweb-build-2d1060/coordination/arkweb-build-receipt.md)。回执提交 `40f34cec5c14da8abd16dbf465d385828fb2b665` 的父提交即固定候选；报告 SHA `2d1060…`、实际命令 `hvigorw assembleHap --no-daemon -p product=default`、exit 0、`BUILD SUCCESSFUL`、0 ERROR、未签名 HAP 56,075 字节。未签名、未安装、未运行、未上传。旧版回执 `8fdfd93f...` 仍对应更早源码 `fd9f9cf...`，不可混淆。
-2. 当前价值最高的下一步是 MatePad 本机 DevEco 打开该独立 `app/`、本机调试签名并安装启动；签名材料只留本机，记录与旧 HarmonyLocalProbe 分开。
-3. 先无代理启动检查错误提示/重试，再配置有效代理观察 Threads 首屏；代理端点不要写入 Git 或回执。签装前应处理第 6 项所列代理状态风险并重新构建。
-4. P0 网络门槛通过后，继续验返回/刷新、公开内容和图片；再单独测登录、发帖、回复、关注、消息。Pura X View 手机/折叠形态仍需独立验收。
-5. 定时自动接单不是产品开发前置；保持未启用，等客户端有明确价值后再单独授权探针。
-6. 当前分支 `feat/arkweb-reliability` 的 `overlay/` 已改进加载超时、重试看门狗和代理偏好设置持久化；`app/` Stage 工程含自制占位图且无签名配置。ArkTS 已在 MatePad WorkBuddy/DevEco CLT 对固定 SHA `2d106031f2fa6d0bd8018b053abaf9e257f40513` 精确构建通过（三次 unsigned HAP 均 56,075 B）；Windows Node 回归 9/9 通过。仍未签名、安装、运行；不能称为可用产品。
-7. 只读代理流程审查（2026-11-24）发现待修项：代理应用等待超时后本地作废回调但未撤销可能迟到的 ArkWeb override，UI 状态可能与底层代理不一致；已保存代理启动失败仅清空输入、未清理持久化值，可能重启重复失败；关闭代理没有回调 watchdog，回调不来时状态/偏好可能悬挂。后续应新建修复提交、测试和重新构建，再签装候选，不要改写已验证的构建历史。
-8. 本 DSH 会话并发上限为主 Agent + 最多 1 个子 Agent；同一工程编辑、构建、部署依次串行。
+2. 代理修复候选在 `fix/arkweb-proxy-state`，两处 ArkWeb 页面一致。应用/关闭代理同一时刻只发一个请求；等待 20 秒只提示，不解锁、不加载页面、不发反向请求。无效的旧偏好或启动代理报错/超时会尝试清除；启动超时后回调才到达时，须在设置中确认才能继续。手动设置在回调确认后才保存。此处“确认”指 ArkWeb 接收配置，不证明代理可连通。
+3. Windows 回归验证源码约束和使用假时钟、模拟 ArkWeb 的生产方法逻辑；不代替 ArkTS 编译或设备验证。WorkBuddy 下一步只从固定 SHA 构建并回传脱敏结果。上条旧构建回执不可用于新版。
+4. 新候选构建通过后，由用户在 MatePad DevEco 本机签名、安装和启动。第一轮不登录：先检查无代理时的提示/重试，再用用户自己的网络环境检查 Threads 首屏、公开内容、图片和返回。代理端点、账号、HAP 和签名材料不回传。
+5. P0 首屏过关后再测试登录、发帖、回复、关注、消息。Pura X View 手机/折叠形态需独立验收。定时自动接单不是产品开发前置，保持未开启。

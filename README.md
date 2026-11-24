@@ -1,6 +1,6 @@
 # Threads for HarmonyOS · P0 原型
 
-非官方 ArkTS/ArkUI + ArkWeb 原型，使用官方 Threads 网站，外层提供基础原生导航和错误提示。MatePad 上的独立探针曾编译出未签名 HAP，且单独通过 DevEco 签名安装运行；Threads 页面仍曾白屏。2026-11-24 MatePad 已通过 GitHub MCP 将 15 个无签名的 HarmonyLocalProbe 源文件交接到私有分支 `matepad/source-handoff-6b5c`（固定 SHA `f0caae1554dfbe691be9b9690bd59e007e4a14e6`）。同日，CodeArts 在 MatePad 独立目录从该提交重建成功（15 个文本文件按 blob SHA 校验，另补两个原有 PNG）；Windows 核验了回执 `7bbe80b0ec74e393d9e690e71671db491c2239cf`。本次 HAP 未签名、未安装、未运行；Windows 仓库的独立代理面板 overlay 尚未构建。
+非官方 ArkTS/ArkUI + ArkWeb 原型，使用官方 Threads 网站，外层提供基础原生导航和错误提示。MatePad 上的独立探针曾编译出未签名 HAP，且单独通过 DevEco 签名安装运行；Threads 页面仍曾白屏。2026-11-24 MatePad 已通过 GitHub MCP 将 15 个无签名的 HarmonyLocalProbe 源文件交接到私有分支 `matepad/source-handoff-6b5c`（固定 SHA `f0caae1554dfbe691be9b9690bd59e007e4a14e6`）。同日，CodeArts 在 MatePad 独立目录从该提交重建成功（15 个文本文件按 blob SHA 校验，另补两个原有 PNG）；Windows 核验了回执 `7bbe80b0ec74e393d9e690e71671db491c2239cf`。本次 HAP 未签名、未安装、未运行，与下文的完整 ArkWeb 候选是不同版本。
 
 ## 设备与共享流程
 
@@ -13,7 +13,7 @@ MatePad 与 Windows DSH 的分工见 [AI-WORKFLOW.md](AI-WORKFLOW.md)，首次�
 
 ## 当前开发工程（Stage）
 
-已从 MatePad 验收的脱敏源码提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 在 Windows 仓库准备 `app/` Stage 工程副本；15 个提交内文本文件经 Git blob SHA 校验后复制，两个图标用本地自制占位 PNG 替代。`app/entry/src/main/ets/pages/Index.ets` 来自 `overlay/`，WebView attach 后再应用已存代理并加载首页；代理改为回调成功后再持久化；20 秒无响应会停止请求并提示检查网络；明确拒绝网页权限和 TLS 错误，并捕获主框架 HTTP 错误。签名配置为空，构建产物、签名材料均被忽略。HarmonyOS SDK 尚未在 Windows 验证。固定候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513` 已由 MatePad WorkBuddy 对精确源码 SHA 构建通过，三次 unsigned HAP 均为 56,075 字节；操作、环境及回执详见私库分支 `feat/arkweb-build-2d1060` 的 `coordination/arkweb-build-receipt.md`。Windows 已验证回执提交父 SHA 等于固定候选。该构建未签名、安装或运行；下一步须先修复 `STATUS.md` 所列代理状态风险并重新构建，然后才进行本机签名安装。不要回传或提交 HAP、日志、签名材料。
+已从 MatePad 验收的脱敏源码提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 在 Windows 仓库准备 `app/` Stage 工程副本；15 个提交内文本文件经 Git blob SHA 校验后复制，两个图标用本地自制占位 PNG 替代。`app/entry/src/main/ets/pages/Index.ets` 来自 `overlay/`，WebView attach 后再应用已存代理并加载首页；代理改为回调成功后再持久化；20 秒无响应会停止请求并提示检查网络；明确拒绝网页权限和 TLS 错误，并捕获主框架 HTTP 错误。签名配置为空，构建产物、签名材料均被忽略。HarmonyOS SDK 尚未在 Windows 验证。固定候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513` 已由 MatePad WorkBuddy 对精确源码 SHA 构建通过，三次 unsigned HAP 均为 56,075 字节；操作、环境及回执详见私库分支 `feat/arkweb-build-2d1060` 的 `coordination/arkweb-build-receipt.md`。Windows 已验证回执提交父 SHA 等于固定候选。该构建未签名、安装或运行。代理状态修复版在 `fix/arkweb-proxy-state`，需先由 WorkBuddy 对固定 SHA 重新编译，再本机签名安装。新版区分页面等待超时与代理回调超时：前者可停止网页加载，后者不视为取消系统代理操作。不要回传或提交 HAP、完整日志或签名材料。
 
 ## Windows 首次构建
 

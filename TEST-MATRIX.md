@@ -7,7 +7,7 @@
 | 设备/环境 | 系统/API | 构建/安装 | ArkWeb 登录 | 功能验收 | 形态/输入 | 证据/说明 |
 | --- | --- | --- | --- | --- | --- | --- |
 | Windows 主机 | Windows，具体 build 待录 | DevEco 未安装 | 不适用 | 不适用 | DSH/键鼠 | 唯一主仓库与计划构建站 |
-| MatePad Edge / CodeArts | QXS-W00 7.0.0.111(SP16C00E111R5P5)（用户提供）；构建 SDK API 26 | 基线原型工程曾用本机 Hvigor 7.26.11 构建通过；候选 bundle `com.example.threadsharmony`，deviceTypes tablet/2in1；待验 SHA `2d106031f2fa6d0bd8018b053abaf9e257f40513` 尚未验证（回执实际构建旧 SHA `fd9f9cf3c4d1f79bdd65f28b39b0405c86be43dc`，不可代替） | 未测 | 未测 | PC 形态及本机 HAP 运行已对旧独立工程验证；本次固定提交 HAP 未签名，安装与运行待测 | 2026-11-24 CodeArts MCP 交接提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6`，15 个白名单文本文件；MatePad 独立目录重建通过，结果提交 `7bbe80b0ec74e393d9e690e71671db491c2239cf`。两个 PNG 在本机补入构建目录。未签名 HAP 27,229 字节；详见 [项目状态](STATUS.md) |
+| MatePad Edge / CodeArts | QXS-W00 7.0.0.111(SP16C00E111R5P5)（用户提供）；构建 SDK API 26 | 基线原型工程曾用本机 Hvigor 7.26.11 构建通过；候选 bundle `com.example.threadsharmony`，deviceTypes tablet/2in1；旧 SHA `2d106031f2fa6d0bd8018b053abaf9e257f40513` 已由 WorkBuddy 构建；代理状态修复版待重新构建 | 未测 | 未测 | PC 形态及本机 HAP 运行已对旧独立工程验证；本次固定提交 HAP 未签名，安装与运行待测 | 2026-11-24 CodeArts MCP 交接提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6`，15 个白名单文本文件；MatePad 独立目录重建通过，结果提交 `7bbe80b0ec74e393d9e690e71671db491c2239cf`。两个 PNG 在本机补入构建目录。未签名 HAP 27,229 字节；详见 [项目状态](STATUS.md) |
 | Pura X View | HarmonyOS 7.0.0.115 SP10（用户提供）；具体应用 API level 待核实 | 尚无 HAP | ArkWeb 未测 | 五项未测 | 折叠形态待试 | 用户确认系统浏览器可正常使用 Threads；版本号不自动等同 SDK compileSdk/API level |
 | HarmonyOS phone emulator | SDK/API 待装 | 未配置 | 未测 | 未测 | 尺寸模拟 | 仅验证布局及可模拟 API |
 | HarmonyOS tablet/2in1 emulator | SDK/API 待装 | 未配置 | 未测 | 未测 | 窗口尺寸/输入模拟 | 不等于 MatePad Edge 真实功能验证 |
@@ -39,7 +39,16 @@
 | ArkWeb 候选 MatePad 重建 | **通过**：固定 SHA `2d106031f2fa6d0bd8018b053abaf9e257f40513` | 回执分支 `feat/arkweb-build-2d1060`，提交 `40f34cec5c14da8abd16dbf465d385828fb2b665` 的父提交精确匹配固定 SHA；回执文件 SHA `d42df8b572bebe5724de041a32401e5ca398650b`，记载三次构建 exit 0，指定命令含 `-p product=default`，HAP 均 56,075 B、unsigned | 仅构建通过；未签名、安装、运行；旧回执 `8fdfd93f...` 仍是旧 SHA 证据 |
 | 合并冲突与分支协作 | 未确认 | 未测 | 两端禁止同时写同一分支，首次先串行交接 |
 
-## MatePad 首次实机验收（不登录）
+## 代理修复版验收（待 MatePad 实测）
+
+| 检查项 | 预期 | 状态 |
+| --- | --- | --- |
+| 固定修复提交的 ArkTS 编译 | 独立目录、指定 SHA，产出本机未签名 HAP | 未测；已有回执仅覆盖旧版 |
+| 代理应用/关闭回调迟到 | 等待超时后不允许第二次切换，也不发起新的顶层加载；等原回调收敛 | Windows 假时钟与模拟 ArkWeb 验证，设备未测 |
+| 旧启动代理超时 | 尝试清除保存值；晚回调不自动恢复导航，等待用户确认 | Windows 假时钟与模拟 ArkWeb 验证，设备未测 |
+| 配置网络后不登录打开 Threads | 可见网页内容或官方公开登录入口，而非白屏、工具栏或错误提示 | 未测 |
+
+## MatePad 首次实机验收（旧探针历史，不登录）
 
 | 顺序 | 操作 | 记为通过的条件 | 目前 |
 | --- | --- | --- | --- |

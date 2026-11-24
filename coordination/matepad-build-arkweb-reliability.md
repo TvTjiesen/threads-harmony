@@ -1,0 +1,5 @@
+- 实际构建 commit SHA：fd9f9cf3c4d1f79bdd65f28b39b0405c86be43dc
+- 构建命令：hvigorw assembleHap --no-daemon -p product=default
+- 构建结果：成功
+- 首条脱敏错误：无
+- HAP 字节数：54421

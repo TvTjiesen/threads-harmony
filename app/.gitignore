@@ -1,0 +1,17 @@
+# Generated HarmonyOS build outputs
+**/build/
+.hvigor/
+.idea/
+.preview/
+local.properties
+oh_modules/
+.ohpm/
+node_modules/
+.env
+.env.*
+signingConfigs/
+**/*.p12
+**/*.pfx
+**/*.cer
+**/*.p7b
+**/*.provisionprofile

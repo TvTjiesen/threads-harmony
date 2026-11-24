@@ -11,6 +11,10 @@ MatePad 与 Windows DSH 的分工见 [AI-WORKFLOW.md](AI-WORKFLOW.md)，首次�
 - 进度以 `STATUS.md` 和 `TEST-MATRIX.md` 为准；协作者不要记录账号凭据、cookie、私信原文或签名私钥。
 - MatePad Edge 已验证旧独立探针可在 PC 本机 DevEco 形态签名、安装和启动；交接新版本尚未安装。Pura X View 是主要手机硬件验收设备；授权登录、真实消息、设备通知、折叠体验和性能必须留到手机测试。
 
+## 当前开发工程（Stage）
+
+已从 MatePad 验收的脱敏源码提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 在 Windows 仓库准备 `app/` Stage 工程副本；15 个提交内文本文件经 Git blob SHA 校验后复制，两个图标用本地自制占位 PNG 替代。`app/entry/src/main/ets/pages/Index.ets` 来自 `overlay/`，加入了代理配置保存和长时间加载提示。签名配置为空，构建产物、签名材料均被忽略。HarmonyOS SDK 尚未在 Windows 验证；请先由 MatePad CodeArts 在此固定 Git commit 上运行 `hvigorw assembleHap --no-daemon -p product=default`，确认编译后再用本机 DevEco 签名/安装。
+
 ## Windows 首次构建
 
 1. 在[华为官方 DevEco Studio 页面](https://developer.harmonyos.com/cn/develop/deveco-studio)获取当前正式版本。CodeArts 鸿蒙开发实践文档要求 Windows 10/11 x64 或 macOS 12+、DevEco 6.0.0+、Python 3.x、Node 21+ 与 Git；本项目按 Windows 侧 DevEco 6.0.0+ 规划（先核实华为当前支持版本），再安装适配 Pura X View 系统/API 的 SDK。不要采用过期包管理器条目或照搬模板 `compileSdkVersion`。

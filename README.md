@@ -1,16 +1,15 @@
 # Threads for HarmonyOS · P0 原型
 
-非官方 ArkTS/ArkUI + ArkWeb 原型，使用官方 Threads 网站，外层提供基础原生导航和错误提示。MatePad 上的独立探针曾编译出未签名 HAP，且单独通过 DevEco 签名安装运行；Threads 页面仍曾白屏。2026-11-24 MatePad 已通过 GitHub MCP 将 15 个无签名的 HarmonyLocalProbe 源文件交接到私有分支 `matepad/source-handoff-6b5c`（固定 SHA `f0caae1554dfbe691be9b9690bd59e007e4a14e6`）。同源重建尚待验证；两个 PNG 图标未随交接。Windows 仓库的独立 overlay 尚未构建。
+非官方 ArkTS/ArkUI + ArkWeb 原型，使用官方 Threads 网站，外层提供基础原生导航和错误提示。MatePad 上的独立探针曾编译出未签名 HAP，且单独通过 DevEco 签名安装运行；Threads 页面仍曾白屏。2026-11-24 MatePad 已通过 GitHub MCP 将 15 个无签名的 HarmonyLocalProbe 源文件交接到私有分支 `matepad/source-handoff-6b5c`（固定 SHA `f0caae1554dfbe691be9b9690bd59e007e4a14e6`）。同日，CodeArts 在 MatePad 独立目录从该提交重建成功（15 个文本文件按 blob SHA 校验，另补两个原有 PNG）；Windows 核验了回执 `7bbe80b0ec74e393d9e690e71671db491c2239cf`。本次 HAP 未签名、未安装、未运行；Windows 仓库的独立代理面板 overlay 尚未构建。
 
 ## 设备与共享流程
 
-MatePad 与 Windows DSH 的分工见 [AI-WORKFLOW.md](AI-WORKFLOW.md)，首次安全转交纯源码见 [SOURCE-HANDOFF.md](SOURCE-HANDOFF.md)，自动化备选路线见 [AUTOMATION-OPTIONS.md](AUTOMATION-OPTIONS.md)。已获用户授权创建私有 GitHub 仓库；Windows `main` 已推送。Windows 在独立新目录完成了 `matepad/first-handoff` 回执分支推送，但回执明确记载由 Windows 代交；MatePad 端是否能在官方界面认证并只读读取最新 main（`ab94268e5429c0f380ba9f368338da5ec60c10a4`）仍待实际验证。双端 Agent 的受控任务桥仅本机安全测试，未启动。
+MatePad 与 Windows DSH 的分工见 [AI-WORKFLOW.md](AI-WORKFLOW.md)，首次安全转交纯源码见 [SOURCE-HANDOFF.md](SOURCE-HANDOFF.md)，自动化备选路线见 [AUTOMATION-OPTIONS.md](AUTOMATION-OPTIONS.md)。已获用户授权创建私有 GitHub 仓库；Windows `main` 已推送。Windows 在独立新目录完成了 `matepad/first-handoff` 回执分支推送，但回执明确记载由 Windows 代交；MatePad CodeArts 已通过认证 GitHub MCP 实际完成固定提交源码读取、同源 CLT 构建和结果分支回写；Windows 已核验回执 `7bbe80b0ec74e393d9e690e71671db491c2239cf`，父提交为源码 SHA `f0caae1554dfbe691be9b9690bd59e007e4a14e6`。任务桥仅本机安全测试，未启动；定时自动接单未验证。
 
-- 主仓库在 Windows，与 DSH 当前工作区同目录；MatePad Edge 白天通过用户已有远程桌面连接此 Windows 会话，编辑同一份文件、跑构建或模拟器并更新状态。
-- 若 MatePad 的 CodeArts 是独立开发环境，不允许两端同时改同一分支；在确认 CodeArts 产品、账户和网络后，再用 Git 拉取/提交同步。
+- Windows DSH 维护主仓库，MatePad CodeArts 通过已认证 GitHub MCP 按固定 SHA 执行独立任务并回传结果。它不是实时同步：先提交并固定 SHA，MatePad 从该 SHA 工作，在独立分支写回验收记录；Windows 再核对父 SHA、差异文件及回执。不得两端同时编辑同一业务分支。
+- CodeArts MCP 的手动任务已成功，未验证定时唤醒、后台驻留或无人自动接单；不应把它当作持续运行的 Git worker。
 - 进度以 `STATUS.md` 和 `TEST-MATRIX.md` 为准；协作者不要记录账号凭据、cookie、私信原文或签名私钥。
-- Pura X View 是主要硬件验收设备。手机不在时可做的任务：代码、文档、ArkTS 检查、模板构建、模拟器尺寸/API、非真实账号的离线 UI 检查。授权登录、真实消息、设备通知、折叠体验和性能必须留到手机测试。
-- MatePad Edge 的 PC 环境能否运行 HarmonyOS 模拟器或侧载 HAP 未确认。PC 环境不等同 HarmonyOS app 运行时；在该设备实测前不把它登记为通过的鸿蒙运行端。
+- MatePad Edge 已验证旧独立探针可在 PC 本机 DevEco 形态签名、安装和启动；交接新版本尚未安装。Pura X View 是主要手机硬件验收设备；授权登录、真实消息、设备通知、折叠体验和性能必须留到手机测试。
 
 ## Windows 首次构建
 

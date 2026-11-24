@@ -54,6 +54,7 @@ struct Index {
   @State private proxyInput: string = '';
   @State private proxyActive: string = '';
   @State private showSettings: boolean = false;
+  private loadAttempt: number = 0;
 
   aboutToAppear(): void {
     this.loadProxy();
@@ -86,7 +87,15 @@ struct Index {
       config.insertProxyRule(rule, webview.ProxySchemeFilter.MATCH_ALL_SCHEMES);
       webview.ProxyController.applyProxyOverride(config, () => {
         this.proxyActive = rule;
-        this.banner = `代理已生效：${rule}`;
+        this.proxyInput = rule;
+        try {
+          this.prefs?.putSync(KEY_PROXY, rule);
+          this.prefs?.flush();
+          this.banner = `代理已生效：${rule}`;
+        } catch (error) {
+          const e = error as BusinessError;
+          this.banner = `代理已生效，但保存设置失败：${e.message}`;
+        }
         this.reload();
       });
     } catch (error) {
@@ -151,11 +160,24 @@ struct Index {
     return this.goBack();
   }
 
+  private startLoadWatchdog(): void {
+    this.busy = true;
+    const attempt = ++this.loadAttempt;
+    setTimeout(() => {
+      if (this.loadAttempt === attempt && this.busy) {
+        this.busy = false;
+        this.banner = '页面仍在加载。检查网络或代理设置后，可点右上角 ↻ 重试';
+      }
+    }, 20000);
+  }
+
   private reload(): void {
     try {
-      this.busy = true;
+      this.startLoadWatchdog();
       this.controller.loadUrl(HOME_URL);
     } catch (_error) {
+      this.loadAttempt++;
+      this.busy = false;
       this.banner = '页面还未就绪';
     }
   }
@@ -163,6 +185,7 @@ struct Index {
   private retry(): void {
     try {
       this.banner = '';
+      this.startLoadWatchdog();
       this.controller.refresh();
     } catch (_error) {
       this.reload();
@@ -252,12 +275,18 @@ struct Index {
           }
           return false;
         })
-        .onPageBegin(() => { this.busy = true; })
-        .onPageEnd(() => { this.busy = false; })
+        .onPageBegin(() => { this.startLoadWatchdog(); })
+        .onPageEnd(() => {
+          this.loadAttempt++;
+          this.busy = false;
+        })
         .onErrorReceive((event) => {
           if (event?.request.isMainFrame()) {
+            this.loadAttempt++;
             this.busy = false;
-            this.banner = '页面加载失败：先点右上角 ⚙ 设置代理，再重试';
+            this.banner = this.proxyActive.length > 0
+              ? '页面加载失败：检查代理连接后点 ↻ 重试'
+              : '页面加载失败：如需代理，点 ⚙ 设置后再点 ↻ 重试';
           }
         })
     }

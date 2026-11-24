@@ -2,7 +2,7 @@
 
 ## 目标
 
-目标是尽量全自动：用户描述需求后，AI 能读取/修改同一份项目、调用 HarmonyOS 工具链构建、收集错误并迭代修复；用户不写代码，只在账号授权、签名、安装等敏感操作时介入。**MatePad 本机 CodeArts → 本机 Hvigor 构建链已在独立探针工程实测成功；MatePad CodeArts 也已通过认证 GitHub MCP 将固定源码交接提交到私库。Windows DSH 与 MatePad 的同源重建结果回传、远程执行与定时自动接单仍待验证。**
+目标是尽量全自动：用户描述需求后，AI 能读取/修改同一份项目、调用 HarmonyOS 工具链构建、收集错误并迭代修复；用户不写代码，只在账号授权、签名、安装等敏感操作时介入。**MatePad 本机 CodeArts → 本机 Hvigor 构建链已在独立探针工程实测成功；MatePad CodeArts 通过认证 GitHub MCP 交接源码，并从固定提交在 MatePad 独立目录重建成功，结果经新分支回传且由 Windows 核验。远程触发执行与定时自动接单仍待验证。**
 
 当前进度：CodeArts 26.9.501 报告可调用 MatePad 系统 CLT 工具；`hvigorw --version` 为 7.26.11、`ohpm -v` 为 6.0.1、`hdc -v` 为 3.2.0f，退出码均为 0。它在 `/storage/Users/currentUser/Download/aitest/HarmonyLocalProbe` 创建了独立 Stage/API 26 工程，并先后构建空白 HAP 与 ArkWeb Threads 原型 HAP，构建命令 `hvigorw assembleHap --no-daemon -p product=default` 均成功。最初产物为未签名 HAP，27,231 字节；随后用户通过 DevEco Studio 将独立探针签名、安装并启动在「此电脑」。原生工具栏已显示，但 Threads 内容停留在白屏加载；联网与登录未通过验收。Windows 仓库中含代理面板的版本不是这个已运行的构建。
 
@@ -13,7 +13,7 @@
 - DevEco Studio 是 IDE/构建和调试入口；不要默认它自带 AI Agent。
 - 当前 DSH 会话运行在 Windows，不能直接读写 MatePad 上 DevEco Studio 的本地文件。远程桌面能看见/控制界面，不代表两端文件系统共享；即使 Git 同步已建立，也只共享代码，不等于 DSH 能在 MatePad 执行命令。
 - CodeArts MCP/Skill 是否能访问本机 DevEco 工具链已不是当前问题：本机 CodeArts 已实际调用 Hvigor 并构建原型。MCP 探针未配置，且无必要为了继续本机工作而先配置。
-- MatePad 本机构建与 Windows DSH 协作是两项不同能力。前者已验证；后者已验证一次通过认证 GitHub MCP 的真实源码读写交接，尚缺同源构建结果回传和自动唤醒/接单。当前不要求启任务桥。
+- 已验证手动触发的跨端协作：CodeArts 通过 GitHub MCP 读取指定提交、本机调用 Hvigor、另开分支写回结果，Windows 回读核验。尚不证明 CodeArts 能在无人操作时自动唤醒、领单或构建；当前不启任务桥。
 - 任何后续桥接只开放项目目录和必要构建/测试命令，不开放任意 shell、账号凭据、个人文件与签名私钥；需用户明确授权。GitHub 私库认证由用户授权的 GitHub MCP 安全持有；不得索要或传递 PAT、Cookie、SSH 私钥，也不得把它们写进命令行、环境回报或仓库。
 - 当前工程已过 Hello World 阶段；固定交接提交中的 `build-profile.json5` 为脱敏无签名配置，两个图标未随 MCP 交接。构建验证须使用 MatePad 本机现有图标（仅复制到独立构建目录），不得把签名私钥、签名配置或未签名 HAP 当作已验收产品。
 - 不把华为账号、访问令牌、Cookie、私信内容、签名密钥或 `.p12/.pfx` 文件交给 AI，也不提交到仓库。
@@ -33,7 +33,7 @@
 - CodeArts 在独立 `HarmonyLocalProbe` 工程完成 API 26 Stage 空工程与 ArkWeb Threads 原型构建；命令 `hvigorw assembleHap --no-daemon -p product=default`，退出码 0。原型 HAP 路径 `/storage/Users/currentUser/Download/aitest/HarmonyLocalProbe/entry/build/default/outputs/default/entry-default-unsigned.hap`，27,231 字节，未签名。
 - 原型已声明 INTERNET 权限，并限制主框架导航为精确 Threads 域名 HTTPS。它只证明 ArkTS 编译/打包成功；页面联网、图片、登录、交互、折叠/平板适配与 HDC 安装均尚未真机验证。
 - 下一步先由用户在 DevEco Studio 图形界面确认签名配置和设备授权；账号、证书、私钥只在本机 IDE 操作，绝不发给 DSH/CodeArts 或提交仓库。签名与安装未获用户确认前，不执行。
-- GitHub MCP 已验证 MatePad 到 Windows 的一次真实源码交接；同源构建与结果回传仍待验证，且这不代表 Windows DSH 已能触发 MatePad 执行。不要双端并行改同一业务分支。
+- GitHub MCP 已验证 MatePad 到 Windows 的源码交接，并完成同源构建和结果回传：源 SHA `f0caae1554dfbe691be9b9690bd59e007e4a14e6`，结果提交 `7bbe80b0ec74e393d9e690e71671db491c2239cf` 的父提交正是源 SHA；回执仅新增 `coordination/matepad-build-f0caae.md`。构建命令 `hvigorw assembleHap --no-daemon -p product=default` 退出码 0，产物 `entry-default-unsigned.hap` 27,229 字节，使用了 MatePad 原有两个图标；未签名、未安装、未运行。这证明异步源码交接→本机构建→结果回传闭环，不代表 Windows DSH 能远程触发 MatePad。不要双端并行改同一业务分支。
 - 并发上限只约束**本 DSH 会话**：主 Agent + 最多 1 个子 Agent。用户在 MatePad 另外运行 CodeArts 不受此限制；同一工程的编辑、构建、部署依然应串行。
 
 ## 设备验收与跨端回传
@@ -61,7 +61,7 @@ DevEco Studio 版本：<关于页面显示的版本>
 ### 唯一共享事实源
 
 - 项目私有远端：`https://github.com/TvTjiesen/threads-harmony`（私有；默认分支 `main`）。MatePad CodeArts 已通过认证 GitHub MCP 完成一次真实读写和源码交接提交；这不是 Git 实时同步，也不代表自动构建或自动接单。
-- 交接单位是 Git commit：DSH 改动后推送分支/提交；CodeArts 在 MatePad 通过认证 GitHub MCP 读取固定 SHA，在独立工作区构建，并把脱敏结果关联到新分支/提交。源码交接基线为 `f0caae1554dfbe691be9b9690bd59e007e4a14e6`；结果分支必须以该提交为父提交，避免把 Windows 代交或 main 更新误认为同源构建。
+- 交接单位是 Git commit：DSH 改动后推送分支/提交；CodeArts 在 MatePad 通过认证 GitHub MCP 读取固定 SHA，在独立工作区构建，并把脱敏结果关联到新分支/提交。已验收源码基线 `f0caae1554dfbe691be9b9690bd59e007e4a14e6`，构建结果提交 `7bbe80b0ec74e393d9e690e71671db491c2239cf` 的父提交正是此 SHA，且只新增回执文件。
 - Git 负责**共享已提交并推送的文件和版本**，不会实时同步未提交内容，也不负责唤醒对端 Agent 或执行命令。此次真实 MCP 往返只证明异步读写；Agent 自动接单需要另有受控任务通道。不要导出凭据供沙箱使用，也不要把 HAP 上传到 Git。
 
 ### 受限任务桥（尚未接通；不可连接公网裸 HTTP）
@@ -73,9 +73,9 @@ DevEco Studio 版本：<关于页面显示的版本>
 
 ### 实施状态
 
-- 已创建 GitHub 私有仓库 `TvTjiesen/threads-harmony`。最初 CodeArts 沙箱匿名 curl 探针失败且无 git CLI，但随后配置的认证 GitHub MCP 实际读写成功；不应再把早期匿名网络失败描述为当前不可访问。Windows 代交分支 `matepad/first-handoff` 不算 MatePad 证据；真实 MatePad 源码交接 commit 为 `f0caae1554dfbe691be9b9690bd59e007e4a14e6`（父提交 `6b5cdfac4315f9deb642bedacf69af8aa9dc8f9c`），其 15 个文件与敏感配置已由 Windows 核验。当前 Windows main 已发布至 `3b96b3f11a3cb8253995d748b09dd7eb82cc7cbd`。同源构建/回报待 CodeArts 执行。
+- 已创建 GitHub 私有仓库 `TvTjiesen/threads-harmony`。CodeArts 先前无 CLI git 且匿名网络探针失败，随后认证 GitHub MCP 实测读写成功。Windows 代交分支 `matepad/first-handoff` 不算 MatePad 证据。MatePad 源码交接 commit `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 的父提交 `6b5cdfac4315f9deb642bedacf69af8aa9dc8f9c`、15 个文件、脱敏配置均已核验。构建结果分支 `matepad/build-f0caae-20261124` 的提交 `7bbe80b0ec74e393d9e690e71671db491c2239cf` 父提交正为上述源码 SHA，且只新增 `coordination/matepad-build-f0caae.md`。
 - `ds-harness-remote` 是人类远程访问 DSH，不是 CodeArts Agent 自动接单协议。
-- 受限任务桥的认证、固定任务、防任意 shell 及隔离队列测试已在 Windows 通过；服务仍未启动，也未配置为 CodeArts 自动接单。MatePad 通过 GitHub MCP 的异步读写已完成；下一步验证固定源码提交的 MatePad 重建和结果分支回传。
+- 受限任务桥的认证、固定任务、防任意 shell 及隔离队列测试已在 Windows 通过；服务仍未启动，也未配置为 CodeArts 自动接单。MatePad 通过 GitHub MCP 的源码交接、固定 SHA 本机构建与回执回传闭环已验证；无人触发或定时自动接单仍未验证。
 
 ## 自动化实施检查点（历史初始计划）
 

@@ -2,12 +2,12 @@
 
 ## 当前阶段
 
-P0：MatePad 已构建、签名、安装并启动独立的 `HarmonyLocalProbe`；原生工具栏已显示，Threads 网页曾停在白屏加载。2026-11-24 MatePad CodeArts 已通过认证 GitHub MCP 将 15 个白名单源码文件提交到私库新分支 `matepad/source-handoff-6b5c`，固定源提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6`（父 `6b5cdfac4315f9deb642bedacf69af8aa9dc8f9c`）。Windows 已校验并获取该提交；同源 MatePad 重建尚待结果。详见 [跨端协作记录](AI-WORKFLOW.md)。
+P0：MatePad 已构建并在 DevEco 本机签名、安装、启动过独立 `HarmonyLocalProbe`；Threads 网页曾停在白屏加载。2026-11-24 CodeArts 经认证 GitHub MCP 完成源码交接，并在 MatePad 独立目录从固定源提交重建成功。源 SHA `f0caae1554dfbe691be9b9690bd59e007e4a14e6`；构建回执 SHA `7bbe80b0ec74e393d9e690e71671db491c2239cf`，其父提交正是源 SHA。命令退出码 0，生成未签名 HAP 27,229 字节；未安装、未运行。详见 [跨端协作记录](AI-WORKFLOW.md)。
 
 ## 工作分工
 
 - **Windows + DSH**：主 Git 仓库、唯一源代码事实源、DevEco/SDK/构建与手机连接后安装签名。
-- **MatePad Edge + CodeArts**：CodeArts 26.9.501 在工作区能调用系统 CLT。Node 24.18.1、Hvigor 7.26.11、ohpm 6.0.1、hdc 3.2.0f、codelinter 6.0.140 的版本查询均退出码 0；它已在独立 HarmonyLocalProbe（API 26）实际构建空白工程和 ArkWeb Threads 原型。MatePad CodeArts 现已通过认证 GitHub MCP 完成一次私库源码交接；固定提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 同源重建仍待验。独立工程此前已通过 DevEco GUI 签名、安装和启动，非此交接版本的证据。
+- **MatePad Edge + CodeArts**：CodeArts 26.9.501 在工作区能调用系统 CLT。Node 24.18.1、Hvigor 7.26.11、ohpm 6.0.1、hdc 3.2.0f、codelinter 6.0.140 的版本查询均退出码 0；MatePad CodeArts 已通过认证 GitHub MCP 完成源码交接、固定提交重建和脱敏结果回传；定时自动触发仍未验证。独立工程此前已通过 DevEco GUI 签名、安装和启动，非此交接版本的证据。
 - **Pura X View**：HarmonyOS 7.0.0.115 SP10（用户提供；SDK API level 待核实）；主折叠手机验收设备。网页登录 Threads 可用，App 内 ArkWeb 仍未测。
 - **Android**：后续独立 UI/平台目标，尚无工程。
 
@@ -33,8 +33,8 @@ P0：MatePad 已构建、签名、安装并启动独立的 `HarmonyLocalProbe`�
 - CodeArts 报告实测工具：Node 24.18.1、Hvigor 7.26.11、ohpm 6.0.1、hdc 3.2.0f、codelinter 6.0.140；版本命令退出码均为 0。SDK API 26，CLT 内含 Hvigor 插件。
 - 在 `/storage/Users/currentUser/Download/aitest/HarmonyLocalProbe` 创建独立 Stage 工程；不依赖模板、不下载依赖，先后构建空白 Hello HarmonyOS 与 ArkWeb Threads 原型。命令 `hvigorw assembleHap --no-daemon -p product=default`，原型构建退出码 0。
 - ArkWeb 原型只改 `entry/src/main/module.json5`（加 INTERNET 权限）与 `entry/src/main/ets/pages/Index.ets`；包名 `com.example.harmonylocalprobe`，版本 `1000000 / 1.0.0`，deviceTypes `tablet/2in1`；HAP `/storage/Users/currentUser/Download/aitest/HarmonyLocalProbe/entry/build/default/outputs/default/entry-default-unsigned.hap`，27,231 字节，MD5 `fb56cefbdbdf8a51443f067e9fe3437c`，未签名。CodeArts 只读核对称 `build-profile.json5` 的 signingConfigs 为空；当前 hdc targets 为 0（不证明 DevEco GUI 看不到目标）。
-- 上述未签名 HAP 是最初 CLI 产物；随后用户通过 DevEco 在「此电脑」签名、安装并启动同名探针，原生工具栏显示，Threads 内容白屏加载。登录与其他网页功能未验收。MCP 未配置；无需为了本地构建先做 pong 探针。
-- 私有远端已创建。MatePad CodeArts 已通过 GitHub MCP 提交源码交接分支；固定 SHA 已由 Windows 核验。MatePad 同源构建结果仍待回传，自动任务接单尚未验证。不要双端并行改业务代码。
+- 27,231 字节的未签名 HAP 是最初 CLI 产物；随后用户通过 DevEco 在「此电脑」签名、安装并启动同名探针，原生工具栏显示，Threads 内容白屏加载。登录与其他网页功能未验收。
+- 2026-11-24 固定提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 在 MatePad 独立目录重建：15 个文本文件按 blob SHA 校验一致，另复制两个原工程 PNG（未纳入该提交）。`hvigorw assembleHap --no-daemon -p product=default` 退出 0，`BUILD SUCCESSFUL in 15 s 616 ms`，生成 27,229 字节 `entry-default-unsigned.hap`。Windows 核验回执分支 `matepad/build-f0caae-20261124` 的提交 `7bbe80b0ec74e393d9e690e71671db491c2239cf` 直接继承源提交、仅新增 `coordination/matepad-build-f0caae.md`，并读取其正文。未上传 HAP，未签名、安装、启动；自动任务接单尚未验证。
 
 ## 跨端接入方案（2026-11-23 22:39）
 
@@ -44,9 +44,9 @@ P0：MatePad 已构建、签名、安装并启动独立的 `HarmonyLocalProbe`�
 
 ## 下一步
 
-1. 用户已从 CodeArts 获得只读核对：bundleName `com.example.harmonylocalprobe`；versionCode/versionName `1000000 / 1.0.0`；deviceTypes `tablet/2in1`；工程 signingConfigs 为空；`hdc list targets` 返回 0 个目标。该结果不代表 DevEco GUI 不能识别同机目标。
-2. **运行目标已确认是本机「此电脑」**，且独立探针工程已用自动签名成功安装并启动。接下来把同样的自动签名用到 Threads 原型工程：DevEco 里打开 `/storage/Users/currentUser/Download/aitest/HarmonyLocalProbe`（当前打开的是 `test`，不是它），运行一次，确认日志中 HAP 名变为 `entry-default-signed.hap` 且 `Launch com.example.harmonylocalprobe success`。若签名配置未继承，点日志里的 `Open signing configs` 勾选自动生成签名即可。
-3. 若 Threads 工程在 DevEco 里打开后无运行目标或模板报错，再按 [HiShell 备选核实提示词](MATEPAD-LOCAL-FALLBACK.md) 处理；本机目标已在 `test` 工程验证可用，不再是首要疑点。反馈时区分签名、安装、启动三步。
-4. 真机先测首页加载、图片、滚动、返回/刷新及失败提示；记录脱敏日志和设备系统，之后再测试登录/身份验证跳转。未测能力仍标“未测”。
-5. 源码交接独立于真机验收：若尚未配置签名，可让 CodeArts 先按 [纯源码 ZIP 交接](SOURCE-HANDOFF.md) 导出当前编译基线，用户私下传给 DSH。未收到源码包；导入前先检查归档与本机配置，暂不设置远端，不双端同时修改业务源码。
-6. 本 DSH 会话的并发上限为主 Agent + 最多 1 个子 Agent；不限制用户在 MatePad 另外运行 CodeArts。工程内改动与构建/部署依次串行。系统 build 到 SDK API level 映射仍待核实。
+1. 用 DevEco Studio 打开 MatePad 独立重建目录，以本机调试签名验证固定源码的安装与启动；签名材料留在 MatePad、不上传，并把交接版结果与早期 HarmonyLocalProbe 分开记录。
+2. 验证网页前先在同一网络下用系统浏览器确认 Threads 可达；然后按代理面板设置局域网代理，在 App 内观察首屏、超时提示和重试。代理端点仅存本机偏好设置，回执不要带地址。
+3. P0 网络门槛通过后，继续验返回/刷新、公开内容和图片；再单独测登录、发帖、回复、关注、消息。Pura X View 手机/折叠形态仍需独立验收。
+4. 定时自动接单不是产品开发前置；保持未启用，等客户端有明确价值后再单独授权探针。
+5. 当前 Windows 工作分支上的 overlay 已改进加载超时和代理偏好设置持久化；ArkTS 尚未由 HarmonyOS SDK 编译。通过 MatePad CodeArts 验证前不得标为可用或合并为已验证产品。
+6. 本 DSH 会话并发上限为主 Agent + 最多 1 个子 Agent；同一工程编辑、构建、部署依次串行。

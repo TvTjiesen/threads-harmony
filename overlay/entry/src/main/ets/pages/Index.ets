@@ -29,7 +29,7 @@ function normalizeProxy(raw: string): string {
   if (value.length === 0) {
     return '';
   }
-  const match: RegExpMatchArray | null = value.match(/^(?:(https?|socks5?):\/\/)?([a-z0-9.-]+|\[[0-9a-f:]+\])(?::(\d{1,5}))?$/i);
+  const match: RegExpMatchArray | null = value.match(/^(?:(https?|socks):\/\/)?([a-z0-9.-]+|\[[0-9a-f:]+\])(?::(\d{1,5}))?$/i);
   if (match === null) {
     return '';
   }
@@ -58,6 +58,7 @@ struct Index {
   @State private webReady: boolean = false;
   private loadPending: boolean = false;
   private loadAttempt: number = 0;
+  private proxyAttempt: number = 0;
 
   aboutToAppear(): void {
     try {
@@ -88,7 +89,12 @@ struct Index {
     try {
       const config = new webview.ProxyConfig();
       config.insertProxyRule(rule);
+      const attempt = ++this.proxyAttempt;
+      this.banner = '正在应用代理…';
       webview.ProxyController.applyProxyOverride(config, () => {
+        if (attempt !== this.proxyAttempt) {
+          return;
+        }
         this.proxyActive = rule;
         this.proxyInput = rule;
         try {
@@ -101,10 +107,22 @@ struct Index {
         }
         this.loadHome();
       });
+      setTimeout(() => {
+        if (attempt === this.proxyAttempt && this.proxyActive !== rule) {
+          this.proxyAttempt++;
+          this.banner = '等待代理应用超时。检查设置后可重试，或关闭代理直连';
+          if (fromSaved) {
+            this.proxyInput = '';
+          }
+          this.loadHome();
+        }
+      }, LOAD_TIMEOUT_MS);
     } catch (error) {
+      this.proxyAttempt++;
       const reason = error as BusinessError;
       this.banner = `代理设置失败：${reason.message}`;
       if (fromSaved) {
+        this.proxyInput = '';
         this.loadHome();
       }
     }
@@ -116,13 +134,19 @@ struct Index {
       this.banner = '代理地址格式不对，应为 主机名或IP:端口';
       return;
     }
-    this.banner = '正在应用代理…';
+    if (rule !== this.proxyActive) {
+      this.banner = '正在应用代理…';
+    }
     this.applyProxy(rule);
   }
 
   private clearProxy(): void {
     try {
+      const attempt = ++this.proxyAttempt;
       webview.ProxyController.removeProxyOverride(() => {
+        if (attempt !== this.proxyAttempt) {
+          return;
+        }
         this.proxyActive = '';
         this.proxyInput = '';
         try {

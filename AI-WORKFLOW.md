@@ -41,7 +41,7 @@
 1. **先确认本机运行目标（已完成）**：DevEco Studio 顶部目标显示为「此电脑」，探针工程 `test` 经自动签名后已在本机安装并启动成功（`bm install` → `aa start` → `Launch ... success`）。独立的 Threads 探针也已签名安装并启动；共享仓库中的新版仍需按同样流程验证。
 2. **签名与安装**：本机目标确认后，用户在 DevEco 图形界面选择/配置调试签名并授权安装；CodeArts/DSH 不读取签名材料，用户不发送密码、证书或私钥。分别回报签名成功、安装成功、启动成功与否及脱敏错误原文。
 3. **首轮不登录测试**：启动后检查 Threads 首页是否加载、页面滚动、图片、返回/刷新。不要先登录；公开内容/登录入口加载有结果后再单独处理认证跳转。
-4. **Windows DSH ↔ MatePad 源码交接**：已验证固定 SHA `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 经认证 GitHub MCP 重建并回写。新的开发提交应从该验收后基线向前推进；当前待测候选分支 `feat/arkweb-reliability` 含可构建 Stage 工程 `app/`。CodeArts 在独立目录读取最新 commit，先只做 `hvigorw assembleHap --no-daemon -p product=default`，不签名/安装。结果写入从该 commit 创建的新分支。若失败，只回报第一条脱敏错误，不换认证方式或扩展操作。
+4. **Windows DSH ↔ MatePad 源码交接**：已验证固定 SHA `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 经认证 GitHub MCP 重建并回写。新的开发提交应从该验收后基线向前推进；当前待测候选分支 `feat/arkweb-reliability` 含可构建 Stage 工程 `app/`。CodeArts 在独立目录读取最新 commit，先只做 `hvigorw assembleHap --no-daemon -p product=default`，不签名/安装。结果写入从该 commit 创建的新分支。若失败，只回报第一条脱敏错误，不换认证方式或扩展操作。当前可直接验证的候选提交 SHA 为 `fd9f9cf3c4d1f79bdd65f28b39b0405c86be43dc`；构建失败时不要自行升级依赖或调整 SDK 版本。
 5. **收尾记录**：每一项分别记录“源码交接”“本机重建”“签名”“安装/启动”“页面功能”状态到 `STATUS.md`/`TEST-MATRIX.md`。没有实机证据的功能标记“未测”。
 
 ## 每轮给 DSH 的反馈模板

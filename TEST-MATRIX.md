@@ -7,7 +7,7 @@
 | 设备/环境 | 系统/API | 构建/安装 | ArkWeb 登录 | 功能验收 | 形态/输入 | 证据/说明 |
 | --- | --- | --- | --- | --- | --- | --- |
 | Windows 主机 | Windows，具体 build 待录 | DevEco 未安装 | 不适用 | 不适用 | DSH/键鼠 | 唯一主仓库与计划构建站 |
-| MatePad Edge / CodeArts | QXS-W00 7.0.0.111(SP16C00E111R5P5)（用户提供）；构建 SDK API 26 | 固定提交的原型工程曾用本机 Hvigor 7.26.11 构建通过；新候选 bundle `com.example.threadsharmony`，deviceTypes tablet/2in1；新代理/加载实现尚待 MatePad 构建 | 未测 | 未测 | PC 形态及本机 HAP 运行已对旧独立工程验证；本次固定提交 HAP 未签名，安装与运行待测 | 2026-11-24 CodeArts MCP 交接提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6`，15 个白名单文本文件；MatePad 独立目录重建通过，结果提交 `7bbe80b0ec74e393d9e690e71671db491c2239cf`。两个 PNG 在本机补入构建目录。未签名 HAP 27,229 字节；详见 [项目状态](STATUS.md) |
+| MatePad Edge / CodeArts | QXS-W00 7.0.0.111(SP16C00E111R5P5)（用户提供）；构建 SDK API 26 | 固定提交的原型工程曾用本机 Hvigor 7.26.11 构建通过；新候选 bundle `com.example.threadsharmony`，deviceTypes tablet/2in1；候选 SHA `77cf325267f7e094b8a1e978630e5513aa8fbd99`；ArkTS 尚待 MatePad 构建 | 未测 | 未测 | PC 形态及本机 HAP 运行已对旧独立工程验证；本次固定提交 HAP 未签名，安装与运行待测 | 2026-11-24 CodeArts MCP 交接提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6`，15 个白名单文本文件；MatePad 独立目录重建通过，结果提交 `7bbe80b0ec74e393d9e690e71671db491c2239cf`。两个 PNG 在本机补入构建目录。未签名 HAP 27,229 字节；详见 [项目状态](STATUS.md) |
 | Pura X View | HarmonyOS 7.0.0.115 SP10（用户提供）；具体应用 API level 待核实 | 尚无 HAP | ArkWeb 未测 | 五项未测 | 折叠形态待试 | 用户确认系统浏览器可正常使用 Threads；版本号不自动等同 SDK compileSdk/API level |
 | HarmonyOS phone emulator | SDK/API 待装 | 未配置 | 未测 | 未测 | 尺寸模拟 | 仅验证布局及可模拟 API |
 | HarmonyOS tablet/2in1 emulator | SDK/API 待装 | 未配置 | 未测 | 未测 | 窗口尺寸/输入模拟 | 不等于 MatePad Edge 真实功能验证 |

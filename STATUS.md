@@ -44,9 +44,10 @@ P0：MatePad 已构建并在 DevEco 本机签名、安装、启动过独立 `Har
 
 ## 下一步
 
-1. 用 DevEco Studio 打开 MatePad 独立重建目录，以本机调试签名验证固定源码的安装与启动；签名材料留在 MatePad、不上传，并把交接版结果与早期 HarmonyLocalProbe 分开记录。
-2. 验证网页前先在同一网络下用系统浏览器确认 Threads 可达；然后按代理面板设置局域网代理，在 App 内观察首屏、超时提示和重试。代理端点仅存本机偏好设置，回执不要带地址。
-3. P0 网络门槛通过后，继续验返回/刷新、公开内容和图片；再单独测登录、发帖、回复、关注、消息。Pura X View 手机/折叠形态仍需独立验收。
+1. 通过 CodeArts GitHub MCP 从 `feat/arkweb-reliability` 的 SHA `77cf325267f7e094b8a1e978630e5513aa8fbd99` 单独读取 `app/` 并仅构建。回执记构建状态和首条脱敏错误；不签名、安装或上传 HAP。
+2. 仅当 MatePad 构建通过后，在 MatePad DevEco 打开该独立 `app/`、本机调试签名并安装启动。签名材料留本机；记录与旧 HarmonyLocalProbe 分开。
+3. 首先无代理启动，检查错误提示/重试；再配置有效代理观察 Threads 首屏。代理端点不要写入 Git 或回执。
+4. P0 网络门槛通过后，继续验返回/刷新、公开内容和图片；再单独测登录、发帖、回复、关注、消息。Pura X View 手机/折叠形态仍需独立验收。
 4. 定时自动接单不是产品开发前置；保持未启用，等客户端有明确价值后再单独授权探针。
-5. 当前分支 `feat/arkweb-reliability` 的 `overlay/` 已改进加载超时、重试看门狗和代理偏好设置持久化；并准备 `app/` Stage 工程以便 MatePad 接手构建。其两个图标是自制占位图，工程未签名；ArkTS 改动尚未由 HarmonyOS SDK 编译。使用 `about:blank` 初始化 WebView，等待 `onControllerAttached` 后再加载；已保存代理须等待 ArkWeb 回调才加载 Threads，代理回调也有 20 秒超时恢复，页面加载超时会停止请求并提示重试。候选 commit `fd9f9cf3c4d1f79bdd65f28b39b0405c86be43dc`；Windows Node 回归 9/9 通过，ArkTS 尚未由 MatePad 编译。通过 MatePad CodeArts 实测前不得标为可用产品。
+5. 当前分支 `feat/arkweb-reliability` 的 `overlay/` 已改进加载超时、重试看门狗和代理偏好设置持久化；并准备 `app/` Stage 工程以便 MatePad 接手构建。其两个图标是自制占位图，工程未签名；ArkTS 改动尚未由 HarmonyOS SDK 编译。使用 `about:blank` 初始化 WebView，等待 `onControllerAttached` 后再加载；已保存代理须等待 ArkWeb 回调才加载 Threads，代理回调也有 20 秒超时恢复，页面加载超时会停止请求并提示重试。候选 commit `77cf325267f7e094b8a1e978630e5513aa8fbd99`；Windows Node 回归 9/9 通过，ArkTS 尚未由 MatePad 编译。通过 MatePad CodeArts 实测前不得标为可用产品。
 6. 本 DSH 会话并发上限为主 Agent + 最多 1 个子 Agent；同一工程编辑、构建、部署依次串行。

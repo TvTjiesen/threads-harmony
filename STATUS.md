@@ -2,7 +2,7 @@
 
 ## 当前阶段
 
-P0：MatePad 已构建、签名、安装并启动独立的 `HarmonyLocalProbe`；原生工具栏已显示，Threads 网页仍停在白屏加载。Windows 仓库中的新版尚未在 MatePad 用同一份源码构建。CodeArts 私库只读探针未读到提交或文件，见 [跨端协作记录](AI-WORKFLOW.md)。
+P0：MatePad 已构建、签名、安装并启动独立的 `HarmonyLocalProbe`；原生工具栏已显示，Threads 网页曾停在白屏加载。2026-11-24 MatePad CodeArts 已通过认证 GitHub MCP 将 15 个白名单源码文件提交到私库新分支 `matepad/source-handoff-6b5c`，固定源提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6`（父 `6b5cdfac4315f9deb642bedacf69af8aa9dc8f9c`）。Windows 已校验并获取该提交；同源 MatePad 重建尚待结果。详见 [跨端协作记录](AI-WORKFLOW.md)。
 
 ## 工作分工
 

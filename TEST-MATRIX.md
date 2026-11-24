@@ -7,7 +7,7 @@
 | 设备/环境 | 系统/API | 构建/安装 | ArkWeb 登录 | 功能验收 | 形态/输入 | 证据/说明 |
 | --- | --- | --- | --- | --- | --- | --- |
 | Windows 主机 | Windows，具体 build 待录 | DevEco 未安装 | 不适用 | 不适用 | DSH/键鼠 | 唯一主仓库与计划构建站 |
-| MatePad Edge / CodeArts | QXS-W00 7.0.0.111(SP16C00E111R5P5)（用户提供）；构建 SDK API 26 | 本机 Hvigor 7.26.11 构建通过；bundle `com.example.harmonylocalprobe`，deviceTypes tablet/2in1；签名、安装、启动未测 | 未测 | 未测 | PC 形态及本机 HAP 运行待测 | CodeArts 报告 hdc targets 为 0；DevEco GUI 目标是否识别未验证。Threads ArkWeb 未签名 HAP 27,231 字节；详见 [项目状态](STATUS.md)。GUI Git clone/push 未实测 |
+| MatePad Edge / CodeArts | QXS-W00 7.0.0.111(SP16C00E111R5P5)（用户提供）；构建 SDK API 26 | 本机 Hvigor 7.26.11 构建通过；bundle `com.example.harmonylocalprobe`，deviceTypes tablet/2in1；固定提交源码交接已完成，同源重建待测 | 未测 | 未测 | PC 形态及本机 HAP 运行已对旧独立工程验证；交接版待测 | 2026-11-24 CodeArts MCP 交接提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6`，15 个白名单文本文件；两个 PNG 未交接。未签名 HAP 27,231 字节为更早版本；详见 [项目状态](STATUS.md) |
 | Pura X View | HarmonyOS 7.0.0.115 SP10（用户提供）；具体应用 API level 待核实 | 尚无 HAP | ArkWeb 未测 | 五项未测 | 折叠形态待试 | 用户确认系统浏览器可正常使用 Threads；版本号不自动等同 SDK compileSdk/API level |
 | HarmonyOS phone emulator | SDK/API 待装 | 未配置 | 未测 | 未测 | 尺寸模拟 | 仅验证布局及可模拟 API |
 | HarmonyOS tablet/2in1 emulator | SDK/API 待装 | 未配置 | 未测 | 未测 | 窗口尺寸/输入模拟 | 不等于 MatePad Edge 真实功能验证 |
@@ -32,10 +32,10 @@
 
 | 步骤 | CodeArts MatePad | Windows DSH | 证据 |
 | --- | --- | --- | --- |
-| 私有仓库服务 | Gitee 200；GitHub 当前 000（用户报告） | 待验证 | 尚未创建/授权仓库 |
-| IDE Git clone/commit/push/pull | 官方文档确认 GUI 能力；本机未实测，且无 git CLI | 待验证 | CodeArts 报告 |
-| 纯源码 ZIP 交接 | 尚未生成 | 尚未收到/导入 | 见 `SOURCE-HANDOFF.md`，用户授权后进行 |
-| Windows 同一源码构建、MatePad 往返提交 | 未测 | 未测 | 未配置 remote |
+| 私有仓库服务 | 认证 GitHub MCP 读写成功 | GitHub API/fetch 均已核验 | 仓库 `TvTjiesen/threads-harmony` 私有 |
+| CodeArts MCP 读取/写回 | 已完成 | Windows 核验 | 源提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6`；父 `6b5cdfac4315f9deb642bedacf69af8aa9dc8f9c` |
+| 源文件交接 | 已完成 | 已拉取 15 个文本文件并扫描 | PNG 图标因 MCP 不支持二进制写入而省略 |
+| 同源构建、结果分支回传 | 待 CodeArts 执行 | 待核验 | 不签名、不上传 HAP |
 | 合并冲突与分支协作 | 未确认 | 未测 | 两端禁止同时写同一分支，首次先串行交接 |
 
 ## MatePad 首次实机验收（不登录）

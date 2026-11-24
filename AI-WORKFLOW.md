@@ -73,7 +73,7 @@ DevEco Studio 版本：<关于页面显示的版本>
 
 ### 实施状态
 
-- 已创建 GitHub 私有仓库 `TvTjiesen/threads-harmony`，Windows `main` 已 push，代码不含签名文件。Windows 曾在新克隆目录推送 `matepad/first-handoff`，回执明确标注由 Windows 代交，**不是** MatePad 往返证据。MatePad 目前尚无私库读取或推送的实测结果。最近核实并发布的远端基线为 `6b5cdfac4315f9deb642bedacf69af8aa9dc8f9c`（2026-11-24）；有新的 Windows 本地提交时需先确认已 push，再给 MatePad 新 SHA。
+- 已创建 GitHub 私有仓库 `TvTjiesen/threads-harmony`，Windows `main` 已 push，代码不含签名文件。Windows 曾在新克隆目录推送 `matepad/first-handoff`，回执明确标注由 Windows 代交，**不是** MatePad 往返证据。2026-11-24 MatePad CodeArts 只读探针未读取到私库：不能操作 DevEco 图形界面，命令行 `git: NOT FOUND`，匿名 `curl` 请求提交与 raw 内容均显示 HTTP `000`（未取得 HTTP 响应，未测试登录态）。未读取 SHA 或本文件，未写入或推送。该结果仅限 CodeArts 当前环境，不代表 MatePad 系统浏览器或 DevEco 图形 Git 经人工登录后也不可用。停止重复同一探针；若需先验证同一份源码构建，走 [纯源码 ZIP 交接](SOURCE-HANDOFF.md)，明确它不是自动同步。最近核实并发布的远端基线为 `6b5cdfac4315f9deb642bedacf69af8aa9dc8f9c`（2026-11-24）；有新的 Windows 本地提交时需先确认已 push，再给 MatePad 新 SHA。
 - `ds-harness-remote` 是人类远程访问 DSH，不是 CodeArts Agent 自动接单协议。
 - 受限任务桥的认证、固定任务、防任意 shell 及隔离队列测试已在 Windows 通过；服务仍未启动，CodeArts 未配置，MatePad 也未回执，因此两 Agent 尚未实时协作。下一步先完成 Git 首次往返，再验证同一提交在 MatePad 构建。
 

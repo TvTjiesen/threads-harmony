@@ -1,0 +1,8 @@
+- 固定源码提交 SHA：f0caae1554dfbe691be9b9690bd59e007e4a14e6
+- 父提交 SHA：6b5cdfac4315f9deb642bedacf69af8aa9dc8f9c
+- 构建命令：hvigorw assembleHap --no-daemon -p product=default
+- 退出码：0
+- 产物文件：entry-default-unsigned.hap
+- 产物字节数：27229
+- 使用原有图标：是（app_icon.png、icon.png）
+- 结果：构建通过（未签名；未安装；未运行）

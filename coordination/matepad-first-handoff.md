@@ -1,0 +1,3 @@
+- 执行端：MatePad Edge 上的 CodeArts
+- 基线 SHA：6b5cdfac4315f9deb642bedacf69af8aa9dc8f9c
+- AI-WORKFLOW.md：可读

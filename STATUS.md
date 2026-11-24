@@ -7,7 +7,7 @@ P0：MatePad 已构建、签名、安装并启动独立的 `HarmonyLocalProbe`�
 ## 工作分工
 
 - **Windows + DSH**：主 Git 仓库、唯一源代码事实源、DevEco/SDK/构建与手机连接后安装签名。
-- **MatePad Edge + CodeArts**：CodeArts 26.9.501 在工作区能调用系统 CLT。Node 24.18.1、Hvigor 7.26.11、ohpm 6.0.1、hdc 3.2.0f、codelinter 6.0.140 的版本查询均退出码 0；它已在独立 HarmonyLocalProbe（API 26）实际构建空白工程和 ArkWeb Threads 原型。此证据更新了早期沙箱报告中“CodeArts 不能构建”的初步判断（先前探测的应用沙箱与本轮工作区/CLT 调用能力不同）。MCP 未配置且非当前必要。DevEco 签名配置、安装/部署、GUI Git clone/push 均未验证；优先考虑私有 Git 同步，但尚未建立。
+- **MatePad Edge + CodeArts**：CodeArts 26.9.501 在工作区能调用系统 CLT。Node 24.18.1、Hvigor 7.26.11、ohpm 6.0.1、hdc 3.2.0f、codelinter 6.0.140 的版本查询均退出码 0；它已在独立 HarmonyLocalProbe（API 26）实际构建空白工程和 ArkWeb Threads 原型。MatePad CodeArts 现已通过认证 GitHub MCP 完成一次私库源码交接；固定提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 同源重建仍待验。独立工程此前已通过 DevEco GUI 签名、安装和启动，非此交接版本的证据。
 - **Pura X View**：HarmonyOS 7.0.0.115 SP10（用户提供；SDK API level 待核实）；主折叠手机验收设备。网页登录 Threads 可用，App 内 ArkWeb 仍未测。
 - **Android**：后续独立 UI/平台目标，尚无工程。
 
@@ -34,7 +34,7 @@ P0：MatePad 已构建、签名、安装并启动独立的 `HarmonyLocalProbe`�
 - 在 `/storage/Users/currentUser/Download/aitest/HarmonyLocalProbe` 创建独立 Stage 工程；不依赖模板、不下载依赖，先后构建空白 Hello HarmonyOS 与 ArkWeb Threads 原型。命令 `hvigorw assembleHap --no-daemon -p product=default`，原型构建退出码 0。
 - ArkWeb 原型只改 `entry/src/main/module.json5`（加 INTERNET 权限）与 `entry/src/main/ets/pages/Index.ets`；包名 `com.example.harmonylocalprobe`，版本 `1000000 / 1.0.0`，deviceTypes `tablet/2in1`；HAP `/storage/Users/currentUser/Download/aitest/HarmonyLocalProbe/entry/build/default/outputs/default/entry-default-unsigned.hap`，27,231 字节，MD5 `fb56cefbdbdf8a51443f067e9fe3437c`，未签名。CodeArts 只读核对称 `build-profile.json5` 的 signingConfigs 为空；当前 hdc targets 为 0（不证明 DevEco GUI 看不到目标）。
 - 上述未签名 HAP 是最初 CLI 产物；随后用户通过 DevEco 在「此电脑」签名、安装并启动同名探针，原生工具栏显示，Threads 内容白屏加载。登录与其他网页功能未验收。MCP 未配置；无需为了本地构建先做 pong 探针。
-- 私有远端已创建；Windows `threads-harmony` 与 MatePad `HarmonyLocalProbe` 尚未同步，也没有自动回传。不要双端并行改业务代码。
+- 私有远端已创建。MatePad CodeArts 已通过 GitHub MCP 提交源码交接分支；固定 SHA 已由 Windows 核验。MatePad 同源构建结果仍待回传，自动任务接单尚未验证。不要双端并行改业务代码。
 
 ## 跨端接入方案（2026-11-23 22:39）
 

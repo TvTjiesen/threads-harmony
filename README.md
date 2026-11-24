@@ -1,6 +1,6 @@
 # Threads for HarmonyOS · P0 原型
 
-非官方 ArkTS/ArkUI + ArkWeb 原型，使用官方 Threads 网站，外层提供基础原生导航和错误提示。MatePad 上的独立探针已编译出未签名 HAP；Windows 仓库的 overlay 尚未构建，两个版本尚未同步。签名、安装与真机运行均未验证。
+非官方 ArkTS/ArkUI + ArkWeb 原型，使用官方 Threads 网站，外层提供基础原生导航和错误提示。MatePad 上的独立探针曾编译出未签名 HAP，且单独通过 DevEco 签名安装运行；Threads 页面仍曾白屏。2026-11-24 MatePad 已通过 GitHub MCP 将 15 个无签名的 HarmonyLocalProbe 源文件交接到私有分支 `matepad/source-handoff-6b5c`（固定 SHA `f0caae1554dfbe691be9b9690bd59e007e4a14e6`）。同源重建尚待验证；两个 PNG 图标未随交接。Windows 仓库的独立 overlay 尚未构建。
 
 ## 设备与共享流程
 

@@ -46,6 +46,6 @@ P0：MatePad 已构建并在 DevEco 本机签名、安装、启动过独立 `Har
 
 1. 固定候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513` 已由 MatePad Edge 本机 DevEco Command Line Tools 精确构建并三次复现，详见 [ArkWeb 构建回执](https://github.com/TvTjiesen/threads-harmony/blob/feat/arkweb-build-2d1060/coordination/arkweb-build-receipt.md)。回执提交 `40f34cec5c14da8abd16dbf465d385828fb2b665` 的父提交即固定候选；报告 SHA `2d1060…`、实际命令 `hvigorw assembleHap --no-daemon -p product=default`、exit 0、`BUILD SUCCESSFUL`、0 ERROR、未签名 HAP 56,075 字节。未签名、未安装、未运行、未上传。旧版回执 `8fdfd93f...` 仍对应更早源码 `fd9f9cf...`，不可混淆。
 2. 代理修复候选在 `fix/arkweb-proxy-state`，两处 ArkWeb 页面一致。应用/关闭代理同一时刻只发一个请求；等待 20 秒只提示，不解锁、不加载页面、不发反向请求。无效的旧偏好或启动代理报错/超时会尝试清除；启动超时后回调才到达时，须在设置中确认才能继续。手动设置在回调确认后才保存。此处“确认”指 ArkWeb 接收配置，不证明代理可连通。
-3. Windows 回归验证源码约束和使用假时钟、模拟 ArkWeb 的生产方法逻辑；不代替 ArkTS 编译或设备验证。WorkBuddy 下一步只从固定 SHA 构建并回传脱敏结果。上条旧构建回执不可用于新版。
+3. 代理修复候选已提交并推送：`5e4d5abf46247fc5c6c5ee693b0f004d482d9d38`（分支 `fix/arkweb-proxy-state`）。Node 回归 11/11、`git diff --check` 通过；假时钟测试执行生产页代理切换方法，但没有 HarmonyOS SDK，**ArkTS 编译尚未验证**。旧回执只覆盖 `2d106031f2fa6d0bd8018b053abaf9e257f40513`，不得用于此版。WorkBuddy 下一步只从 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 构建并回传脱敏结果。
 4. 新候选构建通过后，由用户在 MatePad DevEco 本机签名、安装和启动。第一轮不登录：先检查无代理时的提示/重试，再用用户自己的网络环境检查 Threads 首屏、公开内容、图片和返回。代理端点、账号、HAP 和签名材料不回传。
 5. P0 首屏过关后再测试登录、发帖、回复、关注、消息。Pura X View 手机/折叠形态需独立验收。定时自动接单不是产品开发前置，保持未开启。

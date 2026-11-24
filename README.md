@@ -13,7 +13,7 @@ MatePad 与 Windows DSH 的分工见 [AI-WORKFLOW.md](AI-WORKFLOW.md)，首次�
 
 ## 当前开发工程（Stage）
 
-已从 MatePad 验收的脱敏源码提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 在 Windows 仓库准备 `app/` Stage 工程副本；15 个提交内文本文件经 Git blob SHA 校验后复制，两个图标用本地自制占位 PNG 替代。`app/entry/src/main/ets/pages/Index.ets` 来自 `overlay/`，加入了代理配置保存和长时间加载提示。签名配置为空，构建产物、签名材料均被忽略。HarmonyOS SDK 尚未在 Windows 验证；请由 MatePad CodeArts 认证 GitHub MCP 读取此分支提交，在 MatePad 新建独立目录并仅运行 `hvigorw assembleHap --no-daemon -p product=default`。该工作区不含本机签名配置；构建通过后，回到 MatePad DevEco 打开 `app/` 并配置本机自动签名、安装运行。不要回传或提交 HAP、日志、签名材料。
+已从 MatePad 验收的脱敏源码提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 在 Windows 仓库准备 `app/` Stage 工程副本；15 个提交内文本文件经 Git blob SHA 校验后复制，两个图标用本地自制占位 PNG 替代。`app/entry/src/main/ets/pages/Index.ets` 来自 `overlay/`，WebView attach 后再应用已存代理并加载首页；代理改为回调成功后再持久化；20 秒无响应会停止请求并提示检查网络；明确拒绝网页权限和 TLS 错误，并捕获主框架 HTTP 错误。签名配置为空，构建产物、签名材料均被忽略。HarmonyOS SDK 尚未在 Windows 验证；请由 MatePad CodeArts 认证 GitHub MCP 读取此分支提交，在 MatePad 新建独立目录并仅运行 `hvigorw assembleHap --no-daemon -p product=default`。该工作区不含本机签名配置；构建通过后，回到 MatePad DevEco 打开 `app/` 并配置本机自动签名、安装运行。不要回传或提交 HAP、日志、签名材料。
 
 ## Windows 首次构建
 

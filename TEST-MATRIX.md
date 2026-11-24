@@ -7,7 +7,7 @@
 | 设备/环境 | 系统/API | 构建/安装 | ArkWeb 登录 | 功能验收 | 形态/输入 | 证据/说明 |
 | --- | --- | --- | --- | --- | --- | --- |
 | Windows 主机 | Windows，具体 build 待录 | DevEco 未安装 | 不适用 | 不适用 | DSH/键鼠 | 唯一主仓库与计划构建站 |
-| MatePad Edge / CodeArts | QXS-W00 7.0.0.111(SP16C00E111R5P5)（用户提供）；构建 SDK API 26 | 本机 Hvigor 7.26.11 构建通过；bundle `com.example.harmonylocalprobe`，deviceTypes tablet/2in1；固定提交源码交接、MatePad 重建与回执回读通过 | 未测 | 未测 | PC 形态及本机 HAP 运行已对旧独立工程验证；本次固定提交 HAP 未签名，安装与运行待测 | 2026-11-24 CodeArts MCP 交接提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6`，15 个白名单文本文件；MatePad 独立目录重建通过，结果提交 `7bbe80b0ec74e393d9e690e71671db491c2239cf`。两个 PNG 在本机补入构建目录。未签名 HAP 27,229 字节；详见 [项目状态](STATUS.md) |
+| MatePad Edge / CodeArts | QXS-W00 7.0.0.111(SP16C00E111R5P5)（用户提供）；构建 SDK API 26 | 固定提交的原型工程曾用本机 Hvigor 7.26.11 构建通过；新候选 bundle `com.example.threadsharmony`，deviceTypes tablet/2in1；新代理/加载实现尚待 MatePad 构建 | 未测 | 未测 | PC 形态及本机 HAP 运行已对旧独立工程验证；本次固定提交 HAP 未签名，安装与运行待测 | 2026-11-24 CodeArts MCP 交接提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6`，15 个白名单文本文件；MatePad 独立目录重建通过，结果提交 `7bbe80b0ec74e393d9e690e71671db491c2239cf`。两个 PNG 在本机补入构建目录。未签名 HAP 27,229 字节；详见 [项目状态](STATUS.md) |
 | Pura X View | HarmonyOS 7.0.0.115 SP10（用户提供）；具体应用 API level 待核实 | 尚无 HAP | ArkWeb 未测 | 五项未测 | 折叠形态待试 | 用户确认系统浏览器可正常使用 Threads；版本号不自动等同 SDK compileSdk/API level |
 | HarmonyOS phone emulator | SDK/API 待装 | 未配置 | 未测 | 未测 | 尺寸模拟 | 仅验证布局及可模拟 API |
 | HarmonyOS tablet/2in1 emulator | SDK/API 待装 | 未配置 | 未测 | 未测 | 窗口尺寸/输入模拟 | 不等于 MatePad Edge 真实功能验证 |
@@ -47,7 +47,7 @@
 | 2 | 用 DevEco 对当前工程生成调试签名构建 | 本轮构建成功且 IDE 确认已签名；之前的 unsigned HAP 不算 | **通过**（2026-11-23 22:00，HarmonyLocalProbe 日志 `entry-default-signed.hap`） |
 | 3 | 将已签名构建装到 MatePad 本机 | 部署结果明确显示安装成功；单有签名产物不算 | **通过**（`bm install` 成功，随后 `aa start`） |
 | 4 | 从本机启动应用 | MatePad 上实际出现应用窗口；Previewer 或模拟器不算 | **通过**（窗口标题 `HarmonyLocalProbe`，可见「返回/刷新」工具栏与 Threads 标题） |
-| 5 | 在应用打开 Threads 首页 | 网页正文或官方公开登录入口可见；只有原生工具栏、持续白屏或错误页不算 | **未通过/未完成**：2026-11-23 22:00 截图显示白屏 + 「加载中…」转圈，页面正文未出现；已加 20 秒加载提示、代理偏好持久化及重试看门狗，待 MatePad 编译/实测 |
+| 5 | 在应用打开 Threads 首页 | 网页正文或官方公开登录入口可见；只有原生工具栏、持续白屏或错误页不算 | **未通过/未完成**：2026-11-23 22:00 截图显示白屏 + 「加载中…」转圈，页面正文未出现；新版本待测：WebView attach 后才加载；启动读取已保存代理并等待应用回调，未配置时直接加载；20 秒后显示提示并停止卡死的加载；主框架 HTTP/TLS 错误显示反馈。新页面尚未由 MatePad 编译/实测 |
 | 6 | 浏览一条公开内容，滚动并查看图片 | 内容能滚动；选定的公开图片正常出现。如页面无公开图片则记未测 | 未测 |
 | 7 | 如果能进入站内链接，先点返回，再点刷新 | 返回上一页；刷新后页面可用。不具备站内历史时将返回记未测 | 未测 |
 

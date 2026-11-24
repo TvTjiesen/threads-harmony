@@ -56,6 +56,7 @@ struct Index {
   @State private proxyActive: string = '';
   @State private showSettings: boolean = false;
   @State private webReady: boolean = false;
+  private loadPending: boolean = false;
   private loadAttempt: number = 0;
 
   aboutToAppear(): void {
@@ -142,8 +143,10 @@ struct Index {
 
   private loadHome(): void {
     if (!this.webReady) {
+      this.loadPending = true;
       return;
     }
+    this.loadPending = false;
     try {
       const attempt = ++this.loadAttempt;
       this.busy = true;
@@ -244,7 +247,7 @@ struct Index {
         .mixedMode(MixedMode.None).multiWindowAccess(false)
         .onControllerAttached(() => {
           this.webReady = true;
-          if (this.proxyInput.length === 0) {
+          if (this.loadPending || this.proxyInput.length === 0 || this.proxyActive.length > 0) {
             this.loadHome();
           }
         })

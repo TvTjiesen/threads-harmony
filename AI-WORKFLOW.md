@@ -73,7 +73,7 @@ DevEco Studio 版本：<关于页面显示的版本>
 
 ### 实施状态
 
-- 已创建 GitHub 私有仓库 `TvTjiesen/threads-harmony`，Windows `main` 已 push，代码不含签名文件。Windows 曾在新克隆目录推送 `matepad/first-handoff`，回执明确标注由 Windows 代交，**不是** MatePad 往返证据。2026-11-24 MatePad CodeArts 只读探针未读取到私库：不能操作 DevEco 图形界面，命令行 `git: NOT FOUND`，匿名 `curl` 请求提交与 raw 内容均显示 HTTP `000`（未取得 HTTP 响应，未测试登录态）。未读取 SHA 或本文件，未写入或推送。该结果仅限 CodeArts 当前环境，不代表 MatePad 系统浏览器或 DevEco 图形 Git 经人工登录后也不可用。停止重复同一探针；若需先验证同一份源码构建，走 [纯源码 ZIP 交接](SOURCE-HANDOFF.md)，明确它不是自动同步。最近核实并发布的远端基线为 `6b5cdfac4315f9deb642bedacf69af8aa9dc8f9c`（2026-11-24）；有新的 Windows 本地提交时需先确认已 push，再给 MatePad 新 SHA。
+- 已创建 GitHub 私有仓库 `TvTjiesen/threads-harmony`。最初 CodeArts 沙箱匿名 curl 探针失败且无 git CLI，但随后配置的认证 GitHub MCP 实际读写成功；不应再把早期匿名网络失败描述为当前不可访问。Windows 代交分支 `matepad/first-handoff` 不算 MatePad 证据；真实 MatePad 源码交接 commit 为 `f0caae1554dfbe691be9b9690bd59e007e4a14e6`（父提交 `6b5cdfac4315f9deb642bedacf69af8aa9dc8f9c`），其 15 个文件与敏感配置已由 Windows 核验。当前 Windows main 已发布至 `3b96b3f11a3cb8253995d748b09dd7eb82cc7cbd`。同源构建/回报待 CodeArts 执行。
 - `ds-harness-remote` 是人类远程访问 DSH，不是 CodeArts Agent 自动接单协议。
 - 受限任务桥的认证、固定任务、防任意 shell 及隔离队列测试已在 Windows 通过；服务仍未启动，也未配置为 CodeArts 自动接单。MatePad 通过 GitHub MCP 的异步读写已完成；下一步验证固定源码提交的 MatePad 重建和结果分支回传。
 

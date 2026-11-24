@@ -4,16 +4,16 @@
 
 ## 设备与共享流程
 
-MatePad 与 Windows DSH 的分工见 [AI-WORKFLOW.md](AI-WORKFLOW.md)，首次安全转交纯源码见 [SOURCE-HANDOFF.md](SOURCE-HANDOFF.md)，自动化备选路线见 [AUTOMATION-OPTIONS.md](AUTOMATION-OPTIONS.md)。已获用户授权创建私有 GitHub 仓库；Windows `main` 已推送。Windows 在独立新目录完成了 `matepad/first-handoff` 回执分支推送，但回执明确记载由 Windows 代交；MatePad CodeArts 已通过认证 GitHub MCP 实际完成固定提交源码读取、同源 CLT 构建和结果分支回写；Windows 已核验回执 `7bbe80b0ec74e393d9e690e71671db491c2239cf`，父提交为源码 SHA `f0caae1554dfbe691be9b9690bd59e007e4a14e6`。任务桥仅本机安全测试，未启动；定时自动接单未验证。
+MatePad 与 Windows DSH 的分工见 [AI-WORKFLOW.md](AI-WORKFLOW.md)，首次安全转交纯源码见 [SOURCE-HANDOFF.md](SOURCE-HANDOFF.md)，自动化备选路线见 [AUTOMATION-OPTIONS.md](AUTOMATION-OPTIONS.md)。已获用户授权创建私有 GitHub 仓库；Windows `main` 已推送。Windows 在独立新目录完成了 `matepad/first-handoff` 回执分支推送，但回执明确记载由 Windows 代交；MatePad CodeArts 曾通过认证 GitHub MCP 完成基线源码读取、构建和回写；随后鸿蒙端 WorkBuddy 经 DevEco bridge 对 ArkWeb 固定候选精确构建成功，详见回执。任务桥仅本机安全测试，未启动；定时自动接单未验证。
 
-- Windows DSH 维护主仓库，MatePad CodeArts 通过已认证 GitHub MCP 按固定 SHA 执行独立任务并回传结果。它不是实时同步：先提交并固定 SHA，MatePad 从该 SHA 工作，在独立分支写回验收记录；Windows 再核对父 SHA、差异文件及回执。不得两端同时编辑同一业务分支。
-- CodeArts MCP 的手动任务已成功，未验证定时唤醒、后台驻留或无人自动接单；不应把它当作持续运行的 Git worker。
+- Windows DSH 维护主仓库，MatePad 上的协作 Agent 使用已认证工具按固定 SHA 执行独立任务并回传结果。它不是实时同步：先提交并固定 SHA，MatePad 从该 SHA 工作，在独立分支写回验收记录；Windows 再核对父 SHA、差异文件及回执。不得两端同时编辑同一业务分支。
+- MatePad 上已验证手动构建与结果回写；未验证定时唤醒、后台驻留或无人自动接单，不应把它当作持续运行的 Git worker。
 - 进度以 `STATUS.md` 和 `TEST-MATRIX.md` 为准；协作者不要记录账号凭据、cookie、私信原文或签名私钥。
 - MatePad Edge 已验证旧独立探针可在 PC 本机 DevEco 形态签名、安装和启动；交接新版本尚未安装。Pura X View 是主要手机硬件验收设备；授权登录、真实消息、设备通知、折叠体验和性能必须留到手机测试。
 
 ## 当前开发工程（Stage）
 
-已从 MatePad 验收的脱敏源码提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 在 Windows 仓库准备 `app/` Stage 工程副本；15 个提交内文本文件经 Git blob SHA 校验后复制，两个图标用本地自制占位 PNG 替代。`app/entry/src/main/ets/pages/Index.ets` 来自 `overlay/`，WebView attach 后再应用已存代理并加载首页；代理改为回调成功后再持久化；20 秒无响应会停止请求并提示检查网络；明确拒绝网页权限和 TLS 错误，并捕获主框架 HTTP 错误。签名配置为空，构建产物、签名材料均被忽略。HarmonyOS SDK 尚未在 Windows 验证。当前固定候选为 `2d106031f2fa6d0bd8018b053abaf9e257f40513`；曾收到一份实际构建了旧 SHA `fd9f9cf3c4d1f79bdd65f28b39b0405c86be43dc` 的成功回执，不能证明本候选通过。请由 MatePad CodeArts 认证 GitHub MCP 从精确 SHA 读取 `app/`，在 MatePad 新建独立目录并仅运行 `hvigorw assembleHap --no-daemon -p product=default`，回执明确记录实际源码 SHA。该工作区不含本机签名配置；只有当前 SHA 构建通过后，才回到 MatePad DevEco 打开 `app/` 并配置本机自动签名、安装运行。不要回传或提交 HAP、日志、签名材料。
+已从 MatePad 验收的脱敏源码提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 在 Windows 仓库准备 `app/` Stage 工程副本；15 个提交内文本文件经 Git blob SHA 校验后复制，两个图标用本地自制占位 PNG 替代。`app/entry/src/main/ets/pages/Index.ets` 来自 `overlay/`，WebView attach 后再应用已存代理并加载首页；代理改为回调成功后再持久化；20 秒无响应会停止请求并提示检查网络；明确拒绝网页权限和 TLS 错误，并捕获主框架 HTTP 错误。签名配置为空，构建产物、签名材料均被忽略。HarmonyOS SDK 尚未在 Windows 验证。固定候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513` 已由 MatePad WorkBuddy 对精确源码 SHA 构建通过，三次 unsigned HAP 均为 56,075 字节；操作、环境及回执详见私库分支 `feat/arkweb-build-2d1060` 的 `coordination/arkweb-build-receipt.md`。Windows 已验证回执提交父 SHA 等于固定候选。该构建未签名、安装或运行；下一步须先修复 `STATUS.md` 所列代理状态风险并重新构建，然后才进行本机签名安装。不要回传或提交 HAP、日志、签名材料。
 
 ## Windows 首次构建
 

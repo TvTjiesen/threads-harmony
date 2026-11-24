@@ -7,7 +7,7 @@ P0：MatePad 已构建并在 DevEco 本机签名、安装、启动过独立 `Har
 ## 工作分工
 
 - **Windows + DSH**：主 Git 仓库、唯一源代码事实源、DevEco/SDK/构建与手机连接后安装签名。
-- **MatePad Edge + CodeArts**：CodeArts 26.9.501 在工作区能调用系统 CLT。Node 24.18.1、Hvigor 7.26.11、ohpm 6.0.1、hdc 3.2.0f、codelinter 6.0.140 的版本查询均退出码 0；MatePad CodeArts 已通过认证 GitHub MCP 完成源码交接、固定提交重建和脱敏结果回传；定时自动触发仍未验证。独立工程此前已通过 DevEco GUI 签名、安装和启动，非此交接版本的证据。
+- **MatePad Edge + WorkBuddy**：鸿蒙端 WorkBuddy 通过其 HarmonyOS DevEco bridge/MCP 调用系统 CLT；回执记录 Node 24.18.1、Hvigor 7.26.11，固定 ArkWeb 候选精确构建三次成功。CodeArts 先前完成的固定基线重建仍是独立证据；不假定两客户端共享记忆或能力。定时自动触发未验证。独立工程此前通过 DevEco GUI 签名安装启动，非当前候选的证据。
 - **Pura X View**：HarmonyOS 7.0.0.115 SP10（用户提供；SDK API level 待核实）；主折叠手机验收设备。网页登录 Threads 可用，App 内 ArkWeb 仍未测。
 - **Android**：后续独立 UI/平台目标，尚无工程。
 
@@ -44,11 +44,11 @@ P0：MatePad 已构建并在 DevEco 本机签名、安装、启动过独立 `Har
 
 ## 下一步
 
-1. 已收到但不接受为当前候选验收的回执：`matepad/build-arkweb-reliability` 的 `8fdfd93febb2d17a67179107573a3d6967a32465` 只新增回执，正文证明实际构建 SHA 是旧版 `fd9f9cf3c4d1f79bdd65f28b39b0405c86be43dc`（成功，54,421 字节）。当前待验收源码是 `2d106031f2fa6d0bd8018b053abaf9e257f40513`；两提交之间 `app/entry/src/main/ets/pages/Index.ets` 有 ArkTS 变更。请从精确 SHA 重建后回传新回执，详情见 AI-WORKFLOW.md；不签名、安装或上传 HAP。
-2. 仅当 MatePad 构建通过后，在 MatePad DevEco 打开该独立 `app/`、本机调试签名并安装启动。签名材料留本机；记录与旧 HarmonyLocalProbe 分开。
-3. 首先无代理启动，检查错误提示/重试；再配置有效代理观察 Threads 首屏。代理端点不要写入 Git 或回执。
+1. 固定候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513` 已由 MatePad Edge 本机 DevEco Command Line Tools 精确构建并三次复现，详见 [ArkWeb 构建回执](https://github.com/TvTjiesen/threads-harmony/blob/feat/arkweb-build-2d1060/coordination/arkweb-build-receipt.md)。回执提交 `40f34cec5c14da8abd16dbf465d385828fb2b665` 的父提交即固定候选；报告 SHA `2d1060…`、实际命令 `hvigorw assembleHap --no-daemon -p product=default`、exit 0、`BUILD SUCCESSFUL`、0 ERROR、未签名 HAP 56,075 字节。未签名、未安装、未运行、未上传。旧版回执 `8fdfd93f...` 仍对应更早源码 `fd9f9cf...`，不可混淆。
+2. 当前价值最高的下一步是 MatePad 本机 DevEco 打开该独立 `app/`、本机调试签名并安装启动；签名材料只留本机，记录与旧 HarmonyLocalProbe 分开。
+3. 先无代理启动检查错误提示/重试，再配置有效代理观察 Threads 首屏；代理端点不要写入 Git 或回执。签装前应处理第 6 项所列代理状态风险并重新构建。
 4. P0 网络门槛通过后，继续验返回/刷新、公开内容和图片；再单独测登录、发帖、回复、关注、消息。Pura X View 手机/折叠形态仍需独立验收。
-4. 定时自动接单不是产品开发前置；保持未启用，等客户端有明确价值后再单独授权探针。
-5. 当前分支 `feat/arkweb-reliability` 的 `overlay/` 已改进加载超时、重试看门狗和代理偏好设置持久化；并准备 `app/` Stage 工程以便 MatePad 接手构建。其两个图标是自制占位图，工程未签名；ArkTS 改动尚未由 HarmonyOS SDK 编译。使用 `about:blank` 初始化 WebView，等待 `onControllerAttached` 后再加载；已保存代理须等待 ArkWeb 回调才加载 Threads，代理回调也有 20 秒超时恢复，页面加载超时会停止请求并提示重试。候选固定 commit `2d106031f2fa6d0bd8018b053abaf9e257f40513`；Windows Node 回归 9/9 通过，ArkTS 尚未由 MatePad 编译。通过 MatePad CodeArts 实测前不得标为可用产品。
-6. 只读代理流程审查（2026-11-24）发现待后续处理项，当前冻结候选不修改：代理应用等待超时后本地作废回调但未撤销可能迟到的 ArkWeb override，UI 状态可能与底层代理不一致；已保存代理启动失败仅清空输入、未清理持久化值，可能重启重复失败；关闭代理没有回调 watchdog，回调不来时状态/偏好可能悬挂。必须先取得精确 SHA 的构建回执，再另开修复提交、测试并重新构建，不能直接签装本候选绕过这些风险。
-7. 本 DSH 会话并发上限为主 Agent + 最多 1 个子 Agent；同一工程编辑、构建、部署依次串行。
+5. 定时自动接单不是产品开发前置；保持未启用，等客户端有明确价值后再单独授权探针。
+6. 当前分支 `feat/arkweb-reliability` 的 `overlay/` 已改进加载超时、重试看门狗和代理偏好设置持久化；`app/` Stage 工程含自制占位图且无签名配置。ArkTS 已在 MatePad WorkBuddy/DevEco CLT 对固定 SHA `2d106031f2fa6d0bd8018b053abaf9e257f40513` 精确构建通过（三次 unsigned HAP 均 56,075 B）；Windows Node 回归 9/9 通过。仍未签名、安装、运行；不能称为可用产品。
+7. 只读代理流程审查（2026-11-24）发现待修项：代理应用等待超时后本地作废回调但未撤销可能迟到的 ArkWeb override，UI 状态可能与底层代理不一致；已保存代理启动失败仅清空输入、未清理持久化值，可能重启重复失败；关闭代理没有回调 watchdog，回调不来时状态/偏好可能悬挂。后续应新建修复提交、测试和重新构建，再签装候选，不要改写已验证的构建历史。
+8. 本 DSH 会话并发上限为主 Agent + 最多 1 个子 Agent；同一工程编辑、构建、部署依次串行。

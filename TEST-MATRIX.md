@@ -33,10 +33,10 @@
 | 步骤 | CodeArts MatePad | Windows DSH | 证据 |
 | --- | --- | --- | --- |
 | 私有仓库服务 | 认证 GitHub MCP 读写成功 | GitHub API/fetch 均已核验 | 仓库 `TvTjiesen/threads-harmony` 私有 |
-| CodeArts MCP 读取/写回 | 已完成 | Windows 核验 | 源提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6`；父 `6b5cdfac4315f9deb642bedacf69af8aa9dc8f9c` |
+| MatePad WorkBuddy/DevEco bridge 构建回写 | 已完成 | Windows 核验远端父提交、文件路径、回执正文 | 固定 ArkWeb SHA `2d106031f2fa6d0bd8018b053abaf9e257f40513`；回执提交 `40f34cec5c14da8abd16dbf465d385828fb2b665` |
 | 源文件交接 | 已完成 | 已拉取 15 个文本文件并扫描 | PNG 图标因 MCP 不支持二进制写入而省略 |
 | 固定提交重建、结果分支回传 | 旧基线 `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 已验证：15 个文件按 blob SHA 核对无差异，补用两个本机原图标，独立目录构建退出 0 | GitHub API 核实回执正文、父提交和单文件范围 | 回执 `7bbe80b0ec74e393d9e690e71671db491c2239cf`；未签名 HAP 27,229 字节，未上传、未安装、未运行 |
-| ArkWeb 候选 MatePad 重建 | **当前候选未验证**：请求 SHA `2d106031f2fa6d0bd8018b053abaf9e257f40513`，回执实际报告旧 SHA `fd9f9cf3c4d1f79bdd65f28b39b0405c86be43dc` | 回执 `8fdfd93febb2d17a67179107573a3d6967a32465` 只新增一文件；正文成功/54,421 B 对应旧 SHA | 不可将旧 HAP 作为最新候选证据；需从请求的精确 SHA 重建 |
+| ArkWeb 候选 MatePad 重建 | **通过**：固定 SHA `2d106031f2fa6d0bd8018b053abaf9e257f40513` | 回执分支 `feat/arkweb-build-2d1060`，提交 `40f34cec5c14da8abd16dbf465d385828fb2b665` 的父提交精确匹配固定 SHA；回执文件 SHA `d42df8b572bebe5724de041a32401e5ca398650b`，记载三次构建 exit 0，指定命令含 `-p product=default`，HAP 均 56,075 B、unsigned | 仅构建通过；未签名、安装、运行；旧回执 `8fdfd93f...` 仍是旧 SHA 证据 |
 | 合并冲突与分支协作 | 未确认 | 未测 | 两端禁止同时写同一分支，首次先串行交接 |
 
 ## MatePad 首次实机验收（不登录）

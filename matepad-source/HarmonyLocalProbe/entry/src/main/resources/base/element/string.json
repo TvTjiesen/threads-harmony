@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "HarmonyLocalProbe entry"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "HarmonyLocalProbe"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "HarmonyLocalProbe"
+    }
+  ]
+}

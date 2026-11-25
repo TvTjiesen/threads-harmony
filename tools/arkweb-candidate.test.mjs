@@ -20,6 +20,11 @@ test('Stage bundle names agree and signing remains disabled', () => {
   assert.deepEqual(buildConfig.app.signingConfigs, []);
 });
 
+test('Stage declares phone support without removing tablet and 2in1', () => {
+  const { module } = JSON.parse(readFileSync(new URL('../app/entry/src/main/module.json5', import.meta.url), 'utf8'));
+  assert.deepEqual(module.deviceTypes, ['phone', 'tablet', '2in1']);
+});
+
 test('candidate initializes only after Web attachment and gates navigation during proxy uncertainty', () => {
   assert.match(overlay, /Web\(\{ src: 'about:blank'/);
   assert.match(overlay, /onControllerAttached\(\(\) =>/);

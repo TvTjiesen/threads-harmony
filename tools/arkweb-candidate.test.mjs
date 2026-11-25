@@ -15,7 +15,7 @@ test('Stage page is synchronized with reviewed ArkWeb source', () => {
 
 test('Stage bundle names agree and signing remains disabled', () => {
   const bundle = appConfig.app.bundleName;
-  assert.equal(bundle, 'com.example.threadsharmony');
+  assert.equal(bundle, 'com.tvtjiesen.threadsharmony');
   assert.equal(buildConfig.app.products[0].bundleName, bundle);
   assert.deepEqual(buildConfig.app.signingConfigs, []);
 });

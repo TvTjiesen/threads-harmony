@@ -5,7 +5,7 @@
       {
         "name": "default",
         "runtimeOS": "HarmonyOS",
-        "bundleName": "com.example.threadsharmony",
+        "bundleName": "com.tvtjiesen.threadsharmony",
         "compileSdkVersion": "26.0.0",
         "compatibleSdkVersion": "26.0.0",
         "targetSdkVersion": "26.0.0",

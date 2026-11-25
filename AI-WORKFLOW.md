@@ -29,7 +29,7 @@
 | 用户 | 设备上的身份授权、DevEco 调试签名、安装/启动及登录等必须由本人掌控的动作；在 MatePad 上运行 WorkBuddy 的明确小任务；提供真实设备现象 | 不必写代码；只回传分支/commit、退出码、产物字节数或第一条脱敏错误，不发送凭据/代理地址 |
 | 华为官方工具（DevEco Studio、HarmonyOS CLT/Hvigor、DevEco CLI、hdc 等） | DSH 已隔离验证 DevEco CLI 1.3.0-stable 的本地 API 文档检索/读取；后续由 DSH 确认版本、接口和命令边界。MatePad WorkBuddy 只调用 MatePad 已验证的 CLT 构建能力 | 只从华为官方渠道下载；本轮未下载完整 SDK/CLT。DevEco CLI 不是 SDK/编译器；Windows CLI 找不到 DevEco Studio，尚无已验证的 Windows SDK/Hvigor 构建链 |
 
-任务按“DSH 设计/实现 → DSH 本地文档/Lint（工具可用时）与单测 → DSH 审查 → 固定 SHA → WorkBuddy 一项 MatePad 构建/窄设备核验 → DSH 独立核验 → DSH 修复下一轮”串行交接。一次只让 WorkBuddy 做一个具体动作；完成即回传并停止，不派开放式“继续开发”。代理修复版下一单只从完整固定 SHA 构建：在独立目录执行既有 Hvigor 命令。回执另开分支，只报源 SHA、命令、退出码、未签名 HAP 字节数或第一条脱敏错误。不要签名、安装、启动、修改源码或上传 HAP。每轮实施差异仍由 DSH 主写；WorkBuddy 不负责合并、重构或排错。Windows 本地工具证据与限制见 [华为工具验证](HUAWEI-TOOLS.md)。
+任务按“DSH 设计/实现 → DSH 本地文档/Lint（工具可用时）与单测 → DSH 审查 → 固定 SHA → WorkBuddy 一项 MatePad 构建/窄设备核验 → DSH 独立核验 → DSH 修复下一轮”串行交接。一次只让 WorkBuddy 做一个具体动作；完成即回传并停止，不派开放式“继续开发”。代理修复版已从完整固定 SHA 在独立目录构建通过；回执另开分支，只报源 SHA、命令、退出码、未签名 HAP 字节数或第一条脱敏错误。回执分支可从命名分支创建，但必须在回执里区分构建源码 SHA 与分支起点，不能误称父提交就是构建源码。不要签名、安装、启动、修改源码或上传 HAP。每轮实施差异仍由 DSH 主写；WorkBuddy 不负责合并、重构或排错。Windows 本地工具证据与限制见 [华为工具验证](HUAWEI-TOOLS.md)。
 
 ## 已验证：MatePad 本机 CLT 构建链
 
@@ -77,7 +77,7 @@ DevEco Studio 版本：<关于页面显示的版本>
 
 ### 实施状态
 
-- 已创建 GitHub 私有仓库 `TvTjiesen/threads-harmony`。CodeArts 先前无 CLI git 且匿名网络探针失败，随后认证 GitHub MCP 实测读写成功。Windows 代交分支 `matepad/first-handoff` 不算 MatePad 证据。MatePad 源码交接 commit `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 的父提交 `6b5cdfac4315f9deb642bedacf69af8aa9dc8f9c`、15 个文件、脱敏配置均已核验。构建结果分支 `matepad/build-f0caae-20261124` 的提交 `7bbe80b0ec74e393d9e690e71671db491c2239cf` 父提交正为上述源码 SHA，且只新增 `coordination/matepad-build-f0caae.md`。
+- GitHub 仓库 `TvTjiesen/threads-harmony` 已由用户转为公开。CodeArts 先前无 CLI git 且匿名网络探针失败，随后认证 GitHub MCP 实测读写成功。Windows 代交分支 `matepad/first-handoff` 不算 MatePad 证据。MatePad 源码交接 commit `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 的父提交 `6b5cdfac4315f9deb642bedacf69af8aa9dc8f9c`、15 个文件、脱敏配置均已核验。构建结果分支 `matepad/build-f0caae-20261124` 的提交 `7bbe80b0ec74e393d9e690e71671db491c2239cf` 父提交正为上述源码 SHA，且只新增 `coordination/matepad-build-f0caae.md`。
 - `ds-harness-remote` 是人类远程访问 DSH，不是 CodeArts Agent 自动接单协议。
 - 受限任务桥的认证、固定任务、防任意 shell 及隔离队列测试已在 Windows 通过；服务仍未启动，也未配置为 CodeArts 自动接单。MatePad 通过 GitHub MCP 的源码交接、固定 SHA 本机构建与回执回传闭环已验证；无人触发或定时自动接单仍未验证。
 

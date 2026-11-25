@@ -2,12 +2,12 @@
 
 ## 当前阶段
 
-P0：MatePad 已对旧独立 `HarmonyLocalProbe` 完成本机构建与 DevEco GUI 签名、安装、启动；Threads 网页曾白屏。固定候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513` 经 WorkBuddy 在 MatePad 三次构建通过（未签装运行）；最新代理状态修复候选 `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 的本机编译回执尚待核验。新版尚未签名、安装或真机功能验收。详见 [跨端协作记录](AI-WORKFLOW.md)。
+P0：MatePad 已对旧独立 `HarmonyLocalProbe` 完成本机构建与 DevEco GUI 签名、安装、启动；Threads 网页曾白屏。固定候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513` 经 WorkBuddy 在 MatePad 三次构建通过（未签装运行）；最新代理状态修复候选 `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 已由 WorkBuddy 在 MatePad 独立目录构建成功：exit 0，未签名 HAP 62,003 字节；Windows 已核验远端回执分支、提交和唯一新增回执文件。新版尚未签名、安装或真机功能验收。详见 [跨端协作记录](AI-WORKFLOW.md)。
 
 ## 工作分工
 
 - **Windows + DSH**：唯一产品/代码主责，维护 Git 真源，负责架构、ArkTS、审查、测试、错误修复和 MatePad 任务书。DevEco CLI 1.3.0-stable 已隔离安装并验证本地 API 文档检索；Windows CLI 找不到 DevEco Studio，ArkTS 构建和设备部署尚未验证。
-- **MatePad Edge + WorkBuddy**：设备侧作为构建/验收站。WorkBuddy 通过已验证的 MatePad 本机 CLT/Hvigor 能力执行固定 SHA 构建；回执记录 Node 24.18.1、Hvigor 7.26.11。WorkBuddy 是否通过 DevEco CLI 调用不作为已知事实。低性能 DeepSeek 4 Flash 只承担固定 SHA 的构建、版本/错误行核对和经授权的单项截图，不写业务代码、不决策架构、不改依赖或 SDK。代理修复 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 已交其构建，回执待核。定时自动触发未验证。早期独立工程通过 DevEco GUI 签名安装启动，非当前候选的证据。
+- **MatePad Edge + WorkBuddy**：设备侧作为构建/验收站。WorkBuddy 通过已验证的 MatePad 本机 CLT/Hvigor 能力执行固定 SHA 构建；最新回执记录 Node v24.18.1、Hvigor 7.26.11，构建 62,003 字节未签名 HAP。WorkBuddy 是否通过 DevEco CLI 调用不作为已知事实。低性能 DeepSeek 4 Flash 只承担固定 SHA 的构建、版本/错误行核对和经授权的单项截图，不写业务代码、不决策架构、不改依赖或 SDK。代理修复 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 已构建，回执分支 `matepad/build-proxy-state-5e4d`、提交 `f9603240237d91791f1923a9a035d638997da4ed` 已由 Windows 核验，构建源码 SHA 与回执分支起点有明确区分。定时自动触发未验证。早期独立工程通过 DevEco GUI 签名安装启动，非当前候选的证据。
 - **Pura X View**：HarmonyOS 7.0.0.115 SP10（用户提供；SDK API level 待核实）；主折叠手机验收设备。网页登录 Threads 可用，App 内 ArkWeb 仍未测。
 - **Android**：后续独立 UI/平台目标，尚无工程。
 
@@ -46,6 +46,6 @@ P0：MatePad 已对旧独立 `HarmonyLocalProbe` 完成本机构建与 DevEco GU
 
 1. 固定候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513` 已由 MatePad Edge 本机 DevEco Command Line Tools 精确构建并三次复现，详见 [ArkWeb 构建回执](https://github.com/TvTjiesen/threads-harmony/blob/feat/arkweb-build-2d1060/coordination/arkweb-build-receipt.md)。回执提交 `40f34cec5c14da8abd16dbf465d385828fb2b665` 的父提交即固定候选；命令 `hvigorw assembleHap --no-daemon -p product=default`，exit 0、`BUILD SUCCESSFUL`、未签名 HAP 56,075 字节。未签名、未安装、未运行、未上传。新代理修复候选不由此回执覆盖。
 2. 代理修复候选在 `fix/arkweb-proxy-state`，两处 ArkWeb 页面一致。应用/关闭代理同一时刻只发一个请求；等待 20 秒只提示，不解锁、不加载页面、不发反向请求。无效的旧偏好或启动代理报错/超时会尝试清除；启动超时后回调才到达时，须在设置中确认才能继续。手动设置在回调确认后才保存。此处“确认”指 ArkWeb 接收配置，不证明代理可连通。
-3. 代理修复候选已提交并推送：`5e4d5abf46247fc5c6c5ee693b0f004d482d9d38`（分支 `fix/arkweb-proxy-state`）。Node 回归 11/11、`git diff --check` 通过；假时钟测试执行生产页代理切换方法，但没有 HarmonyOS SDK，**ArkTS 编译尚未验证**。MatePad WorkBuddy 已获单项固定 SHA 构建任务，回执尚待独立核验。旧回执只覆盖 `2d106031f2fa6d0bd8018b053abaf9e257f40513`，不得用于此版。
+3. 代理修复候选已提交并推送：`5e4d5abf46247fc5c6c5ee693b0f004d482d9d38`（分支 `fix/arkweb-proxy-state`）。Node 回归 11/11、`git diff --check` 通过；假时钟测试执行生产页代理切换方法，但没有 HarmonyOS SDK，**ArkTS 编译尚未验证**。MatePad WorkBuddy 已完成单项固定 SHA 构建；回执分支 `matepad/build-proxy-state-5e4d`、提交 `f9603240237d91791f1923a9a035d638997da4ed`，仅新增 `coordination/matepad-build-proxy-state-5e4d.md`。回执分支基于命名分支 `fix/arkweb-proxy-state` 的 HEAD `7d8c910c1409b0de5a89f89049eaf7a17925d7e3`，与构建源码 SHA 不同；回执中明确写明实际构建源码 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38`。旧回执只覆盖 `2d106031f2fa6d0bd8018b053abaf9e257f40513`，不得用于此版。
 4. 新候选构建通过后，由用户在 MatePad DevEco 本机签名、安装和启动。第一轮不登录：先检查无代理时的提示/重试，再用用户自己的网络环境检查 Threads 首屏、公开内容、图片和返回。代理端点、账号、HAP 和签名材料不回传。
 5. P0 首屏过关后再测试登录、发帖、回复、关注、消息。Pura X View 手机/折叠形态需独立验收。定时自动接单不是产品开发前置，保持未开启。

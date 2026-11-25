@@ -20,7 +20,7 @@
 
 ## 当前状态
 
-MatePad 已精确构建候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513`，回执 `40f34cec5c14da8abd16dbf465d385828fb2b665` 记录三次未签名 HAP 56,075 字节。新代理修复 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 仍待单独编译，旧结果不能代替。Windows 已验证 DevEco CLI 1.3.0-stable 的文档检索/读取，但设备查询报找不到 DevEco Studio；无已验证 SDK/Hvigor 构建链。详见 [工具验证](HUAWEI-TOOLS.md)。Node 测试不等于 ArkTS 编译。
+MatePad 已精确构建候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513`，回执 `40f34cec5c14da8abd16dbf465d385828fb2b665` 记录三次未签名 HAP 56,075 字节。新代理修复 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 已由 MatePad 独立构建通过，回执 `f9603240237d91791f1923a9a035d638997da4ed` 记录 unsigned HAP 62,003 字节；尚未签名、安装或运行。旧结果不能代替新版回执。Windows 已验证 DevEco CLI 1.3.0-stable 的文档检索/读取，但设备查询报找不到 DevEco Studio；无已验证 SDK/Hvigor 构建链。详见 [工具验证](HUAWEI-TOOLS.md)。Node 测试不等于 ArkTS 编译。
 
 ## 原型同步工具验证
 

@@ -7,7 +7,7 @@
 | 设备/环境 | 系统/API | 构建/安装 | ArkWeb 登录 | 功能验收 | 形态/输入 | 证据/说明 |
 | --- | --- | --- | --- | --- | --- | --- |
 | Windows 主机 | Windows，具体 build 待录 | DevEco Studio 未被 CLI 自动发现；Harmony SDK/Hvigor 构建未验证 | 不适用 | 不适用 | DSH/键鼠 | 唯一主仓库、代码主责与 Node 回归站；DevEco CLI 1.3.0-stable 本地文档查询已验证 |
-| MatePad Edge / CodeArts | QXS-W00 7.0.0.111(SP16C00E111R5P5)（用户提供）；构建 SDK API 26 | 基线原型工程曾用本机 Hvigor 7.26.11 构建通过；候选 bundle `com.example.threadsharmony`，deviceTypes tablet/2in1；SHA `2d106031f2fa6d0bd8018b053abaf9e257f40513` 已由 WorkBuddy 构建；最新代理状态修复 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 待构建 | 未测 | 未测 | PC 形态及本机 HAP 运行已对旧独立工程验证；本次固定提交 HAP 未签名，安装与运行待测 | 2026-11-24 CodeArts MCP 交接提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6`，15 个白名单文本文件；MatePad 独立目录重建通过，结果提交 `7bbe80b0ec74e393d9e690e71671db491c2239cf`。两个 PNG 在本机补入构建目录。未签名 HAP 27,229 字节；详见 [项目状态](STATUS.md) |
+| MatePad Edge / CodeArts | QXS-W00 7.0.0.111(SP16C00E111R5P5)（用户提供）；构建 SDK API 26 | 基线原型工程曾用本机 Hvigor 7.26.11 构建通过；候选 bundle `com.example.threadsharmony`，deviceTypes tablet/2in1；SHA `2d106031f2fa6d0bd8018b053abaf9e257f40513` 已由 WorkBuddy 构建；最新代理状态修复 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 已由 WorkBuddy 构建（未签名 HAP 62,003 字节），待签名安装/运行 | 未测 | 未测 | PC 形态及本机 HAP 运行已对旧独立工程验证；本次固定提交 HAP 未签名，安装与运行待测 | 2026-11-24 CodeArts MCP 交接提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6`，15 个白名单文本文件；MatePad 独立目录重建通过，结果提交 `7bbe80b0ec74e393d9e690e71671db491c2239cf`。两个 PNG 在本机补入构建目录。未签名 HAP 27,229 字节；详见 [项目状态](STATUS.md) |
 | Pura X View | HarmonyOS 7.0.0.115 SP10（用户提供）；具体应用 API level 待核实 | 尚无 HAP | ArkWeb 未测 | 五项未测 | 折叠形态待试 | 用户确认系统浏览器可正常使用 Threads；版本号不自动等同 SDK compileSdk/API level |
 | HarmonyOS phone emulator | SDK/API 待装 | 未配置 | 未测 | 未测 | 尺寸模拟 | 仅验证布局及可模拟 API |
 | HarmonyOS tablet/2in1 emulator | SDK/API 待装 | 未配置 | 未测 | 未测 | 窗口尺寸/输入模拟 | 不等于 MatePad Edge 真实功能验证 |
@@ -32,8 +32,8 @@
 
 | 步骤 | CodeArts MatePad | Windows DSH | 证据 |
 | --- | --- | --- | --- |
-| 私有仓库服务 | 认证 GitHub MCP 读写成功 | GitHub API/fetch 均已核验 | 仓库 `TvTjiesen/threads-harmony` 私有 |
-| MatePad WorkBuddy/DevEco bridge 构建回写 | 已完成 | Windows 核验远端父提交、文件路径、回执正文 | 固定 ArkWeb SHA `2d106031f2fa6d0bd8018b053abaf9e257f40513`；回执提交 `40f34cec5c14da8abd16dbf465d385828fb2b665` |
+| 公开仓库服务 | MatePad WorkBuddy 通过公开源码读取、已认证工具写入回执 | GitHub API 核验分支、提交和唯一回执文件 | 仓库 `TvTjiesen/threads-harmony` 已公开（用户告知） |
+| MatePad WorkBuddy/DevEco bridge 构建回写 | 已完成 | Windows 核验远端父链、唯一新增文件与回执正文 | 固定代理状态 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38`，Hvigor exit 0、未签名 HAP 62,003 B；回执提交 `f9603240237d91791f1923a9a035d638997da4ed`；父提交为命名分支起点，不是构建 SHA |
 | 源文件交接 | 已完成 | 已拉取 15 个文本文件并扫描 | PNG 图标因 MCP 不支持二进制写入而省略 |
 | 固定提交重建、结果分支回传 | 旧基线 `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 已验证：15 个文件按 blob SHA 核对无差异，补用两个本机原图标，独立目录构建退出 0 | GitHub API 核实回执正文、父提交和单文件范围 | 回执 `7bbe80b0ec74e393d9e690e71671db491c2239cf`；未签名 HAP 27,229 字节，未上传、未安装、未运行 |
 | ArkWeb 候选 MatePad 重建 | **通过**：固定 SHA `2d106031f2fa6d0bd8018b053abaf9e257f40513` | 回执分支 `feat/arkweb-build-2d1060`，提交 `40f34cec5c14da8abd16dbf465d385828fb2b665` 的父提交精确匹配固定 SHA；回执文件 SHA `d42df8b572bebe5724de041a32401e5ca398650b`，记载三次构建 exit 0，指定命令含 `-p product=default`，HAP 均 56,075 B、unsigned | 仅构建通过；未签名、安装、运行；旧回执 `8fdfd93f...` 仍是旧 SHA 证据 |

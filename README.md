@@ -4,16 +4,16 @@
 
 ## 设备与共享流程
 
-MatePad 与 Windows DSH 的分工见 [AI-WORKFLOW.md](AI-WORKFLOW.md)，Windows 华为工具验证见 [HUAWEI-TOOLS.md](HUAWEI-TOOLS.md)，首次安全转交纯源码见 [SOURCE-HANDOFF.md](SOURCE-HANDOFF.md)，自动化备选路线见 [AUTOMATION-OPTIONS.md](AUTOMATION-OPTIONS.md)。已获用户授权创建私有 GitHub 仓库；Windows `main` 已推送。Windows 在独立新目录完成了 `matepad/first-handoff` 回执分支推送，但回执明确记载由 Windows 代交；MatePad CodeArts 曾通过认证 GitHub MCP 完成基线源码读取、构建和回写；随后 WorkBuddy 对 ArkWeb 固定候选精确构建成功，详见回执。任务桥仅本机安全测试，未启动；定时自动接单未验证。
+GitHub 仓库已由用户告知转为公开；MatePad 与 Windows DSH 的分工见 [AI-WORKFLOW.md](AI-WORKFLOW.md)，Windows 华为工具验证见 [HUAWEI-TOOLS.md](HUAWEI-TOOLS.md)，首次安全转交纯源码见 [SOURCE-HANDOFF.md](SOURCE-HANDOFF.md)，自动化备选路线见 [AUTOMATION-OPTIONS.md](AUTOMATION-OPTIONS.md)。GitHub 仓库已由用户转为公开；Windows 开发分支已推送。Windows 在独立新目录完成了 `matepad/first-handoff` 回执分支推送，但回执明确记载由 Windows 代交；MatePad CodeArts 曾通过认证 GitHub MCP 完成基线源码读取、构建和回写；随后 WorkBuddy 对 ArkWeb 固定候选精确构建成功，详见回执。任务桥仅本机安全测试，未启动；定时自动接单未验证。
 
 - Windows DSH 主助手负责主仓库中的产品设计、ArkTS实现、代码审查、安全测试、Git 与错误修复。MatePad WorkBuddy 只按 DSH 固定的 SHA 执行一次一个的本机构建/窄设备核验并回传脱敏结果，不自行修改业务代码。它不是实时同步：先提交并固定 SHA，MatePad 从该 SHA 工作，在独立分支写回验收记录；Windows DSH 再核对父 SHA、差异文件及回执。不得两端同时编辑同一业务分支。
 - MatePad 上已验证手动构建与结果回写；未验证定时唤醒、后台驻留或无人自动接单，不应把它当作持续运行的 Git worker。
 - 进度以 `STATUS.md` 和 `TEST-MATRIX.md` 为准；协作者不要记录账号凭据、cookie、私信原文或签名私钥。
-- MatePad Edge 已验证旧独立探针可在 PC 本机 DevEco 形态签名、安装和启动；交接新版本尚未安装。Pura X View 是主要手机硬件验收设备；授权登录、真实消息、设备通知、折叠体验和性能必须留到手机测试。
+- MatePad Edge 已验证旧独立探针可在 PC 本机 DevEco 形态签名、安装和启动；当前代理修复版虽已构建，但尚未签名、安装或启动。Pura X View 是主要手机硬件验收设备；授权登录、真实消息、设备通知、折叠体验和性能必须留到手机测试。
 
 ## 当前开发工程（Stage）
 
-已从 MatePad 验收的脱敏源码提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 在 Windows 仓库准备 `app/` Stage 工程副本；15 个提交内文本文件经 Git blob SHA 校验后复制，两个图标用本地自制占位 PNG 替代。`app/entry/src/main/ets/pages/Index.ets` 来自 `overlay/`，WebView attach 后再应用已存代理并加载首页；代理改为回调成功后再持久化；20 秒无响应会停止请求并提示检查网络；明确拒绝网页权限和 TLS 错误，并捕获主框架 HTTP 错误。签名配置为空，构建产物、签名材料均被忽略。HarmonyOS SDK 尚未在 Windows 验证。固定候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513` 已由 MatePad WorkBuddy 对精确源码 SHA 构建通过，三次 unsigned HAP 均为 56,075 字节；操作、环境及回执详见私库分支 `feat/arkweb-build-2d1060` 的 `coordination/arkweb-build-receipt.md`。Windows 已验证回执提交父 SHA 等于固定候选。该构建未签名、安装或运行。代理状态修复版已推送到 `fix/arkweb-proxy-state`，固定 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38`；需先由 WorkBuddy 对这个精确 SHA 重新编译，再本机签名安装。新版区分页面等待超时与代理回调超时：前者可停止网页加载，后者不视为取消系统代理操作。不要回传或提交 HAP、完整日志或签名材料。
+已从 MatePad 验收的脱敏源码提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 在 Windows 仓库准备 `app/` Stage 工程副本；15 个提交内文本文件经 Git blob SHA 校验后复制，两个图标用本地自制占位 PNG 替代。`app/entry/src/main/ets/pages/Index.ets` 来自 `overlay/`，WebView attach 后再应用已存代理并加载首页；代理改为回调成功后再持久化；20 秒无响应会停止请求并提示检查网络；明确拒绝网页权限和 TLS 错误，并捕获主框架 HTTP 错误。签名配置为空，构建产物、签名材料均被忽略。HarmonyOS SDK 尚未在 Windows 验证。固定候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513` 已由 MatePad WorkBuddy 对精确源码 SHA 构建通过，三次 unsigned HAP 均为 56,075 字节；操作、环境及回执详见分支 `feat/arkweb-build-2d1060` 的 `coordination/arkweb-build-receipt.md`。Windows 已验证回执提交父 SHA 等于固定候选。该构建未签名、安装或运行。代理状态修复版已推送到 `fix/arkweb-proxy-state`，固定 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38`；WorkBuddy 已对这个精确 SHA 重新编译并回传结果；该构建尚未签名、安装或运行，下一步由用户在 MatePad DevEco 本机签名安装。构建回执位于公开仓库分支 `matepad/build-proxy-state-5e4d`，提交 `f9603240237d91791f1923a9a035d638997da4ed`，回执父提交是命名开发分支起点而非构建源码 SHA。新版区分页面等待超时与代理回调超时：前者可停止网页加载，后者不视为取消系统代理操作。不要回传或提交 HAP、完整日志或签名材料。
 
 ## 开发与构建流程
 

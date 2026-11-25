@@ -4,7 +4,7 @@
 
 目标是尽量全自动：用户描述需求后，AI 能读取/修改同一份项目、调用 HarmonyOS 工具链构建、收集错误并迭代修复；用户不写代码，只在账号授权、签名、安装等敏感操作时介入。**MatePad 本机 CodeArts → 本机 Hvigor 构建链已在独立探针工程实测成功；MatePad CodeArts 通过认证 GitHub MCP 交接源码，并从固定提交在 MatePad 独立目录重建成功，结果经新分支回传且由 Windows 核验。远程触发执行与定时自动接单仍待验证。**
 
-当前进度：CodeArts 26.9.501 报告可调用 MatePad 系统 CLT 工具；`hvigorw --version` 为 7.26.11、`ohpm -v` 为 6.0.1、`hdc -v` 为 3.2.0f，退出码均为 0。它在 `/storage/Users/currentUser/Download/aitest/HarmonyLocalProbe` 创建了独立 Stage/API 26 工程，并先后构建空白 HAP 与 ArkWeb Threads 原型 HAP，构建命令 `hvigorw assembleHap --no-daemon -p product=default` 均成功。最初产物为未签名 HAP，27,231 字节；随后用户通过 DevEco Studio 将独立探针签名、安装并启动在「此电脑」。原生工具栏已显示，但 Threads 内容停留在白屏加载；联网与登录未通过验收。Windows 仓库中含代理面板的版本不是这个已运行的构建。
+当前进度：MatePad 侧 CodeArts 26.9.501/WorkBuddy 已报告可调用系统 CLT 工具；`hvigorw --version` 为 7.26.11、`ohpm -v` 为 6.0.1、`hdc -v` 为 3.2.0f，退出码均为 0。Windows DSH 已隔离安装 DevEco CLI 1.3.0-stable 并验证本地 API 文档检索/读取；设备查询因默认位置找不到 DevEco Studio 而失败，Windows 构建未验证。MatePad 在 `/storage/Users/currentUser/Download/aitest/HarmonyLocalProbe` 创建独立 Stage/API 26 工程，并先后构建空白 HAP 与 ArkWeb Threads 原型 HAP，构建命令 `hvigorw assembleHap --no-daemon -p product=default` 均成功。最初产物为未签名 HAP，27,231 字节；随后用户通过 DevEco Studio 将独立探针签名、安装并启动在「此电脑」。原生工具栏已显示，但 Threads 内容停留在白屏加载；联网与登录未通过验收。Windows 仓库中含代理面板的版本不是这个已运行的构建。
 
 这不等于 Windows DSH 已连接 MatePad，也不等于两个工作区已同步。Windows DSH 仓库 `threads-harmony` 与 MatePad 的 HarmonyLocalProbe 是两份独立目录；建立唯一事实源前，不要双端并行改同一业务代码。
 
@@ -18,20 +18,20 @@
 - 当前工程已过 Hello World 阶段；固定交接提交中的 `build-profile.json5` 为脱敏无签名配置，两个图标未随 MCP 交接。MatePad 构建已在独立目录临时补入本机图标；本仓库的 `app/` 是为继续开发准备的 Stage 工程副本，使用自制占位图，签名配置为空；不得把本地签名私钥或 HAP 提交。
 - 不把华为账号、访问令牌、Cookie、私信内容、签名密钥或 `.p12/.pfx` 文件交给 AI，也不提交到仓库。
 
-## 角色分工（2026-11-25 调整）
+## 角色分工（2026-11-25 调整与工具验证）
 
-主原则：**DSH 主助手负责绝大多数产品与工程工作；WorkBuddy/CodeArts 只做远端设备专属、短小且可验收的任务。**原因是当前 WorkBuddy 使用 DeepSeek 4 Flash，适合按固定步骤执行，不适合作为主要架构/代码决策者。工具和安装始终服从最小权限；“允许下载华为工具”不等于允许改系统全局配置、自动登录或上传敏感材料。
+主原则：**DSH 主助手是唯一的产品与代码主责；WorkBuddy（MatePad）只承担少量、本机专属、边界清楚且可核验的杂务。**原因是 WorkBuddy 当前为 DeepSeek 4 Flash，适合照步骤跑构建/检查并回报，不承担架构决策或跨文件功能开发。华为官方 DevEco CLI/CLT 是工具，不是另一个代码 Agent；能否在 Windows 建立有效构建链需先由 DSH 做隔离验证。用户已授权下载华为工具，但仍遵循最小权限：优先项目本地或用户目录，不做无关系统级变更，不自动登录，不上传敏感材料。
 
 | 参与者 | 主责 | 输出/禁止事项 |
 |---|---|---|
-| DSH 主助手（Windows） | 产品路线、架构、ArkTS 主实现、代码审查、测试、状态文档、Git 分支/提交/推送、构建错误分析与修复 | 不宣称本机未执行的 MatePad 构建/签名/运行已通过；不读取用户签名/凭据，不修改正在等待回执的固定 SHA |
-| WorkBuddy（MatePad） | 只执行交给它的一条固定 SHA 工程任务：检查指定文件、按命令构建、采集最小脱敏错误/回执；有明确授权时可做设备截图/页面检查 | 不自行改产品代码、不改依赖或 SDK、不签名/安装/登录，除非用户单独授权；不上传 HAP、日志全集、签名、令牌、代理地址 |
-| 用户 | 设备上的签名授权、安装/启动/账号登录等必须由本人掌控的操作；确认 WorkBuddy 能力与授权 | 不必写代码；只回传分支名、SHA、结果或第一条脱敏错误，勿发送凭据 |
-| DevEco / Huawei 工具 | 提供编译器、ArkTS 检查、设备部署与开发文档能力，由 DSH 设计调用边界 | 仅采用官方来源；先局部安装/临时目录验证，避免覆盖现有 SDK/工程 |
+| DSH 主助手（Windows） | 唯一产品负责人：需求拆分、路线/架构、ArkTS 与 UI 主实现、代码审查、安全与测试设计、静态/Node 回归、Git 真源和发布分支、WorkBuddy 任务书、错误诊断与修复、状态/测试矩阵维护；用隔离安装的华为 DevEco CLI 做本地鸿蒙文档检索；若未来发现完整 Studio/CLT，再验证 lint/构建能力 | 不冒充设备实测，不处理用户签名密钥/凭据，不把代理端点或 HAP 放进仓库；不要在 MatePad 回执任务运行时改变该固定 SHA；CLI 本机没有发现 DevEco Studio，不能声称可编译 |
+| WorkBuddy（MatePad） | 低性能 DeepSeek 4 Flash 执行员：一次一个小任务，如固定 SHA 的本机 Hvigor 构建、指定错误行/版本/文件核对、用户授权后的单张脱敏截图；按模板提交最小回执 | 不做架构或开放式开发、不改业务代码/依赖/SDK、不自行选 SHA；未单独获用户授权时不签名、安装、启动、登录；绝不上传 HAP、完整日志、令牌、签名材料或代理地址 |
+| 用户 | 设备上的身份授权、DevEco 调试签名、安装/启动及登录等必须由本人掌控的动作；在 MatePad 上运行 WorkBuddy 的明确小任务；提供真实设备现象 | 不必写代码；只回传分支/commit、退出码、产物字节数或第一条脱敏错误，不发送凭据/代理地址 |
+| 华为官方工具（DevEco Studio、HarmonyOS CLT/Hvigor、DevEco CLI、hdc 等） | DSH 已隔离验证 DevEco CLI 1.3.0-stable 的本地 API 文档检索/读取；后续由 DSH 确认版本、接口和命令边界。MatePad WorkBuddy 只调用 MatePad 已验证的 CLT 构建能力 | 只从华为官方渠道下载；本轮未下载完整 SDK/CLT。DevEco CLI 不是 SDK/编译器；Windows CLI 找不到 DevEco Studio，尚无已验证的 Windows SDK/Hvigor 构建链 |
 
-任务按“设计/实现 → 静态与单元测试 → DSH 审查 → 固定 SHA → WorkBuddy 构建/设备杂务 → DSH 独立核验”串行交接。一次只让 WorkBuddy 做一个具体动作；完成即回传并停止，不派开放式“继续开发”。代理修复版的下一单只编译：用已认证方式取得指定完整 SHA 的工程，在独立目录执行既有 Hvigor 命令。回执另开分支，只报源 SHA、命令、退出码、未签名 HAP 字节数或第一条脱敏错误。不要签名、安装、启动、修改源码或上传 HAP。
+任务按“DSH 设计/实现 → DSH 本地文档/Lint（工具可用时）与单测 → DSH 审查 → 固定 SHA → WorkBuddy 一项 MatePad 构建/窄设备核验 → DSH 独立核验 → DSH 修复下一轮”串行交接。一次只让 WorkBuddy 做一个具体动作；完成即回传并停止，不派开放式“继续开发”。代理修复版下一单只从完整固定 SHA 构建：在独立目录执行既有 Hvigor 命令。回执另开分支，只报源 SHA、命令、退出码、未签名 HAP 字节数或第一条脱敏错误。不要签名、安装、启动、修改源码或上传 HAP。每轮实施差异仍由 DSH 主写；WorkBuddy 不负责合并、重构或排错。Windows 本地工具证据与限制见 [华为工具验证](HUAWEI-TOOLS.md)。
 
-## 已验证：MatePad 本机 CodeArts 构建链
+## 已验证：MatePad 本机 CLT 构建链
 
 - CodeArts 26.9.501 在 MatePad 工作区可调用系统 CLT 的 Node、Hvigor、ohpm、hdc 与 codelinter；已报告版本分别为 Node 24.18.1、Hvigor 7.26.11、ohpm 6.0.1、hdc 3.2.0f、codelinter 6.0.140，版本查询退出码均为 0。**没有配置 pong-probe/MCP；本机直接工具调用已足以推进。**
 - CodeArts 在独立 `HarmonyLocalProbe` 工程完成 API 26 Stage 空工程与 ArkWeb Threads 原型构建；命令 `hvigorw assembleHap --no-daemon -p product=default`，退出码 0。原型 HAP 路径 `/storage/Users/currentUser/Download/aitest/HarmonyLocalProbe/entry/build/default/outputs/default/entry-default-unsigned.hap`，27,231 字节，未签名。
@@ -81,7 +81,7 @@ DevEco Studio 版本：<关于页面显示的版本>
 - `ds-harness-remote` 是人类远程访问 DSH，不是 CodeArts Agent 自动接单协议。
 - 受限任务桥的认证、固定任务、防任意 shell 及隔离队列测试已在 Windows 通过；服务仍未启动，也未配置为 CodeArts 自动接单。MatePad 通过 GitHub MCP 的源码交接、固定 SHA 本机构建与回执回传闭环已验证；无人触发或定时自动接单仍未验证。
 
-## 自动化实施检查点（历史初始计划）
+## 自动化实施检查点（历史初始计划；本轮能力见 HUAWEI-TOOLS.md）
 
 1. 用户已确认 DevEco Studio 已下载、打开并登录（2026-11-23）；登录只说明 IDE 账号状态，不说明 CLI/Agent/设备桥可用。
 2. 对照 MatePad 本机 Agent 与 HarmonyOS 原生运行限制，选定可审计的本地执行方式；未验证前不要宣称自动化完成。

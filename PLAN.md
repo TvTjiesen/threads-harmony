@@ -4,7 +4,7 @@
 
 交付可在 Pura X View 上独立安装、启动和日常使用的非官方 HarmonyOS 应用。ArkTS/ArkUI 负责原生界面和系统集成；在有稳定、受支持的数据能力前，Threads 官方网页负责内容与消息。安装原生 HAP 不等于所有页面都已原生实现。以用户账号在官方客户端的实际行为为对照；不把不可访问的数据能力、受限系统权限或网页推送算作已实现。
 
-**目标设备**：Pura X View（手机/折叠形态），MatePad Edge（平板形态及其 PC 环境），后续其他 HarmonyOS 手机、平板、2in1。Windows 是主工程仓库和构建/真机调试站；MatePad Edge 是白天的远程工作站和离线/模拟验证设备。手机不在手时，进度不能停在要求手机才能做的任务上。手机最终真机通过仍是发布门槛。
+**目标设备**：Pura X View（手机/折叠形态），MatePad Edge（平板形态及其 PC 环境），后续其他 HarmonyOS 手机、平板、2in1。Windows DSH 是主开发、审查与自动化测试站，Windows ArkTS 构建/设备调试尚未验证；MatePad Edge 已具备本机构建链，是白天可独立使用的开发验收设备。WorkBuddy 只执行固定版本的小任务，不承担主开发。手机不在手时，继续在 Windows 开发、MatePad 编译和验收；手机最终真机通过仍是发布门槛。
 
 ## 开发、共享和设备策略
 
@@ -12,7 +12,7 @@
 - Windows DSH 仓库与 MatePad CodeArts 工作区是不同文件系统，不能假设目录直连或共享。CodeArts 本机实测工作区为 `/storage/Users/currentUser/Download/aitest`，且已能调用系统 CLT/Hvigor 并构建 API 26 原型；详细构建证据见 `STATUS.md`。MatePad CodeArts 已通过认证 GitHub MCP 完成一次真实私库读写和源码交接；已验证固定源码提交为 `f0caae1554dfbe691be9b9690bd59e007e4a14e6`，父提交 `6b5cdfac4315f9deb642bedacf69af8aa9dc8f9c`。CodeArts 沙箱虽没有 Git 命令行，但 MCP 能读写指定路径；该提交已在 MatePad 独立目录重建（另补两个本机图标），Windows 已核验构建回执。交接时读取固定 SHA、核对变更、在独立分支提交结果，禁止两端同时编辑同一分支。不要把私人签名密钥、账号会话或个人聊天内容提交或同步到云端。
 - MatePad Edge CodeArts（HarmonyOS PC 本机应用沙箱）已实测可调用系统 CLT 的 Node、Hvigor、ohpm、hdc、codelinter，并通过认证 GitHub MCP 读取固定源码、在独立目录构建和回写结果。交接版 HAP 尚未签名、安装、运行；DevEco GUI 对早期独立探针的签名安装成功不能代替该版本验收。模拟器尺寸测试不能证明真实通知或折叠硬件行为。
 - Pura X View 在手时：真机安装、Threads 登录和消息、文件选择、系统分享、推送/后台、折叠形态、最终功耗与性能验收。记录系统/API/工具版本及结果。
-- MatePad Edge CodeArts 本机环境已核实为 HarmonyOS PC 应用沙箱，系统 `QXS-W00 7.0.0.111(SP16C00E111R5P5)` / OpenHarmony 7.0.0.111 / API 26；不是 Windows/云桌面，且不具备 SDK/Hvigor/HDC。CodeArts 的详细设备与工具能力见用户提供的 [CodeArts-HarmonyOS-PC-能力核实报告.md](</C:/Users/杰森/Documents/xwechat_files/wxid_ilhkddulxklw22_4e1a/msg/file/2026-11/CodeArts-HarmonyOS-PC-能力核实报告.md>)。MatePad 可作 PC 形态运行目标，但报告并未证明本工程 HAP 可安装运行；待 Windows DevEco 产出后单独验证，不替代 Pura X View 折叠手机验收。
+- MatePad Edge 系统记录为 `QXS-W00 7.0.0.111(SP16C00E111R5P5)` / OpenHarmony 7.0.0.111 / API 26，不是 Windows/云桌面。早期沙箱报告的“无 SDK/Hvigor/HDC”已被后续 CLT 实测取代；本机 Node/Hvigor 构建及 DevEco GUI 对独立探针签名、安装、启动均有证据。当前修复候选仍需独立编译和设备验收，不替代 Pura X View 折叠手机验收。
 
 ## Android 与多设备架构
 
@@ -26,7 +26,7 @@ ArkTS 和 Android Kotlin 的界面/平台 API 并不能因为放进一个仓库�
 
 | 阶段 | 实现 | 通过条件 |
 | --- | --- | --- |
-| P0：ArkWeb 首屏可用性 | MatePad 基线源码重建已通过；当前 `feat/arkweb-reliability` 候选 SHA `2d106031f2fa6d0bd8018b053abaf9e257f40513` 加入 WebView attach 后再加载、代理应用回调、代理/页面超时恢复与 HTTP/TLS/权限处理；此前候选构建回执实际基于旧 SHA，当前候选仍待精确重建 | MatePad CodeArts 构建当前提交成功；DevEco 本机签名/安装启动；离线时明确提示可操作，配置有效代理后显示 Threads 页面或官方入口；签名材料仅留本机 |
+| P0：ArkWeb 首屏可用性 | `2d106031f2fa6d0bd8018b053abaf9e257f40513` 已由 MatePad 精确构建通过；后续代理单锁/超时修复候选 `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 已推送，待其独立构建回执。DSH 主写/排错，WorkBuddy 只按固定 SHA 编译 | 当前候选本机编译成功；用户通过 DevEco 签名、安装启动；离线有明确提示，用户自备网络下显示 Threads 页面或官方入口；签名材料仅留本机 |
 | P1：日用版 | 会话续用、返回与安全外链、文件选择/媒体、网络代理入口与错误恢复；原生导航和设置 | 冷启动/前后台不丢会话；浏览、回复、关注、私信、群聊无阻断；无消息/令牌进日志 |
 | P2：鸿蒙设备体验 | 折叠/展开、MatePad Edge 分栏、2in1窗口缩放、系统分享、深色模式、字号、无障碍、触控笔/键鼠 | 尺寸与输入矩阵通过；窗口变化不丢位置；大字号不截断；硬件相关功能有真机记录 |
 | P3：选择性原生化 | 只将有稳定、受支持数据访问的模块逐个替成 ArkUI；另起 Android UI/兼容性技术验证 | 每次替换都对照功能、分页、错误和性能；Android 最低版本、构建链及安全策略经独立 spike 记录 |

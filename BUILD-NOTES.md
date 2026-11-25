@@ -2,7 +2,7 @@
 
 ## DevEco 工程初始化来源
 
-未在此仓库 vendoring SDK、DevEco/Hvigor wrapper 或外部项目的实现代码。使用 Windows DevEco 6.0.0+ 的当前官方 Stage/ArkTS 模板创建 `app/`；CodeArts 鸿蒙开发实践报告将 DevEco 6.0.0+、Windows 10/11 x64 或 macOS 12+、Python 3.x、Node 21+、Git 列为开发前置。模板负责生成与**本机安装 SDK 一致**的 profile、签名设置、资源 schema、hvigor/oh-package 版本锁定。初次生成后把 `app/` 非密钥工程源纳入 Git。
+`app/` 已建立：来源为经 MatePad CLT 实编的脱敏 Stage 工程基线，包含自制占位图、API 26 配置，包名 `com.example.threadsharmony`，签名配置为空。不重新生成模板或擅自升级 SDK/依赖；编译以固定 Git SHA 为单位，在独立目录执行。SDK/CLT 安装本身不纳入项目 Git。
 
 命名建议：应用显示名 `Threads Harmony`；bundle 使用个人/团队控制的反向域名（先检查是否与现有应用冲突），vendor 使用自己的项目标识。开发者签名只保存在 Windows/本机，不提交。
 
@@ -20,7 +20,7 @@
 
 ## 当前状态
 
-没有本机构建。没有生成 `app/`、HAP、签名配置或 DevEco 日志。Windows CLI 探测未找到 `hvigor`、`hvigorw`、`ohpm`、`hdc`；目前 `node` 可用。不要在状态汇报中把文件模板/静态检查说成编译成功。
+MatePad 已精确构建候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513`，回执 `40f34cec5c14da8abd16dbf465d385828fb2b665` 记录三次未签名 HAP 56,075 字节。新代理修复 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 仍待单独编译，旧结果不能代替。Windows 已验证 DevEco CLI 1.3.0-stable 的文档检索/读取，但设备查询报找不到 DevEco Studio；无已验证 SDK/Hvigor 构建链。详见 [工具验证](HUAWEI-TOOLS.md)。Node 测试不等于 ArkTS 编译。
 
 ## 原型同步工具验证
 

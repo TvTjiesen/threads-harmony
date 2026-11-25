@@ -4,9 +4,9 @@
 
 ## 设备与共享流程
 
-MatePad 与 Windows DSH 的分工见 [AI-WORKFLOW.md](AI-WORKFLOW.md)，首次安全转交纯源码见 [SOURCE-HANDOFF.md](SOURCE-HANDOFF.md)，自动化备选路线见 [AUTOMATION-OPTIONS.md](AUTOMATION-OPTIONS.md)。已获用户授权创建私有 GitHub 仓库；Windows `main` 已推送。Windows 在独立新目录完成了 `matepad/first-handoff` 回执分支推送，但回执明确记载由 Windows 代交；MatePad CodeArts 曾通过认证 GitHub MCP 完成基线源码读取、构建和回写；随后鸿蒙端 WorkBuddy 经 DevEco bridge 对 ArkWeb 固定候选精确构建成功，详见回执。任务桥仅本机安全测试，未启动；定时自动接单未验证。
+MatePad 与 Windows DSH 的分工见 [AI-WORKFLOW.md](AI-WORKFLOW.md)，Windows 华为工具验证见 [HUAWEI-TOOLS.md](HUAWEI-TOOLS.md)，首次安全转交纯源码见 [SOURCE-HANDOFF.md](SOURCE-HANDOFF.md)，自动化备选路线见 [AUTOMATION-OPTIONS.md](AUTOMATION-OPTIONS.md)。已获用户授权创建私有 GitHub 仓库；Windows `main` 已推送。Windows 在独立新目录完成了 `matepad/first-handoff` 回执分支推送，但回执明确记载由 Windows 代交；MatePad CodeArts 曾通过认证 GitHub MCP 完成基线源码读取、构建和回写；随后 WorkBuddy 对 ArkWeb 固定候选精确构建成功，详见回执。任务桥仅本机安全测试，未启动；定时自动接单未验证。
 
-- Windows DSH 维护主仓库，MatePad 上的协作 Agent 使用已认证工具按固定 SHA 执行独立任务并回传结果。它不是实时同步：先提交并固定 SHA，MatePad 从该 SHA 工作，在独立分支写回验收记录；Windows 再核对父 SHA、差异文件及回执。不得两端同时编辑同一业务分支。
+- Windows DSH 主助手负责主仓库中的产品设计、ArkTS实现、代码审查、安全测试、Git 与错误修复。MatePad WorkBuddy 只按 DSH 固定的 SHA 执行一次一个的本机构建/窄设备核验并回传脱敏结果，不自行修改业务代码。它不是实时同步：先提交并固定 SHA，MatePad 从该 SHA 工作，在独立分支写回验收记录；Windows DSH 再核对父 SHA、差异文件及回执。不得两端同时编辑同一业务分支。
 - MatePad 上已验证手动构建与结果回写；未验证定时唤醒、后台驻留或无人自动接单，不应把它当作持续运行的 Git worker。
 - 进度以 `STATUS.md` 和 `TEST-MATRIX.md` 为准；协作者不要记录账号凭据、cookie、私信原文或签名私钥。
 - MatePad Edge 已验证旧独立探针可在 PC 本机 DevEco 形态签名、安装和启动；交接新版本尚未安装。Pura X View 是主要手机硬件验收设备；授权登录、真实消息、设备通知、折叠体验和性能必须留到手机测试。
@@ -15,14 +15,13 @@ MatePad 与 Windows DSH 的分工见 [AI-WORKFLOW.md](AI-WORKFLOW.md)，首次�
 
 已从 MatePad 验收的脱敏源码提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 在 Windows 仓库准备 `app/` Stage 工程副本；15 个提交内文本文件经 Git blob SHA 校验后复制，两个图标用本地自制占位 PNG 替代。`app/entry/src/main/ets/pages/Index.ets` 来自 `overlay/`，WebView attach 后再应用已存代理并加载首页；代理改为回调成功后再持久化；20 秒无响应会停止请求并提示检查网络；明确拒绝网页权限和 TLS 错误，并捕获主框架 HTTP 错误。签名配置为空，构建产物、签名材料均被忽略。HarmonyOS SDK 尚未在 Windows 验证。固定候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513` 已由 MatePad WorkBuddy 对精确源码 SHA 构建通过，三次 unsigned HAP 均为 56,075 字节；操作、环境及回执详见私库分支 `feat/arkweb-build-2d1060` 的 `coordination/arkweb-build-receipt.md`。Windows 已验证回执提交父 SHA 等于固定候选。该构建未签名、安装或运行。代理状态修复版已推送到 `fix/arkweb-proxy-state`，固定 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38`；需先由 WorkBuddy 对这个精确 SHA 重新编译，再本机签名安装。新版区分页面等待超时与代理回调超时：前者可停止网页加载，后者不视为取消系统代理操作。不要回传或提交 HAP、完整日志或签名材料。
 
-## Windows 首次构建
+## 开发与构建流程
 
-1. 在[华为官方 DevEco Studio 页面](https://developer.harmonyos.com/cn/develop/deveco-studio)获取当前正式版本。CodeArts 鸿蒙开发实践文档要求 Windows 10/11 x64 或 macOS 12+、DevEco 6.0.0+、Python 3.x、Node 21+ 与 Git；本项目按 Windows 侧 DevEco 6.0.0+ 规划（先核实华为当前支持版本），再安装适配 Pura X View 系统/API 的 SDK。不要采用过期包管理器条目或照搬模板 `compileSdkVersion`。
-2. 在本目录使用 DevEco 的 Stage/ArkTS 空应用模板创建 `app/` 工程，核对其 `compileSdkVersion`、`compatibleSdkVersion`、`runtimeOS` 是 SDK 安装器实际提供的版本。保留模板元信息；签名材料不可提交。
-3. 模板创建后，先确认 `app/entry/src/main/module.json5` 声明了 `ohos.permission.INTERNET`。然后运行 `node tools/sync-overlay.mjs` 预览；检查 `git status`，提交新模板页面作为回退点，再运行 `node tools/sync-overlay.mjs --apply`。脚本只替换 `Index.ets`，拒绝未跟踪/未提交页面，不改权限或其他模板声明。
-4. 在 DevEco 先构建空模板，再构建本原型。查看 ArkTS 编译器对于 ArkWeb 拦截事件签名、解析 URL、布局和事件回调的报告，按**当前安装 SDK**修正 API 兼容，不将静态推测记为通过。
-5. Pura X View 开启开发者模式/USB 调试，连接主机并授权；设备可见后配置本地开发签名，运行应用。不要提交开发证书或 `.p12`。
-6. 逐项填写 `TEST-MATRIX.md`。只通过 Threads/Instagram/Meta 官方页面登录；不记录任何密钥、Cookie 或消息正文。
+1. 当前 Stage 工程 `app/` 已在仓库中，来自固定的已构建 MatePad 脱敏基线；包名为 `com.example.threadsharmony`，签名配置为空，图标为自制占位图。不要重新初始化模板或擅自改 SDK/依赖版本。
+2. 主开发在 Windows DSH 工作区进行：先查华为本地 API 文档，再改 `overlay/entry/src/main/ets/pages/Index.ets`；运行 `node tools/sync-overlay.mjs` 预览并审阅，只有符合脚本保护条件时才 `--apply` 同步 Stage 镜像。运行 Node 回归、检查 `git diff --check` 和安全差异。
+3. 当前 Windows 已隔离验证 DevEco CLI 1.3.0-stable 的文档检索，但 CLI 找不到 DevEco Studio，所以不能在此声称可做 ArkTS 编译/设备调试。HarmonyOS 构建由 MatePad WorkBuddy 按一个固定 SHA 在独立目录执行 `hvigorw assembleHap --no-daemon -p product=default`，另分支只回传 SHA/命令/退出码/未签名产物字节或首条脱敏错误；Windows DSH 核验回执并修复问题。
+4. 构建通过后用户在 MatePad DevEco GUI 自行签名、安装、启动；签名材料不可提交或交给 DSH。先不登录，检查代理提示、Threads 首页、公开内容、图片和返回。
+5. Pura X View 连接、签名、安装、登录、发帖/消息和折叠适配均需用户亲自授权并分项验收；按 `TEST-MATRIX.md` 记录，不把构建成功当作实机功能通过。
 
 ## ArkWeb 原型限制
 

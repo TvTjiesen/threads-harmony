@@ -2,7 +2,7 @@
 
 ## DevEco 工程初始化来源
 
-`app/` 已建立：来源为经 MatePad CLT 实编的脱敏 Stage 工程基线，包含自制占位图、API 26 配置，包名 `com.example.threadsharmony`，签名配置为空。不重新生成模板或擅自升级 SDK/依赖；编译以固定 Git SHA 为单位，在独立目录执行。SDK/CLT 安装本身不纳入项目 Git。
+`app/` 起始于经 MatePad CLT 实编的脱敏 Stage 工程基线，包含自制占位图与 API 26 配置；初始占位 Bundle Name `com.example.threadsharmony` 已在用户确认华为后台应用记录后替换为 `com.tvtjiesen.threadsharmony`，签名配置仍为空。不重新生成模板或擅自升级 SDK/依赖；编译以固定 Git SHA 为单位，在独立目录执行。SDK/CLT 安装本身不纳入项目 Git。
 
 命名建议：应用显示名 `Threads Harmony`；bundle 使用个人/团队控制的反向域名（先检查是否与现有应用冲突），vendor 使用自己的项目标识。开发者签名只保存在 Windows/本机，不提交。
 

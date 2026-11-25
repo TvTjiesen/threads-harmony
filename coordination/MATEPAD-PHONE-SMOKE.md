@@ -6,15 +6,15 @@
 
 - 项目：`TvTjiesen/threads-harmony`
 - 开发分支：`fix/arkweb-proxy-state`
-- 手机候选：`da480b43c92fbf9d364ae84efaf63197d17205c7`，声明 `phone`、`tablet`、`2in1`；本地手机模拟器 `ThreadsHarmonyPhone`，HDC serial `127.0.0.1:5555`，系统 `7.0.0.107(SP8DEVC00E999R4P11)`。
-- Windows 在隔离工作树仅把编译 SDK 对齐到 `26.0.1`，兼容及目标 SDK 保持 `26.0.0`。Hvigor 实际执行 `CompileArkTS`，产出 61,838 字节未签名 HAP；安装、启动和布局尚未验证。
+- 新手机候选 SHA：`56785d268d3f028dbe19d21a2c6736bcbb5990d2`，声明 `phone`、`tablet`、`2in1`，Bundle Name `com.tvtjiesen.threadsharmony`；原候选 `da480b43c92fbf9d364ae84efaf63197d17205c7` 使用的旧包名不再使用。手机模拟器 `ThreadsHarmonyPhone`，上次 HDC serial `127.0.0.1:5555`，系统 `7.0.0.107(SP8DEVC00E999R4P11)`，当前尝试重新启动中。
+- Windows 对固定 SHA 在隔离构建工作树仅把 compile SDK 对齐到 `26.0.1`，兼容/目标仍为 `26.0.0`。Hvigor clean build 实际执行 `CompileArkTS`，产出 61,850 字节未签名 HAP，SHA256 `aa6f33c540b4763fb1ee59ccc76457b12e63f2f1556b423cc58112601b33d74c`；安装、启动和布局尚未验证。
 - 旧的 `5e4d5abf` MatePad 回执不作为手机支持证据。
 
 ## 用户本机 DevEco 操作（仅一次）
 
-1. 在已打开的 `threads-harmony-phone-da480b4-local/app` 工程中，打开 **File > Project Structure... > Project > Signing Configs**。
+1. 在已打开的 `threads-harmony-phone-56785d26-local/app` 工程中（候选 SHA `56785d268d3f028dbe19d21a2c6736bcbb5990d2`），打开 **File > Project Structure... > Project > Signing Configs**。
 2. 勾选 **Automatically generate signature** 和 **Support HarmonyOS**；若出现 **Sign In**，仅由你本人在 IDE 完成华为账号登录/授权，不要把账号信息发给 DSH。
-3. 当前 `com.example.threadsharmony` 是占位 Bundle Name，不是已注册的华为应用。若自动签名流程要求“关联应用”，需由用户在 AppGallery Connect（华为应用管理后台）先创建/选择自己拥有的 HarmonyOS 应用记录，并确保其中 Bundle Name 与工程完全一致；不要把不存在的占位名称硬关联，也不要为迁就未注册名称擅改工程。最终 Bundle Name 确认后，再同步更新 `app/AppScope/app.json5` 与 `app/build-profile.json5` 并重新构建固定 SHA。账号注册/应用记录/授权由用户本人完成。不要把生成的证书或 HAP 提交到 GitHub；关联和签名配置好后告诉 DSH「签名已配好」。安装和启动由 DSH 使用已授权的本机模拟器流程继续。
+3. 用户确认华为后台已有与 `com.tvtjiesen.threadsharmony` 完全一致的 HarmonyOS 应用记录。工程已据此更新 `app/AppScope/app.json5` 和 `app/build-profile.json5`，现需从更新后的新 SHA 重新验证构建；此前占位名 `com.example.threadsharmony` 的 HAP 不用于签名/安装。账号授权由用户本人完成。不要把生成的证书或 HAP 提交到 GitHub；完成关联和签名配置后告诉 DSH「签名已配好」。安装和启动由 DSH 使用已授权的本机模拟器流程继续。
 
 ## 手机 smoke 范围
 

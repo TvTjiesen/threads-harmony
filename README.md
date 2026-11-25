@@ -13,13 +13,13 @@ GitHub 仓库已由用户告知转为公开；MatePad 与 Windows DSH 的分工�
 
 ## 当前开发工程（Stage）
 
-已从 MatePad 验收的脱敏源码提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 在 Windows 仓库准备 `app/` Stage 工程副本；15 个提交内文本文件经 Git blob SHA 校验后复制，两个图标用本地自制占位 PNG 替代。`app/entry/src/main/ets/pages/Index.ets` 来自 `overlay/`，WebView attach 后再应用已存代理并加载首页；代理改为回调成功后再持久化；20 秒无响应会停止请求并提示检查网络；明确拒绝网页权限和 TLS 错误，并捕获主框架 HTTP 错误。签名配置为空，构建产物、签名材料均被忽略。HarmonyOS SDK 尚未在 Windows 验证。固定候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513` 已由 MatePad WorkBuddy 对精确源码 SHA 构建通过，三次 unsigned HAP 均为 56,075 字节；操作、环境及回执详见分支 `feat/arkweb-build-2d1060` 的 `coordination/arkweb-build-receipt.md`。Windows 已验证回执提交父 SHA 等于固定候选。该构建未签名、安装或运行。代理状态修复版已推送到 `fix/arkweb-proxy-state`，固定 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38`；WorkBuddy 已对这个精确 SHA 重新编译并回传结果；该构建尚未签名、安装或运行，下一步由用户在 MatePad DevEco 本机签名安装。构建回执位于公开仓库分支 `matepad/build-proxy-state-5e4d`，提交 `f9603240237d91791f1923a9a035d638997da4ed`，回执父提交是命名开发分支起点而非构建源码 SHA。新版区分页面等待超时与代理回调超时：前者可停止网页加载，后者不视为取消系统代理操作。不要回传或提交 HAP、完整日志或签名材料。
+已从 MatePad 验收的脱敏源码提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 在 Windows 仓库准备 `app/` Stage 工程副本；15 个提交内文本文件经 Git blob SHA 校验后复制，两个图标用本地自制占位 PNG 替代。`app/entry/src/main/ets/pages/Index.ets` 来自 `overlay/`，WebView attach 后再应用已存代理并加载首页；代理改为回调成功后再持久化；20 秒无响应会停止请求并提示检查网络；明确拒绝网页权限和 TLS 错误，并捕获主框架 HTTP 错误。签名配置为空，构建产物、签名材料均被忽略。Windows 已用 DevEco SDK API 26 `26.0.1.120` Beta1 对同一代理修复版做本地编译验证，仅在隔离副本覆盖 `compileSdkVersion`。固定候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513` 已由 MatePad WorkBuddy 对精确源码 SHA 构建通过，三次 unsigned HAP 均为 56,075 字节；操作、环境及回执详见分支 `feat/arkweb-build-2d1060` 的 `coordination/arkweb-build-receipt.md`。Windows 已验证回执提交父 SHA 等于固定候选。该构建未签名、安装或运行。代理状态修复版已推送到 `fix/arkweb-proxy-state`，固定 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38`；WorkBuddy 已对这个精确 SHA 重新编译并回传结果；该构建尚未签名、安装或运行，下一步由用户在 MatePad DevEco 本机签名安装。构建回执位于公开仓库分支 `matepad/build-proxy-state-5e4d`，提交 `f9603240237d91791f1923a9a035d638997da4ed`，回执父提交是命名开发分支起点而非构建源码 SHA。新版区分页面等待超时与代理回调超时：前者可停止网页加载，后者不视为取消系统代理操作。不要回传或提交 HAP、完整日志或签名材料。
 
 ## 开发与构建流程
 
-1. 当前 Stage 工程 `app/` 已在仓库中，来自固定的已构建 MatePad 脱敏基线；包名为 `com.example.threadsharmony`，签名配置为空，图标为自制占位图。不要重新初始化模板或擅自改 SDK/依赖版本。
+1. 当前 Stage 工程 `app/` 已在仓库中，来自固定的已构建 MatePad 脱敏基线；包名为 `com.example.threadsharmony`，签名配置为空，图标为自制占位图。Windows 当前本地编译用 Beta SDK，需要临时副本对齐 `compileSdkVersion`；不要把这个差异提交或擅自改 MatePad 固定版本。
 2. 主开发在 Windows DSH 工作区进行：先查华为本地 API 文档，再改 `overlay/entry/src/main/ets/pages/Index.ets`；运行 `node tools/sync-overlay.mjs` 预览并审阅，只有符合脚本保护条件时才 `--apply` 同步 Stage 镜像。运行 Node 回归、检查 `git diff --check` 和安全差异。
-3. 当前 Windows 已隔离验证 DevEco CLI 1.3.0-stable 的文档检索，但 CLI 找不到 DevEco Studio，所以不能在此声称可做 ArkTS 编译/设备调试。HarmonyOS 构建由 MatePad WorkBuddy 按一个固定 SHA 在独立目录执行 `hvigorw assembleHap --no-daemon -p product=default`，另分支只回传 SHA/命令/退出码/未签名产物字节或首条脱敏错误；Windows DSH 核验回执并修复问题。
+3. Windows DSH 使用 DevEco Studio 自带 Hvigor 在纯 ASCII 的隔离工作树编译 ArkTS。因本机 SDK `26.0.1.120` 为 Beta1，固定 `5e4d5abf` 构建时仅在副本将 `compileSdkVersion` 从 `26.0.0` 对齐到 `26.0.1`；该补丁不进入提交或 MatePad 回执。具体命令与哈希见 [华为工具验证](HUAWEI-TOOLS.md)。MatePad WorkBuddy 保留窄设备验收任务；HDC 本机未发现连接设备。
 4. 构建通过后用户在 MatePad DevEco GUI 自行签名、安装、启动；签名材料不可提交或交给 DSH。先不登录，检查代理提示、Threads 首页、公开内容、图片和返回。
 5. Pura X View 连接、签名、安装、登录、发帖/消息和折叠适配均需用户亲自授权并分项验收；按 `TEST-MATRIX.md` 记录，不把构建成功当作实机功能通过。
 

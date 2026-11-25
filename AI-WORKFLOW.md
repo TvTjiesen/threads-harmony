@@ -2,9 +2,9 @@
 
 ## 目标
 
-目标是尽量全自动：用户描述需求后，AI 能读取/修改同一份项目、调用 HarmonyOS 工具链构建、收集错误并迭代修复；用户不写代码，只在账号授权、签名、安装等敏感操作时介入。**MatePad 本机 CodeArts → 本机 Hvigor 构建链已在独立探针工程实测成功；MatePad CodeArts 通过认证 GitHub MCP 交接源码，并从固定提交在 MatePad 独立目录重建成功，结果经新分支回传且由 Windows 核验。远程触发执行与定时自动接单仍待验证。**
+目标是尽量全自动：用户描述需求后，AI 能读取/修改同一份项目、调用 HarmonyOS 工具链构建、收集错误并迭代修复；用户不写代码，只在账号授权、签名、安装等敏感操作时介入。**Windows DSH 已能用 DevEco Studio 自带 Hvigor 本机编译；MatePad CodeArts 也已通过认证 GitHub MCP 交接源码、在固定提交的独立目录构建并回写结果。无人值守触发、定时自动接单与 Windows 物理设备调试仍待验证。**
 
-当前进度：MatePad 侧 CodeArts 26.9.501/WorkBuddy 已报告可调用系统 CLT 工具；`hvigorw --version` 为 7.26.11、`ohpm -v` 为 6.0.1、`hdc -v` 为 3.2.0f，退出码均为 0。Windows DSH 已隔离安装 DevEco CLI 1.3.0-stable 并验证本地 API 文档检索/读取；设备查询因默认位置找不到 DevEco Studio 而失败，Windows 构建未验证。MatePad 在 `/storage/Users/currentUser/Download/aitest/HarmonyLocalProbe` 创建独立 Stage/API 26 工程，并先后构建空白 HAP 与 ArkWeb Threads 原型 HAP，构建命令 `hvigorw assembleHap --no-daemon -p product=default` 均成功。最初产物为未签名 HAP，27,231 字节；随后用户通过 DevEco Studio 将独立探针签名、安装并启动在「此电脑」。原生工具栏已显示，但 Threads 内容停留在白屏加载；联网与登录未通过验收。Windows 仓库中含代理面板的版本不是这个已运行的构建。
+当前进度：MatePad 侧 CodeArts 26.9.501/WorkBuddy 已报告可调用系统 CLT 工具；`hvigorw --version` 为 7.26.11、`ohpm -v` 为 6.0.1、`hdc -v` 为 3.2.0f，退出码均为 0。Windows DSH 已用华为 DevEco Studio 自带 Hvigor clean 编译 ArkTS 并生成未签名 HAP（仅在隔离工作树将 compileSdkVersion 对齐到已安装的 Beta SDK）；HDC 本次未发现设备。DevEco CLI 1.3.0-stable 仍用于本地 API 文档。MatePad 在 `/storage/Users/currentUser/Download/aitest/HarmonyLocalProbe` 创建独立 Stage/API 26 工程，并先后构建空白 HAP 与 ArkWeb Threads 原型 HAP，构建命令 `hvigorw assembleHap --no-daemon -p product=default` 均成功。最初产物为未签名 HAP，27,231 字节；随后用户通过 DevEco Studio 将独立探针签名、安装并启动在「此电脑」。原生工具栏已显示，但 Threads 内容停留在白屏加载；联网与登录未通过验收。Windows 仓库中含代理面板的版本不是这个已运行的构建。
 
 这不等于 Windows DSH 已连接 MatePad，也不等于两个工作区已同步。Windows DSH 仓库 `threads-harmony` 与 MatePad 的 HarmonyLocalProbe 是两份独立目录；建立唯一事实源前，不要双端并行改同一业务代码。
 
@@ -20,16 +20,16 @@
 
 ## 角色分工（2026-11-25 调整与工具验证）
 
-主原则：**DSH 主助手是唯一的产品与代码主责；WorkBuddy（MatePad）只承担少量、本机专属、边界清楚且可核验的杂务。**用户确认 MatePad WorkBuddy 当前使用 HY4Flash，适合照步骤跑构建/检查并回报，不承担架构决策或跨文件功能开发。华为官方 DevEco CLI/CLT 是工具，不是另一个代码 Agent；能否在 Windows 建立有效构建链需先由 DSH 做隔离验证。用户已授权下载华为工具，但仍遵循最小权限：优先项目本地或用户目录，不做无关系统级变更，不自动登录，不上传敏感材料。
+主原则：**DSH 主助手是唯一的产品与代码主责；WorkBuddy（MatePad）只承担少量、本机专属、边界清楚且可核验的杂务。**用户确认 MatePad WorkBuddy 当前使用 HY4Flash，适合照步骤跑构建/检查并回报，不承担架构决策或跨文件功能开发。华为官方 DevEco CLI/CLT 是工具，不是另一个代码 Agent；Windows 已建立隔离 Hvigor 编译链，但使用 Beta1 SDK 与仅本地 SDK 对齐补丁。用户已授权下载华为工具，但仍遵循最小权限：优先项目本地或用户目录，不做无关系统级变更，不自动登录，不上传敏感材料。
 
 | 参与者 | 主责 | 输出/禁止事项 |
 |---|---|---|
-| DSH 主助手（Windows） | 唯一产品负责人：需求拆分、路线/架构、ArkTS 与 UI 主实现、代码审查、安全与测试设计、静态/Node 回归、Git 真源和发布分支、WorkBuddy 任务书、错误诊断与修复、状态/测试矩阵维护；用隔离安装的华为 DevEco CLI 做本地鸿蒙文档检索；若未来发现完整 Studio/CLT，再验证 lint/构建能力 | 不冒充设备实测，不处理用户签名密钥/凭据，不把代理端点或 HAP 放进仓库；不要在 MatePad 回执任务运行时改变该固定 SHA；CLI 本机没有发现 DevEco Studio，不能声称可编译 |
+| DSH 主助手（Windows） | 唯一产品负责人：需求拆分、路线/架构、ArkTS 与 UI 主实现、代码审查、安全与测试设计、静态/Node 回归、Windows Hvigor 实编、Git 真源和发布分支、WorkBuddy 任务书、错误诊断与修复、状态/测试矩阵维护 | 不冒充设备实测，不处理用户签名密钥/凭据，不把代理端点或 HAP 放进仓库；不改变 MatePad 正在验收的固定 SHA；本机 SDK 是 Beta，且尚无 HDC 连接设备 |
 | WorkBuddy（MatePad） | 低性能 HY4Flash 执行员：一次一个小任务，如固定 SHA 的本机 Hvigor 构建、指定错误行/版本/文件核对、用户授权后的单张脱敏截图；按模板提交最小回执 | 不做架构或开放式开发、不改业务代码/依赖/SDK、不自行选 SHA；未单独获用户授权时不签名、安装、启动、登录；绝不上传 HAP、完整日志、令牌、签名材料或代理地址 |
 | 用户 | 设备上的身份授权、DevEco 调试签名、安装/启动及登录等必须由本人掌控的动作；在 MatePad 上运行 WorkBuddy 的明确小任务；提供真实设备现象 | 不必写代码；只回传分支/commit、退出码、产物字节数或第一条脱敏错误，不发送凭据/代理地址 |
-| 华为官方工具（DevEco Studio、HarmonyOS CLT/Hvigor、DevEco CLI、hdc 等） | DSH 已隔离验证 DevEco CLI 1.3.0-stable 的本地 API 文档检索/读取；后续由 DSH 确认版本、接口和命令边界。MatePad WorkBuddy 只调用 MatePad 已验证的 CLT 构建能力 | 只从华为官方渠道下载；本轮未下载完整 SDK/CLT。DevEco CLI 不是 SDK/编译器；Windows CLI 找不到 DevEco Studio，尚无已验证的 Windows SDK/Hvigor 构建链 |
+| 华为官方工具（DevEco Studio、HarmonyOS CLT/Hvigor、DevEco CLI、hdc 等） | DSH 使用 Studio 自带 Hvigor 在 Windows 本机做 ArkTS 编译；CLI 用于补充文档检索；MatePad 工具链留给 WorkBuddy 的设备专属核验 | Windows SDK 为 API 26 `26.0.1.120` Beta1；固定版本编译仅在临时副本对齐 `compileSdkVersion`；HDC 可运行但当前无设备 |
 
-任务按“DSH 设计/实现 → DSH 本地文档/Lint（工具可用时）与单测 → DSH 审查 → 固定 SHA → WorkBuddy 一项 MatePad 构建/窄设备核验 → DSH 独立核验 → DSH 修复下一轮”串行交接。一次只让 WorkBuddy 做一个具体动作；完成即回传并停止，不派开放式“继续开发”。代理修复版已从完整固定 SHA 在独立目录构建通过；回执另开分支，只报源 SHA、命令、退出码、未签名 HAP 字节数或第一条脱敏错误。回执分支可从命名分支创建，但必须在回执里区分构建源码 SHA 与分支起点，不能误称父提交就是构建源码。不要签名、安装、启动、修改源码或上传 HAP。每轮实施差异仍由 DSH 主写；WorkBuddy 不负责合并、重构或排错。Windows 本地工具证据与限制见 [华为工具验证](HUAWEI-TOOLS.md)。
+任务按“DSH 设计/实现 → DSH 本地文档、Node 回归与 Hvigor 编译 → DSH 审查 → 固定 SHA → WorkBuddy 一项 MatePad 专属设备/环境核验 → DSH 独立核验 → DSH 修复下一轮”串行交接。一次只让 WorkBuddy 做一个具体动作；完成即回传并停止，不派开放式“继续开发”。代理修复版已从完整固定 SHA 在独立目录构建通过；回执另开分支，只报源 SHA、命令、退出码、未签名 HAP 字节数或第一条脱敏错误。回执分支可从命名分支创建，但必须在回执里区分构建源码 SHA 与分支起点，不能误称父提交就是构建源码。不要签名、安装、启动、修改源码或上传 HAP。每轮实施差异仍由 DSH 主写；WorkBuddy 不负责合并、重构或排错。Windows 本地工具证据与限制见 [华为工具验证](HUAWEI-TOOLS.md)。
 
 ## 已验证：MatePad 本机 CLT 构建链
 

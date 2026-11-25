@@ -1,4 +1,5 @@
 # HarmonyOS / Hvigor generated outputs
+/.hvigor/
 app/**/build/
 app/.hvigor/
 app/.idea/

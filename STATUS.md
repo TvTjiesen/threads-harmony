@@ -2,11 +2,11 @@
 
 ## 当前阶段
 
-P0：MatePad 已对旧独立 `HarmonyLocalProbe` 完成本机构建与 DevEco GUI 签名、安装、启动；Threads 网页曾白屏。固定候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513` 经 WorkBuddy 在 MatePad 三次构建通过（未签装运行）；最新代理状态修复候选 `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 已由 WorkBuddy 在 MatePad 独立目录构建成功：exit 0，未签名 HAP 62,003 字节；Windows 已核验远端回执分支、提交和唯一新增回执文件。新版尚未签名、安装或真机功能验收。详见 [跨端协作记录](AI-WORKFLOW.md)。
+P0：Windows DSH 已在隔离 Beta SDK 工作树完成代理修复候选的 ArkTS clean build；MatePad 已对旧独立 `HarmonyLocalProbe` 完成本机构建与 DevEco GUI 签名、安装、启动；Threads 网页曾白屏。固定候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513` 经 WorkBuddy 在 MatePad 三次构建通过（未签装运行）；最新代理状态修复候选 `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 已由 WorkBuddy 在 MatePad 独立目录构建成功：exit 0，未签名 HAP 62,003 字节；Windows 已核验远端回执分支、提交和唯一新增回执文件。新版尚未签名、安装或真机功能验收。详见 [跨端协作记录](AI-WORKFLOW.md)。
 
 ## 工作分工
 
-- **Windows + DSH**：唯一产品/代码主责，维护 Git 真源，负责架构、ArkTS、审查、测试、错误修复和 MatePad 任务单。DevEco CLI 1.3.0-stable 已隔离安装并验证本地 API 文档检索；Windows 官方 Studio/CLT 未取得，CLI build 无成功结果，ArkTS 构建和设备部署尚未验证。
+- **Windows + DSH**：唯一产品/代码主责，维护 Git 真源，负责架构、ArkTS、审查、测试、错误修复和 MatePad 任务单。DevEco CLI 用于本地文档；常规 ArkTS 编译和打包由 Windows DevEco Studio 自带 Hvigor 执行，已对隔离工作树中的代理候选完成首轮实编。HDC 未发现设备，部署和运行尚未验证。
 - **MatePad Edge + WorkBuddy**：设备侧作为构建/验收站。WorkBuddy 通过已验证的 MatePad 本机 CLT/Hvigor 能力执行固定 SHA 构建；最新回执记录 Node v24.18.1、Hvigor 7.26.11，构建 62,003 字节未签名 HAP。WorkBuddy 是否通过 DevEco CLI 调用不作为已知事实。低性能 HY4Flash 只承担固定 SHA 的构建、版本/错误行核对和经授权的单项截图，不写业务代码、不决策架构、不改依赖或 SDK。代理修复 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 已构建，回执分支 `matepad/build-proxy-state-5e4d`、提交 `f9603240237d91791f1923a9a035d638997da4ed` 已由 Windows 核验，构建源码 SHA 与回执分支起点有明确区分。定时自动触发未验证。早期独立工程通过 DevEco GUI 签名安装启动，非当前候选的证据。
 - **Pura X View**：HarmonyOS 7.0.0.115 SP10（用户提供；SDK API level 待核实）；主折叠手机验收设备。网页登录 Threads 可用，App 内 ArkWeb 仍未测。
 - **Android**：后续独立 UI/平台目标，尚无工程。
@@ -23,7 +23,7 @@ P0：MatePad 已对旧独立 `HarmonyLocalProbe` 完成本机构建与 DevEco GU
 
 - 2026-11-23：Windows winget 可查询到 `Huawei.DevEco`，清单版本 `223.8617.56.36.310501` 指向 DevEco Studio 3.1.0.501（2023 安装包）。未安装，不采用此旧版本。
 - 用户设备信息（2026-11-23）：Pura X View 系统为 HarmonyOS 7.0.0.115 SP10；该系统 build 尚未映射到 Harmony SDK API level。CodeArts 核实报告将 MatePad Edge 系统记录为 QXS-W00 7.0.0.111(SP16C00E111R5P5) / OpenHarmony 7.0.0.111 / API 26；注意报告采集的是 MatePad，不是 Pura X。报告全文位于用户提供的 `C:\Users\杰森\Documents\xwechat_files\wxid_ilhkddulxklw22_4e1a\msg\file\2026-11\CodeArts-HarmonyOS-PC-能力核实报告.md`。
-- **Windows DSH 主机**未发现 DevEco Studio、HarmonyOS SDK、`hvigorw`、`ohpm`、`hdc` 或 `adb` 可执行命令。隔离安装 DevEco CLI `1.3.0-stable`（Node `v24.14.0`）可检索本地文档，但 `device list` 因未发现 Studio 安装失败。两个 USB 项目名为 Android ADB Interface；没有 adb 客户端，设备身份/HDC 通道均未验证。执行 CLI build 在 25 秒工具时限内未返回结果，不记为构建。官方 CLT 下载页仅返回登录相关 SPA，未得到可核验安装包，因此未下载不明来源工具。详见 [华为工具记录](HUAWEI-TOOLS.md)。此结论只描述 Windows 主机，不适用于 MatePad。
+- **Windows DSH 主机（2026-11-25）**：已发现华为签名有效的 DevEco Studio、Hvigor 6.26.20、Node 24.14.1、ohpm 与 API 26 `26.0.1.120` Beta1 SDK。以固定候选 `5e4d5abf` 创建纯 ASCII 隔离工作树，仅将本地 `compileSdkVersion` 对齐为 `26.0.1` 后，Hvigor clean build 实际执行 `CompileArkTS` 并成功生成 61,814 字节未签名 HAP。HDC 3.2.0f 可运行但未列出设备，因此没有部署/运行验收。原始固定提交不变；MatePad 使用的构建配置也未改。完整命令/哈希见 [华为工具记录](HUAWEI-TOOLS.md)。
 - 从公开 OpenTwit 仓库核对的 Stage 样例：`compileSdkVersion` 6.1.1(24)、`compatibleSdkVersion` 5.0.0(12)、设备列 phone/tablet/2in1；仅作历史参考，不是本项目兼容性证据。当前 MatePad 原型基于本机 SDK API 26。
 - 用户提供的早期 CodeArts 核实报告引用官方鸿蒙开发实践：DevEco 6.0.0+，运行环境 Windows 10/11 x64 或 macOS 12+；该报告当时只核验 CodeArts 应用沙箱。随后 CodeArts 已在 MatePad 工作区成功调用 CLT/Hvigor，详见下节；因此不能再用旧沙箱报告推断本机无法构建。
 
@@ -44,7 +44,7 @@ P0：MatePad 已对旧独立 `HarmonyLocalProbe` 完成本机构建与 DevEco GU
 
 ## 下一步
 
-- DSH 主开发、本机完成可用范围内的静态检查/单测与错误定位；MatePad WorkBuddy（HY4Flash）仅做固定版本本机验收/窄杂务。当前任务单见 [MatePad 下一项验收](coordination/MATEPAD-NEXT.md)。
+- DSH 主开发、本机完成静态检查、Node 回归、Windows Hvigor ArkTS clean build 与错误定位；MatePad WorkBuddy（HY4Flash）仅做固定版本本机验收/窄杂务。当前任务单见 [MatePad 下一项验收](coordination/MATEPAD-NEXT.md)。
 - 新候选 `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 已经在 MatePad 构建验证；下一关是本机签名安装与无登录首屏验收。任务单减少长提示词复制，但不会自动唤醒 WorkBuddy；目前 DSH 没有可验证的远端启动/调度通道。
 
 1. 固定候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513` 已由 MatePad Edge 本机 DevEco Command Line Tools 精确构建并三次复现，详见 [ArkWeb 构建回执](https://github.com/TvTjiesen/threads-harmony/blob/feat/arkweb-build-2d1060/coordination/arkweb-build-receipt.md)。回执提交 `40f34cec5c14da8abd16dbf465d385828fb2b665` 的父提交即固定候选；命令 `hvigorw assembleHap --no-daemon -p product=default`，exit 0、`BUILD SUCCESSFUL`、未签名 HAP 56,075 字节。未签名、未安装、未运行、未上传。新代理修复候选不由此回执覆盖。

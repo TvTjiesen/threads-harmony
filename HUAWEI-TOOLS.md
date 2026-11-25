@@ -18,10 +18,17 @@
 - 构建验证使用独立 detached worktree `C:\tmp\threads-harmony-build-5e4d`，HEAD 固定为代码候选 `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38`，未改主工作区的已提交源代码。先以原样 `26.0.0` 构建，Hvigor 明确失败：`00303313 Configuration Error`，`compileSdkVersion 26.0.0` 与本机 DevEco/SDK `26.0.1` 不兼容。仅在临时 worktree 将 `app/build-profile.json5` 的 `compileSdkVersion` 改为 `26.0.1`（`compatibleSdkVersion` 和 `targetSdkVersion` 保持 `26.0.0`）后，执行 `hvigorw.bat clean assembleHap --no-daemon -p product=default` 成功：随后又从干净状态重复执行相同命令，`BUILD SUCCESSFUL in 5 s 651 ms`，35 tasks（34 executed、1 up-to-date）。产物 `entry-default-unsigned.hap` 为 61,814 bytes，SHA-256 `752600fdd706c4a06a62d06453d5f8927a2d27ba3fa96639808590094fe48b21`；另两次 clean build 同字节数，哈希分别为 `6b36c7437a35f05d0c8407aad920e88d1312b47e5d7ab78aa96e16fff31750c8` 与 `c8af50c3875d68ca4d967078c098cc5442b06a7790cffd904110562d36bb51ce`。新脚本再次验证 `BUILD SUCCESSFUL in 6 s 665 ms`。构建输出含 `No signingConfig found for product default`，所以未签名。此结果仅证明固定源码在**本地临时 SDK 对齐副本**可编译打包，不是原始已推送提交原样构建，也不是稳定 API 26 SDK/真机验证。
 - Hvigor 首次在原 Windows 工作区路径构建时被 Harmony 工程路径校验拒绝（路径含中文用户目录）；后续使用纯 ASCII 的 `C:\tmp` worktree。该次失败在主工作区留下 `.hvigor/outputs/build-logs/build.log`；仓库现忽略根目录下的 `.hvigor/`，不提交生成日志。HDC 初次探测无目标；最新平板模拟器连通证据见下节。没有签名、部署或应用运行证据。
 
-### Windows 平板模拟器
+### Windows 模拟器与签名入口
 
-- 经用户同意接受模拟器许可后，通过 DevEco CLI 下载了官方 HarmonyOS 7.0.0（26.0.0）平板 Release 映像 `7.0.0.107`（1,930,878,514 字节），创建独立 `ThreadsHarmonyTablet` 实例；原有手机和折叠模拟器未启动。
-- 冷启动首次等待超时，但实例随后上线。DevEco CLI `device list --format json` 和 `hdc list targets` 都发现 `127.0.0.1:5555`；HDC 只读系统参数确认软件版本 `7.0.0.107(SP8DEVC00E16R1P1)`。这是 Windows 本地模拟器，不是 MatePad 真机。目前仅验证目标启动和 HDC 连通；本轮后续查询时实例状态为 stopped，需要验收前重新启动。未签名、安装或运行本项目，也未验证 ArkUI Inspector、ArkTS 断点、ArkWeb DOM 或 Threads 页面。
+**手机优先更新（2026-11-25）**：工程入口 `app/` 已在 `entry/src/main/module.json5` 声明 `phone`、`tablet`、`2in1`，因此下一编译/验收不再只有平板。手机候选 SHA `da480b43c92fbf9d364ae84efaf63197d17205c7` 执行了 `CompileArkTS` 并生成 61,838 字节 unsigned HAP（SHA-256 `97478d6efd05c7327562dcde2a51b25bbb5801f386d74a79e214c33986912963`）；只在临时工作树对齐 `compileSdkVersion`，兼容/目标仍 26.0.0。没有签名/安装/运行。
+
+手机模拟器：官方镜像目录列出 HarmonyOS 7.0.0(26.0.0) phone Release 7.0.0.107，但 CLI 下载被许可门槛拒绝；没有接受新许可或下载。旧 `Mate 90 Pro` 配置引用的 26.0.1 Beta1 镜像缺失，无法启动。不要将平板实例/目标称为手机验收。
+
+**DevEco 自动调试签名的实际界面**：从 Windows Studio 打开要验收的工程 `app/`（本轮隔离候选副本位于 `C:\tmp\threads-harmony-phone-da480b4-local\app`），菜单 **File > Project Structure... > Project > Signing Configs**。HarmonyOS Stage 文档说明选择 **Automatically generate signature**；若页面要求登录，会显示 **Sign In**。请用户本人在此界面完成账号登录与授权；操作前不要把密码、验证码或生成的证书发给 DSH。登录按钮不在欢迎页或 CLI auth 状态页。完成后检查签名配置仅保存在本机，不提交/上传证书与 HAP。
+
+- 经用户此前同意接受模拟器许可后，下载官方 HarmonyOS 7.0.0（26.0.0）平板 Release 映像 `7.0.0.107`（1,930,878,514 字节），创建独立 `ThreadsHarmonyTablet`；曾启动并由 HDC 连接 `127.0.0.1:5555`。后续查询时该实例已停止；本文只记录历史 HDC 连通，不代表当前有设备在线。
+- 用户要求手机优先后，发现官方 HarmonyOS 7.0.0（26.0.0）手机 Release `7.0.0.107` 可下载，但 DevEco CLI 因 emulator license 尚未接受而拒绝下载。本轮没有接受新许可或下载镜像。已有 `Mate 90 Pro` 模拟器属于 26.0.1 Beta1，镜像缺失、启动失败。需用户先查看/接受对应许可后再下载；手机镜像下载后要重新确认 `device list` 与 `hdc list targets`，再部署。
+- 官方 DevEco 自动调试签名文档（本机 CLI 文档缓存的 `ide-signing-auto`）说明：在工程窗口选择 **File > Project Structure... > Project > Signing Configs**；对未关联注册应用，勾选 **Automatically generate signature**。若页面显示 **Sign In**，用户本人可从该界面登录华为开发者账号并确认签名授权；成功后 IDE 在本机生成 `.p12/.cer/.p7b` 等材料。DSH 不读取、导出或提交这些材料。模拟器应用签名/安装尚未进行。
 
 ### 固定 SHA 的本机构建方法（手工备用）
 

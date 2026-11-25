@@ -2,6 +2,8 @@
 
 ## 当前阶段
 
+**2026-11-25：手机优先。** 工程已在不移除 `tablet` / `2in1` 的前提下加入 `phone`。先用 Windows 手机模拟器检查窄屏和无登录启动，再由 Pura X View 验证折叠与真实网络；MatePad 是补充，不再是首轮门槛。现有 Mate 90 Pro 模拟器缺 Beta1 镜像，启动失败；官方目录提供 API 26 手机 Release 镜像，下载尝试被模拟器许可门槛拒绝。手机候选 `da480b43c92fbf9d364ae84efaf63197d17205c7` 在 Windows 隔离工作树以 `compileSdkVersion=26.0.1` 完成 `CompileArkTS` 和打包，产出 61,838 字节未签名 HAP，12 项 Node 回归通过；尚未安装或运行。下文 `5e4d5abf` 和 MatePad 回执是旧的仅平板/2in1 候选证据，不覆盖新增的手机目标。
+
 P0：Windows DSH 已在隔离 Beta SDK 工作树完成代理修复候选的 ArkTS clean build；MatePad 已对旧独立 `HarmonyLocalProbe` 完成本机构建与 DevEco GUI 签名、安装、启动；Threads 网页曾白屏。固定候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513` 经 WorkBuddy 在 MatePad 三次构建通过（未签装运行）；最新代理状态修复候选 `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 已由 WorkBuddy 在 MatePad 独立目录构建成功：exit 0，未签名 HAP 62,003 字节；Windows 已核验远端回执分支、提交和唯一新增回执文件。新版尚未签名、安装或真机功能验收。详见 [跨端协作记录](AI-WORKFLOW.md)。
 
 ## 工作分工

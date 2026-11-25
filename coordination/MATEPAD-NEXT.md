@@ -1,6 +1,6 @@
 # MatePad 下一项验收任务
 
-状态：待 MatePad 原生验收。本文是固定任务单，避免用户复制长提示词；WorkBuddy 尚不能由 DSH 远程自动唤醒。用户只需在 WorkBuddy 已打开项目时说“按仓库 coordination/MATEPAD-NEXT.md 执行”，无需粘贴本文全文。
+状态：已降为备用任务，暂不执行。当前优先 Windows 手机模拟器与 Pura X View 真机。本任务只覆盖旧的 tablet/2in1 候选，不用于验收手机。本文是固定任务单，避免用户复制长提示词；WorkBuddy 尚不能由 DSH 远程自动唤醒。用户只需在 WorkBuddy 已打开项目时说“按仓库 coordination/MATEPAD-NEXT.md 执行”，无需粘贴本文全文。
 
 ## 固定范围
 

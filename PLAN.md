@@ -4,7 +4,7 @@
 
 交付可在 Pura X View 上独立安装、启动和日常使用的非官方 HarmonyOS 应用。ArkTS/ArkUI 负责原生界面和系统集成；在有稳定、受支持的数据能力前，Threads 官方网页负责内容与消息。安装原生 HAP 不等于所有页面都已原生实现。以用户账号在官方客户端的实际行为为对照；不把不可访问的数据能力、受限系统权限或网页推送算作已实现。
 
-**目标设备**：Pura X View（手机/折叠形态），MatePad Edge（平板形态及其 PC 环境），后续其他 HarmonyOS 手机、平板、2in1。Windows DSH 是主开发、审查、回归与 ArkTS 编译站（当前使用本地 Beta SDK，固定候选需隔离对齐 compileSdkVersion），设备调试尚未验证；MatePad Edge 已具备本机构建链，是白天可独立使用的开发验收设备。WorkBuddy 只执行固定版本的小任务，不承担主开发。手机不在手时，继续在 Windows 开发、MatePad 编译和验收；手机最终真机通过仍是发布门槛。
+**手机优先**：Pura X View 是首个真机验收目标。Windows DSH 主做开发、审查、回归与 ArkTS 编译；手机模拟器用于尽早检查窄屏布局和启动/重试路径，不能替代 Pura X View 的折叠、真实网络和登录验收。MatePad Edge 保留平板/2in1 补充验证及本机构建能力；WorkBuddy 只执行固定版本的小任务，不作为手机进度的前置。手机真机验收仍是发布门槛。
 
 ## 开发、共享和设备策略
 

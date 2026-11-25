@@ -26,7 +26,7 @@
 
 | 参与者 | 主责 | 输出/禁止事项 |
 |---|---|---|
-| DSH 主助手（Windows） | 唯一产品负责人：需求拆分、路线/架构、ArkTS 与 UI 主实现、代码审查、安全与测试设计、静态/Node 回归、Windows Hvigor 实编、Git 真源和发布分支、WorkBuddy 任务书、错误诊断与修复、状态/测试矩阵维护 | 不冒充设备实测，不处理用户签名密钥/凭据，不把代理端点或 HAP 放进仓库；不改变已发布的 MatePad 固定 SHA；本机 SDK 是 Beta；HarmonyOS phone 模拟器已通过 HDC 连通；签名仅由用户在 IDE 的 Project Structure > Signing Configs 界面操作。DSH 不请求或代填凭据 |
+| DSH 主助手（Windows） | 唯一产品负责人：需求拆分、路线/架构、ArkTS 与 UI 主实现、代码审查、安全与测试设计、静态/Node 回归、Windows Hvigor 实编、Git 真源和发布分支、WorkBuddy 任务书、错误诊断与修复、状态/测试矩阵维护 | 不冒充设备实测，不处理用户签名密钥/凭据，不把代理端点或 HAP 放进仓库；不改变已发布的 MatePad 固定 SHA；本机 SDK 是 Beta；HarmonyOS phone 模拟器此前已通过 HDC 连通；该模拟器是否仍在线未做本轮复核。签名仅由用户在 IDE 的 Project Structure > Signing Configs 界面操作。DSH 不请求或代填凭据 |
 | WorkBuddy（MatePad） | 低性能 HY4Flash 执行员：一次一个小任务，如固定 SHA 的本机 Hvigor 构建、指定错误行/版本/文件核对、用户授权后的单张脱敏截图；按模板提交最小回执 | 不做架构或开放式开发、不改业务代码/依赖/SDK、不自行选 SHA；未单独获用户授权时不签名、安装、启动、登录；绝不上传 HAP、完整日志、令牌、签名材料或代理地址 |
 | 用户 | 设备上的身份授权、DevEco 调试签名、安装/启动及登录等必须由本人掌控的动作；在 MatePad 上运行 WorkBuddy 的明确小任务；提供真实设备现象 | 不必写代码；只回传分支/commit、退出码、产物字节数或第一条脱敏错误，不发送凭据/代理地址 |
 | 华为官方工具（DevEco Studio、HarmonyOS CLT/Hvigor、DevEco CLI、hdc 等） | DSH 使用 Studio 自带 Hvigor 在 Windows 本机做 ArkTS 编译；CLI 用于补充文档检索；MatePad 工具链留给 WorkBuddy 的设备专属核验 | Windows SDK 为 API 26 `26.0.1.120` Beta1；固定版本编译仅在临时副本对齐 `compileSdkVersion`；HDC 已连接 HarmonyOS 7.0.0 phone 模拟器，未验证物理设备 |

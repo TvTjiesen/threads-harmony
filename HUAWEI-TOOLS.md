@@ -27,8 +27,8 @@
 **DevEco 自动调试签名的实际界面**：从 Windows Studio 打开要验收的工程 `app/`（本轮隔离候选副本位于 `C:\tmp\threads-harmony-phone-da480b4-local\app`），菜单 **File > Project Structure... > Project > Signing Configs**。官方 DevEco FAQ 要求：手机/模拟器已连接后，在 **File > Project Structure... > Project > Signing Configs** 勾选 **Automatically generate signature**；HarmonyOS 工程还要勾选 **Support HarmonyOS**。若未登录，点击 **Sign In**，由用户本人在 DevEco Studio 完成账号授权。不要把密码、验证码或生成的证书发给 DSH；签名配置与 `.p12/.cer/.p7b` 材料只保存在本机，不提交/上传证书或 HAP。CLI 的 `auth status` 不决定 IDE 登录状态。
 
 - 经用户此前同意接受模拟器许可后，下载官方 HarmonyOS 7.0.0（26.0.0）平板 Release 映像 `7.0.0.107`（1,930,878,514 字节），创建独立 `ThreadsHarmonyTablet`；曾启动并由 HDC 连接 `127.0.0.1:5555`。后续查询时该实例已停止；本文只记录历史 HDC 连通，不代表当前有设备在线。
-- 用户要求手机优先后，发现官方 HarmonyOS 7.0.0（26.0.0）手机 Release `7.0.0.107` 可下载，但 DevEco CLI 因 emulator license 尚未接受而拒绝下载。本轮没有接受新许可或下载镜像。已有 `Mate 90 Pro` 模拟器属于 26.0.1 Beta1，镜像缺失、启动失败。需用户先查看/接受对应许可后再下载；手机镜像下载后要重新确认 `device list` 与 `hdc list targets`，再部署。
-- 官方 DevEco 自动调试签名文档（本机 CLI 文档缓存的 `ide-signing-auto`）说明：在工程窗口选择 **File > Project Structure... > Project > Signing Configs**；对未关联注册应用，勾选 **Automatically generate signature**。若页面显示 **Sign In**，用户本人可从该界面登录华为开发者账号并确认签名授权；成功后 IDE 在本机生成 `.p12/.cer/.p7b` 等材料。DSH 不读取、导出或提交这些材料。模拟器应用签名/安装尚未进行。
+- 旧状态记录（在本节上方手机模拟器实测之前）：当时手机镜像下载被许可门槛拒绝。该状态已被后续实测取代，不要据此判断当前镜像缺失。
+- 官方 DevEco 自动调试签名文档（本机 CLI 文档缓存的 `ide-signing-auto`）说明：手机/模拟器已连接后，在 **File > Project Structure... > Project > Signing Configs** 勾选 **Automatically generate signature**；HarmonyOS 工程还需勾选 **Support HarmonyOS**。未登录时点击 **Sign In**，由用户本人在 IDE 授权。DSH 不读取、导出或提交 `.p12/.cer/.p7b`；当前仍等待用户在本机完成签名设置，应用未安装/运行。
 
 ### 固定 SHA 的本机构建方法（手工备用）
 

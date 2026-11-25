@@ -14,7 +14,7 @@
 
 1. 在已打开的 `threads-harmony-phone-da480b4-local/app` 工程中，打开 **File > Project Structure... > Project > Signing Configs**。
 2. 勾选 **Automatically generate signature** 和 **Support HarmonyOS**；若出现 **Sign In**，仅由你本人在 IDE 完成华为账号登录/授权，不要把账号信息发给 DSH。
-3. 确认签名操作针对当前候选工程，不要把生成的证书或 HAP 提交到 GitHub；配置好后告诉 DSH「签名已配好」。安装和启动由 DSH 使用已授权的本机模拟器流程继续。
+3. 当前 `com.example.threadsharmony` 是占位 Bundle Name，不是已注册的华为应用。若自动签名流程要求“关联应用”，需由用户在 AppGallery Connect（华为应用管理后台）先创建/选择自己拥有的 HarmonyOS 应用记录，并确保其中 Bundle Name 与工程完全一致；不要把不存在的占位名称硬关联，也不要为迁就未注册名称擅改工程。最终 Bundle Name 确认后，再同步更新 `app/AppScope/app.json5` 与 `app/build-profile.json5` 并重新构建固定 SHA。账号注册/应用记录/授权由用户本人完成。不要把生成的证书或 HAP 提交到 GitHub；关联和签名配置好后告诉 DSH「签名已配好」。安装和启动由 DSH 使用已授权的本机模拟器流程继续。
 
 ## 手机 smoke 范围
 

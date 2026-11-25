@@ -11,12 +11,16 @@
 
 ## Windows DSH 主机工具链更新（2026-11-25）
 
+可重复的隔离构建入口：`tools/build-windows-arkts.ps1 -SourceSha <40位源码SHA>`。脚本只接受固定 Git SHA，拒绝覆盖已存在工作树；检查 HEAD 后只在临时副本把唯一 `compileSdkVersion: 26.0.0` 改成 `26.0.1`，构建 unsigned HAP、输出 SHA256，并清理临时工作树。它不会签名或部署。
+
 - 用户确认已安装 DevEco Studio 并安装 DSH 鸿蒙插件。通过 Windows 注册表和运行进程发现安装于 `C:\DevEco Studio`：`DisplayName=DevEco Studio`、`DisplayVersion=261.23567.138.36.2601290`；`devecostudio64.exe` 的 Authenticode 状态为 `Valid`，签名发布者为 Huawei Technologies Co., Ltd.，ProductVersion `261.23567.138.36.2601290-DS`。这纠正了本文件早先“Windows 没有 DevEco Studio”的旧状态。
 - Studio 自带构建工具：`C:\DevEco Studio\tools\hvigor\bin\hvigorw.bat`，`C:\DevEco Studio\tools\node\node.exe`（`v24.14.1`），`C:\DevEco Studio\tools\ohpm\bin\ohpm.bat`；SDK 自带 `C:\DevEco Studio\sdk\default\openharmony\toolchains\hdc.exe`（`Ver: 3.2.0f`）。SDK 包元数据 `C:\DevEco Studio\sdk\default\sdk-pkg.json` 标记 API 26、platformVersion `26.0.1`、releaseType `Beta1`、版本 `26.0.1.120`；这是 Beta SDK，不应描述成稳定发行版。DSH 的 `@duke-dsh-plugins/dsh-deveco@0.10.0` 已启用，能提供工程检查、ArkWeb DOM/ArkTS 调试和 UI/日志工具；它依赖 Studio/CLT/HDC，本身不是 SDK。
-- 构建验证使用独立 detached worktree `C:\tmp\threads-harmony-build-5e4d`，HEAD 固定为代码候选 `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38`，未改主工作区的已提交源代码。先以原样 `26.0.0` 构建，Hvigor 明确失败：`00303313 Configuration Error`，`compileSdkVersion 26.0.0` 与本机 DevEco/SDK `26.0.1` 不兼容。仅在临时 worktree 将 `app/build-profile.json5` 的 `compileSdkVersion` 改为 `26.0.1`（`compatibleSdkVersion` 和 `targetSdkVersion` 保持 `26.0.0`）后，执行 `hvigorw.bat clean assembleHap --no-daemon -p product=default` 成功：随后又从干净状态重复执行相同命令，`BUILD SUCCESSFUL in 5 s 651 ms`，35 tasks（34 executed、1 up-to-date）。产物 `entry-default-unsigned.hap` 为 61,814 bytes，SHA-256 `752600fdd706c4a06a62d06453d5f8927a2d27ba3fa96639808590094fe48b21`；另一次 clean build 同字节数、哈希 `6b36c7437a35f05d0c8407aad920e88d1312b47e5d7ab78aa96e16fff31750c8`。构建输出含 `No signingConfig found for product default`，所以未签名。此结果仅证明固定源码在**本地临时 SDK 对齐副本**可编译打包，不是原始已推送提交原样构建，也不是稳定 API 26 SDK/真机验证。
+- 构建验证使用独立 detached worktree `C:\tmp\threads-harmony-build-5e4d`，HEAD 固定为代码候选 `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38`，未改主工作区的已提交源代码。先以原样 `26.0.0` 构建，Hvigor 明确失败：`00303313 Configuration Error`，`compileSdkVersion 26.0.0` 与本机 DevEco/SDK `26.0.1` 不兼容。仅在临时 worktree 将 `app/build-profile.json5` 的 `compileSdkVersion` 改为 `26.0.1`（`compatibleSdkVersion` 和 `targetSdkVersion` 保持 `26.0.0`）后，执行 `hvigorw.bat clean assembleHap --no-daemon -p product=default` 成功：随后又从干净状态重复执行相同命令，`BUILD SUCCESSFUL in 5 s 651 ms`，35 tasks（34 executed、1 up-to-date）。产物 `entry-default-unsigned.hap` 为 61,814 bytes，SHA-256 `752600fdd706c4a06a62d06453d5f8927a2d27ba3fa96639808590094fe48b21`；另两次 clean build 同字节数，哈希分别为 `6b36c7437a35f05d0c8407aad920e88d1312b47e5d7ab78aa96e16fff31750c8` 与 `c8af50c3875d68ca4d967078c098cc5442b06a7790cffd904110562d36bb51ce`。新脚本再次验证 `BUILD SUCCESSFUL in 6 s 665 ms`。构建输出含 `No signingConfig found for product default`，所以未签名。此结果仅证明固定源码在**本地临时 SDK 对齐副本**可编译打包，不是原始已推送提交原样构建，也不是稳定 API 26 SDK/真机验证。
 - Hvigor 首次在原 Windows 工作区路径构建时被 Harmony 工程路径校验拒绝（路径含中文用户目录）；后续使用纯 ASCII 的 `C:\tmp` worktree。该次失败在主工作区留下 `.hvigor/outputs/build-logs/build.log`；仓库现忽略根目录下的 `.hvigor/`，不提交生成日志。HDC CLI 可运行，但 `hdc list targets` 无输出：当前没有被 HDC 发现的设备，故本轮无设备部署、签名、安装、启动或 ArkWeb 实测。
 
-### 固定 SHA 的本机构建方法
+### 固定 SHA 的本机构建方法（手工备用）
+
+优先使用上述已执行验证的脚本 `tools/build-windows-arkts.ps1 -SourceSha <40位SHA>`。以下步骤用于脚本不可用时的人工复现；手动工作树需自行清理。
 
 从主仓库 PowerShell 创建新的纯 ASCII 构建目录（不覆盖已有目录）：
 

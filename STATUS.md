@@ -8,7 +8,7 @@ P0：Windows DSH 已在隔离 Beta SDK 工作树完成代理修复候选的 ArkT
 
 ## 工作分工
 
-- **Windows + DSH**：唯一产品/代码主责，维护 Git 真源，负责架构、ArkTS、审查、测试、错误修复和 MatePad 任务单。DevEco CLI 用于本地文档；常规 ArkTS 编译和打包由 Windows DevEco Studio 自带 Hvigor 执行，已对隔离工作树中的代理候选完成首轮实编。Windows phone 模拟器 `ThreadsHarmonyPhone` 已启动并由 HDC 连通（系统 7.0.0.107）。模拟器镜像许可已由用户同意；当前候选仍 unsigned，未安装/启动应用。请用户在 DevEco Studio 的 Project Structure > Signing Configs 勾选 Automatically generate signature 与 Support HarmonyOS（若需登录，用户本人在 IDE 登录授权）后，再由 DSH 安装/启动。CLI 的 Not logged in 不代表 IDE 状态。
+- **Windows + DSH**：唯一产品/代码主责，维护 Git 真源，负责架构、ArkTS、审查、测试、错误修复和 MatePad 任务单。DevEco CLI 用于本地文档；常规 ArkTS 编译和打包由 Windows DevEco Studio 自带 Hvigor 执行，已对隔离工作树中的代理候选完成首轮实编。Windows phone 模拟器 `ThreadsHarmonyPhone` 此前已启动并由 HDC 连通（系统 7.0.0.107），本轮未复核是否仍在线。模拟器镜像许可已由用户同意；当前候选仍 unsigned，未安装/启动应用。请用户在 DevEco Studio 的 Project Structure > Signing Configs 勾选 Automatically generate signature 与 Support HarmonyOS（若需登录，用户本人在 IDE 登录授权）后，再由 DSH 安装/启动。CLI 的 Not logged in 不代表 IDE 状态。
 - **MatePad Edge + WorkBuddy**：设备侧作为构建/验收站。WorkBuddy 通过已验证的 MatePad 本机 CLT/Hvigor 能力执行固定 SHA 构建；最新回执记录 Node v24.18.1、Hvigor 7.26.11，构建 62,003 字节未签名 HAP。WorkBuddy 是否通过 DevEco CLI 调用不作为已知事实。低性能 HY4Flash 只承担固定 SHA 的构建、版本/错误行核对和经授权的单项截图，不写业务代码、不决策架构、不改依赖或 SDK。代理修复 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 已构建，回执分支 `matepad/build-proxy-state-5e4d`、提交 `f9603240237d91791f1923a9a035d638997da4ed` 已由 Windows 核验，构建源码 SHA 与回执分支起点有明确区分。定时自动触发未验证。早期独立工程通过 DevEco GUI 签名安装启动，非当前候选的证据。
 - **Pura X View**：HarmonyOS 7.0.0.115 SP10（用户提供；SDK API level 待核实）；主折叠手机验收设备。网页登录 Threads 可用，App 内 ArkWeb 仍未测。
 - **Android**：后续独立 UI/平台目标，尚无工程。

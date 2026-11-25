@@ -6,8 +6,8 @@ P0：MatePad 已对旧独立 `HarmonyLocalProbe` 完成本机构建与 DevEco GU
 
 ## 工作分工
 
-- **Windows + DSH**：唯一产品/代码主责，维护 Git 真源，负责架构、ArkTS、审查、测试、错误修复和 MatePad 任务书。DevEco CLI 1.3.0-stable 已隔离安装并验证本地 API 文档检索；Windows CLI 找不到 DevEco Studio，ArkTS 构建和设备部署尚未验证。
-- **MatePad Edge + WorkBuddy**：设备侧作为构建/验收站。WorkBuddy 通过已验证的 MatePad 本机 CLT/Hvigor 能力执行固定 SHA 构建；最新回执记录 Node v24.18.1、Hvigor 7.26.11，构建 62,003 字节未签名 HAP。WorkBuddy 是否通过 DevEco CLI 调用不作为已知事实。低性能 DeepSeek 4 Flash 只承担固定 SHA 的构建、版本/错误行核对和经授权的单项截图，不写业务代码、不决策架构、不改依赖或 SDK。代理修复 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 已构建，回执分支 `matepad/build-proxy-state-5e4d`、提交 `f9603240237d91791f1923a9a035d638997da4ed` 已由 Windows 核验，构建源码 SHA 与回执分支起点有明确区分。定时自动触发未验证。早期独立工程通过 DevEco GUI 签名安装启动，非当前候选的证据。
+- **Windows + DSH**：唯一产品/代码主责，维护 Git 真源，负责架构、ArkTS、审查、测试、错误修复和 MatePad 任务单。DevEco CLI 1.3.0-stable 已隔离安装并验证本地 API 文档检索；Windows 官方 Studio/CLT 未取得，CLI build 无成功结果，ArkTS 构建和设备部署尚未验证。
+- **MatePad Edge + WorkBuddy**：设备侧作为构建/验收站。WorkBuddy 通过已验证的 MatePad 本机 CLT/Hvigor 能力执行固定 SHA 构建；最新回执记录 Node v24.18.1、Hvigor 7.26.11，构建 62,003 字节未签名 HAP。WorkBuddy 是否通过 DevEco CLI 调用不作为已知事实。低性能 HY4Flash 只承担固定 SHA 的构建、版本/错误行核对和经授权的单项截图，不写业务代码、不决策架构、不改依赖或 SDK。代理修复 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 已构建，回执分支 `matepad/build-proxy-state-5e4d`、提交 `f9603240237d91791f1923a9a035d638997da4ed` 已由 Windows 核验，构建源码 SHA 与回执分支起点有明确区分。定时自动触发未验证。早期独立工程通过 DevEco GUI 签名安装启动，非当前候选的证据。
 - **Pura X View**：HarmonyOS 7.0.0.115 SP10（用户提供；SDK API level 待核实）；主折叠手机验收设备。网页登录 Threads 可用，App 内 ArkWeb 仍未测。
 - **Android**：后续独立 UI/平台目标，尚无工程。
 
@@ -23,7 +23,7 @@ P0：MatePad 已对旧独立 `HarmonyLocalProbe` 完成本机构建与 DevEco GU
 
 - 2026-11-23：Windows winget 可查询到 `Huawei.DevEco`，清单版本 `223.8617.56.36.310501` 指向 DevEco Studio 3.1.0.501（2023 安装包）。未安装，不采用此旧版本。
 - 用户设备信息（2026-11-23）：Pura X View 系统为 HarmonyOS 7.0.0.115 SP10；该系统 build 尚未映射到 Harmony SDK API level。CodeArts 核实报告将 MatePad Edge 系统记录为 QXS-W00 7.0.0.111(SP16C00E111R5P5) / OpenHarmony 7.0.0.111 / API 26；注意报告采集的是 MatePad，不是 Pura X。报告全文位于用户提供的 `C:\Users\杰森\Documents\xwechat_files\wxid_ilhkddulxklw22_4e1a\msg\file\2026-11\CodeArts-HarmonyOS-PC-能力核实报告.md`。
-- **Windows DSH 主机**未发现 DevEco、HarmonyOS SDK 或 `hdc`。2026-11-25 在临时隔离目录安装华为 DevEco CLI `1.3.0-stable`（Node `v24.14.0`），成功检索/读取其本地 ProxyController API 文档；执行 `device list --format json` 报 `DevEco Studio installation not found in default locations`。因此 CLI 文档能力已可用，但 SDK/Hvigor 构建、HDC 设备访问仍未验证。USB 清单中能看到 Android ADB 接口，但尚未识别连接的是哪台设备；ADB 可见不能证明 HarmonyOS HDC 可用。详见 [华为工具记录](HUAWEI-TOOLS.md)。此结论只描述 Windows 主机，不适用于 MatePad。
+- **Windows DSH 主机**未发现 DevEco Studio、HarmonyOS SDK、`hvigorw`、`ohpm`、`hdc` 或 `adb` 可执行命令。隔离安装 DevEco CLI `1.3.0-stable`（Node `v24.14.0`）可检索本地文档，但 `device list` 因未发现 Studio 安装失败。两个 USB 项目名为 Android ADB Interface；没有 adb 客户端，设备身份/HDC 通道均未验证。执行 CLI build 在 25 秒工具时限内未返回结果，不记为构建。官方 CLT 下载页仅返回登录相关 SPA，未得到可核验安装包，因此未下载不明来源工具。详见 [华为工具记录](HUAWEI-TOOLS.md)。此结论只描述 Windows 主机，不适用于 MatePad。
 - 从公开 OpenTwit 仓库核对的 Stage 样例：`compileSdkVersion` 6.1.1(24)、`compatibleSdkVersion` 5.0.0(12)、设备列 phone/tablet/2in1；仅作历史参考，不是本项目兼容性证据。当前 MatePad 原型基于本机 SDK API 26。
 - 用户提供的早期 CodeArts 核实报告引用官方鸿蒙开发实践：DevEco 6.0.0+，运行环境 Windows 10/11 x64 或 macOS 12+；该报告当时只核验 CodeArts 应用沙箱。随后 CodeArts 已在 MatePad 工作区成功调用 CLT/Hvigor，详见下节；因此不能再用旧沙箱报告推断本机无法构建。
 
@@ -43,6 +43,9 @@ P0：MatePad 已对旧独立 `HarmonyLocalProbe` 完成本机构建与 DevEco GU
 - 自建桥 `tools/bridge/`（LAN HTTP + ntfy 分块中继 + 单文件 worker，端到端已验证）降级为兜底，不再作为主路径。
 
 ## 下一步
+
+- DSH 主开发、本机完成可用范围内的静态检查/单测与错误定位；MatePad WorkBuddy（HY4Flash）仅做固定版本本机验收/窄杂务。当前任务单见 [MatePad 下一项验收](coordination/MATEPAD-NEXT.md)。
+- 新候选 `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 已经在 MatePad 构建验证；下一关是本机签名安装与无登录首屏验收。任务单减少长提示词复制，但不会自动唤醒 WorkBuddy；目前 DSH 没有可验证的远端启动/调度通道。
 
 1. 固定候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513` 已由 MatePad Edge 本机 DevEco Command Line Tools 精确构建并三次复现，详见 [ArkWeb 构建回执](https://github.com/TvTjiesen/threads-harmony/blob/feat/arkweb-build-2d1060/coordination/arkweb-build-receipt.md)。回执提交 `40f34cec5c14da8abd16dbf465d385828fb2b665` 的父提交即固定候选；命令 `hvigorw assembleHap --no-daemon -p product=default`，exit 0、`BUILD SUCCESSFUL`、未签名 HAP 56,075 字节。未签名、未安装、未运行、未上传。新代理修复候选不由此回执覆盖。
 2. 代理修复候选在 `fix/arkweb-proxy-state`，两处 ArkWeb 页面一致。应用/关闭代理同一时刻只发一个请求；等待 20 秒只提示，不解锁、不加载页面、不发反向请求。无效的旧偏好或启动代理报错/超时会尝试清除；启动超时后回调才到达时，须在设置中确认才能继续。手动设置在回调确认后才保存。此处“确认”指 ArkWeb 接收配置，不证明代理可连通。

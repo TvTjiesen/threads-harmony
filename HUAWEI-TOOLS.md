@@ -9,6 +9,14 @@
 - CLI 文档提到 Windows 自动发现 DevEco Studio >=6.0.0 或显式 CLT 配置 >=26.0.0；但仅凭文档不代表本机存在这些安装。本轮只完成 CLI 验证，尚未下载完整 SDK，也未更改系统 PATH/注册表。用户已授权下载华为工具；后续建立 Windows 构建链时，先核实官方安装包来源、版本、磁盘空间和目标 SDK，再执行安装验证，不要求用户重复授权普通下载。
 - 遥测：调用 CLI 时设置 `DEVECO_CLI_DISABLE_TELEMETRY=1` 与 `DEVECO_CLI_SKIP_VERSION_CHECK=1`。后者只关闭本次 CLI 版本检查；首次安装的脚本禁用参数未可靠生效，不能把调用时设置的环境变量外推到安装过程。工具未启用 DSH/HarmonyOS MCP，也没有替用户登录。
 
+## 本轮效率勘察（2026-11-25）
+
+- Windows DSH 所在机再次检查：Node `v24.14.0` 可用；`hvigorw`、`hvigor`、`ohpm`、`hdc`、`adb` 均不在 PATH，已知 `C:/Program Files` 下未发现 DevEco/HarmonyOS SDK 安装，未发现 DevEco 安装目录；C 盘可用空间约 128.9 GB。系统枚举到两个 `Android ADB Interface` 设备接口，但本机没有 adb 命令，无法识别设备型号或证明 HDC 可连接。
+- 官方下载中心 `https://developer.huawei.com/consumer/cn/download/` 与 CLT 页面均只返回 Angular SPA 外壳。其公开前端 JS 声明下载 API，但匿名 POST 得到 nginx 404；页面下载流程涉及开发者联盟登录。没有取得可校验的 Windows 安装包 URL、版本或哈希，因此**没有下载/安装未知镜像，也没有尝试绕过登录**。官方入口可由已登录浏览器访问；当前这台 DSH 无可用的开发者联盟下载会话。
+- CLI `devecocli build --project .` 返回 `error: unknown option '--project'`；该工具以当前工程目录自动探测项目。随后在 `app/` 目录直接执行 `devecocli build`，25 秒内未返回且命令 shell 超时，未获得退出码或构建产物。故本机 CLI 尚未构建成功。因为本机没有发现 SDK/CLT，这一试验不替代 Hvigor。后续应先通过官方下载中心取得 Studio 或 CLT，再校验安装包来源/版本/哈希并装入隔离路径；CLI 设置 `DEVECO_CLI_CLT_PATH` 或 `DEVECO_CLI_STUDIO_PATH` 后才有条件进行项目构建。API 26 工程需要相应 SDK。
+- 在 `app/` 执行 CLI `check lint entry/src/main/ets/pages/Index.ets`，退出码 1：`Error: DevEco Studio installation not found in default locations.`。因此本轮也没有取得 ArkTS Lint 通过证据。
+- DSH 的 GitHub 仓库现已由用户改为公开；提交、推送后的内容可在两端读取，但这只是版本共享，不是文件实时同步、Agent 对话共享或自动唤醒。当前 Remote Hosts 发现失败，且没有 WorkBuddy 的远程执行/调度接口。因此本轮可把一次性验收任务写进仓库并固定 SHA，不能在 DSH 中直接启动 MatePad WorkBuddy。用户已确认 MatePad WorkBuddy 使用 **HY4Flash**，不是此前文档误记的 DeepSeek 4 Flash。
+
 ## 工具边界与下一步
 
 - DevEco CLI 可由 DSH 用于本地文档查询、静态 Lint（在能发现 Studio/CLT 的机器上）、设备列表/日志/截图/UI 检查等；每条命令仍按副作用审查。`device/run/signature` 可能访问设备或改变签名/安装状态，必须先取得本轮明确授权，默认不自动执行。

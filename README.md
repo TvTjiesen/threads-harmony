@@ -1,10 +1,10 @@
 # Threads for HarmonyOS · P0 原型
 
-非官方 ArkTS/ArkUI + ArkWeb 原型，使用官方 Threads 网站，外层提供基础原生导航和错误提示。MatePad 上的独立探针曾编译出未签名 HAP，且单独通过 DevEco 签名安装运行；Threads 页面仍曾白屏。2026-11-24 MatePad 已通过 GitHub MCP 将 15 个无签名的 HarmonyLocalProbe 源文件交接到私有分支 `matepad/source-handoff-6b5c`（固定 SHA `f0caae1554dfbe691be9b9690bd59e007e4a14e6`）。同日，CodeArts 在 MatePad 独立目录从该提交重建成功（15 个文本文件按 blob SHA 校验，另补两个原有 PNG）；Windows 核验了回执 `7bbe80b0ec74e393d9e690e71671db491c2239cf`。本次 HAP 未签名、未安装、未运行，与下文的完整 ArkWeb 候选是不同版本。
+非官方 ArkTS/ArkUI + ArkWeb 原型，使用官方 Threads 网站，外层提供基础原生导航和错误提示。MatePad 上的独立探针曾编译出未签名 HAP，且单独通过 DevEco 签名安装运行；Threads 页面仍曾白屏。2026-11-24 MatePad 已通过 GitHub MCP 将 15 个无签名的 HarmonyLocalProbe 源文件交接到分支 `matepad/source-handoff-6b5c`（固定 SHA `f0caae1554dfbe691be9b9690bd59e007e4a14e6`）。同日，CodeArts 在 MatePad 独立目录从该提交重建成功（15 个文本文件按 blob SHA 校验，另补两个原有 PNG）；Windows 核验了回执 `7bbe80b0ec74e393d9e690e71671db491c2239cf`。本次 HAP 未签名、未安装、未运行，与下文的完整 ArkWeb 候选是不同版本。
 
 ## 设备与共享流程
 
-GitHub 仓库已由用户告知转为公开；MatePad 与 Windows DSH 的分工见 [AI-WORKFLOW.md](AI-WORKFLOW.md)，Windows 华为工具验证见 [HUAWEI-TOOLS.md](HUAWEI-TOOLS.md)，首次安全转交纯源码见 [SOURCE-HANDOFF.md](SOURCE-HANDOFF.md)，自动化备选路线见 [AUTOMATION-OPTIONS.md](AUTOMATION-OPTIONS.md)。GitHub 仓库已由用户转为公开；Windows 开发分支已推送。Windows 在独立新目录完成了 `matepad/first-handoff` 回执分支推送，但回执明确记载由 Windows 代交；MatePad CodeArts 曾通过认证 GitHub MCP 完成基线源码读取、构建和回写；随后 WorkBuddy 对 ArkWeb 固定候选精确构建成功，详见回执。任务桥仅本机安全测试，未启动；定时自动接单未验证。
+GitHub 仓库已由用户告知转为公开；MatePad 与 Windows DSH 的分工见 [AI-WORKFLOW.md](AI-WORKFLOW.md)，Windows 华为工具验证见 [HUAWEI-TOOLS.md](HUAWEI-TOOLS.md)，MatePad 当前小任务见 [coordination/MATEPAD-NEXT.md](coordination/MATEPAD-NEXT.md)，首次安全转交纯源码见 [SOURCE-HANDOFF.md](SOURCE-HANDOFF.md)，自动化备选路线见 [AUTOMATION-OPTIONS.md](AUTOMATION-OPTIONS.md)。Windows 开发分支已推送。Windows 在独立新目录完成了 `matepad/first-handoff` 回执分支推送，但回执明确记载由 Windows 代交；MatePad CodeArts 曾通过认证 GitHub MCP 完成基线源码读取、构建和回写；随后 WorkBuddy 对 ArkWeb 固定候选精确构建成功，详见回执。任务桥仅本机安全测试，未启动；定时自动接单未验证。
 
 - Windows DSH 主助手负责主仓库中的产品设计、ArkTS实现、代码审查、安全测试、Git 与错误修复。MatePad WorkBuddy 只按 DSH 固定的 SHA 执行一次一个的本机构建/窄设备核验并回传脱敏结果，不自行修改业务代码。它不是实时同步：先提交并固定 SHA，MatePad 从该 SHA 工作，在独立分支写回验收记录；Windows DSH 再核对父 SHA、差异文件及回执。不得两端同时编辑同一业务分支。
 - MatePad 上已验证手动构建与结果回写；未验证定时唤醒、后台驻留或无人自动接单，不应把它当作持续运行的 Git worker。

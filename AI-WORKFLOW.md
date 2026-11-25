@@ -20,12 +20,12 @@
 
 ## 角色分工（2026-11-25 调整与工具验证）
 
-主原则：**DSH 主助手是唯一的产品与代码主责；WorkBuddy（MatePad）只承担少量、本机专属、边界清楚且可核验的杂务。**原因是 WorkBuddy 当前为 DeepSeek 4 Flash，适合照步骤跑构建/检查并回报，不承担架构决策或跨文件功能开发。华为官方 DevEco CLI/CLT 是工具，不是另一个代码 Agent；能否在 Windows 建立有效构建链需先由 DSH 做隔离验证。用户已授权下载华为工具，但仍遵循最小权限：优先项目本地或用户目录，不做无关系统级变更，不自动登录，不上传敏感材料。
+主原则：**DSH 主助手是唯一的产品与代码主责；WorkBuddy（MatePad）只承担少量、本机专属、边界清楚且可核验的杂务。**用户确认 MatePad WorkBuddy 当前使用 HY4Flash，适合照步骤跑构建/检查并回报，不承担架构决策或跨文件功能开发。华为官方 DevEco CLI/CLT 是工具，不是另一个代码 Agent；能否在 Windows 建立有效构建链需先由 DSH 做隔离验证。用户已授权下载华为工具，但仍遵循最小权限：优先项目本地或用户目录，不做无关系统级变更，不自动登录，不上传敏感材料。
 
 | 参与者 | 主责 | 输出/禁止事项 |
 |---|---|---|
 | DSH 主助手（Windows） | 唯一产品负责人：需求拆分、路线/架构、ArkTS 与 UI 主实现、代码审查、安全与测试设计、静态/Node 回归、Git 真源和发布分支、WorkBuddy 任务书、错误诊断与修复、状态/测试矩阵维护；用隔离安装的华为 DevEco CLI 做本地鸿蒙文档检索；若未来发现完整 Studio/CLT，再验证 lint/构建能力 | 不冒充设备实测，不处理用户签名密钥/凭据，不把代理端点或 HAP 放进仓库；不要在 MatePad 回执任务运行时改变该固定 SHA；CLI 本机没有发现 DevEco Studio，不能声称可编译 |
-| WorkBuddy（MatePad） | 低性能 DeepSeek 4 Flash 执行员：一次一个小任务，如固定 SHA 的本机 Hvigor 构建、指定错误行/版本/文件核对、用户授权后的单张脱敏截图；按模板提交最小回执 | 不做架构或开放式开发、不改业务代码/依赖/SDK、不自行选 SHA；未单独获用户授权时不签名、安装、启动、登录；绝不上传 HAP、完整日志、令牌、签名材料或代理地址 |
+| WorkBuddy（MatePad） | 低性能 HY4Flash 执行员：一次一个小任务，如固定 SHA 的本机 Hvigor 构建、指定错误行/版本/文件核对、用户授权后的单张脱敏截图；按模板提交最小回执 | 不做架构或开放式开发、不改业务代码/依赖/SDK、不自行选 SHA；未单独获用户授权时不签名、安装、启动、登录；绝不上传 HAP、完整日志、令牌、签名材料或代理地址 |
 | 用户 | 设备上的身份授权、DevEco 调试签名、安装/启动及登录等必须由本人掌控的动作；在 MatePad 上运行 WorkBuddy 的明确小任务；提供真实设备现象 | 不必写代码；只回传分支/commit、退出码、产物字节数或第一条脱敏错误，不发送凭据/代理地址 |
 | 华为官方工具（DevEco Studio、HarmonyOS CLT/Hvigor、DevEco CLI、hdc 等） | DSH 已隔离验证 DevEco CLI 1.3.0-stable 的本地 API 文档检索/读取；后续由 DSH 确认版本、接口和命令边界。MatePad WorkBuddy 只调用 MatePad 已验证的 CLT 构建能力 | 只从华为官方渠道下载；本轮未下载完整 SDK/CLT。DevEco CLI 不是 SDK/编译器；Windows CLI 找不到 DevEco Studio，尚无已验证的 Windows SDK/Hvigor 构建链 |
 
@@ -64,9 +64,15 @@ DevEco Studio 版本：<关于页面显示的版本>
 
 ### 唯一共享事实源
 
-- 项目私有远端：`https://github.com/TvTjiesen/threads-harmony`（私有；默认分支 `main`）。MatePad CodeArts 已通过认证 GitHub MCP 完成一次真实读写和源码交接提交；这不是 Git 实时同步，也不代表自动构建或自动接单。
+- 项目远端：`https://github.com/TvTjiesen/threads-harmony`（用户已改为公开；默认分支 `main`）。当前一次性 MatePad 验收任务见 `coordination/MATEPAD-NEXT.md`。本任务单代替复制完整提示词；用户在 WorkBuddy 中只需指示按文件执行。MatePad CodeArts 已通过认证 GitHub MCP 完成一次真实读写和源码交接提交；这不是 Git 实时同步，也不代表自动构建或自动接单。
 - 交接单位是 Git commit：DSH 改动后推送分支/提交；CodeArts 在 MatePad 通过认证 GitHub MCP 读取固定 SHA，在独立工作区构建，并把脱敏结果关联到新分支/提交。已验收源码基线 `f0caae1554dfbe691be9b9690bd59e007e4a14e6`，构建结果提交 `7bbe80b0ec74e393d9e690e71671db491c2239cf` 的父提交正是此 SHA，且只新增回执文件。
 - Git 负责**共享已提交并推送的文件和版本**，不会实时同步未提交内容，也不负责唤醒对端 Agent 或执行命令。此次真实 MCP 往返只证明异步读写；Agent 自动接单需要另有受控任务通道。不要导出凭据供沙箱使用，也不要把 HAP 上传到 Git。
+
+### 无需复制提示词的交接（仓库任务单）
+
+- 项目根目录的 `coordination/MATEPAD-NEXT.md` 是当前给 MatePad WorkBuddy 的固定小任务；代码已锁定 SHA，任务只含本机无登录验收及脱敏回执。
+- 你无需在两个 Agent 之间复制长提示词：让 MatePad WorkBuddy 读取该仓库文件即可。它不需要改代码或选择版本；只按任务单执行并提交最小回执。DSH 再读取回执并继续主开发。
+- 这减少人工复制，但**不是实时共享、也不会自动唤醒**。DSH 当前无法启动 MatePad 上的 WorkBuddy；Remote host discovery 未连接，官方下载/API 亦未证明存在可用的自动执行回调。WorkBuddy 只有在用户打开它并要求读取该任务单时才会执行。用户不必复制全文，只需告诉它按仓库文件执行。
 
 ### 受限任务桥（尚未接通；不可连接公网裸 HTTP）
 

@@ -16,7 +16,12 @@
 - 用户确认已安装 DevEco Studio 并安装 DSH 鸿蒙插件。通过 Windows 注册表和运行进程发现安装于 `C:\DevEco Studio`：`DisplayName=DevEco Studio`、`DisplayVersion=261.23567.138.36.2601290`；`devecostudio64.exe` 的 Authenticode 状态为 `Valid`，签名发布者为 Huawei Technologies Co., Ltd.，ProductVersion `261.23567.138.36.2601290-DS`。这纠正了本文件早先“Windows 没有 DevEco Studio”的旧状态。
 - Studio 自带构建工具：`C:\DevEco Studio\tools\hvigor\bin\hvigorw.bat`，`C:\DevEco Studio\tools\node\node.exe`（`v24.14.1`），`C:\DevEco Studio\tools\ohpm\bin\ohpm.bat`；SDK 自带 `C:\DevEco Studio\sdk\default\openharmony\toolchains\hdc.exe`（`Ver: 3.2.0f`）。SDK 包元数据 `C:\DevEco Studio\sdk\default\sdk-pkg.json` 标记 API 26、platformVersion `26.0.1`、releaseType `Beta1`、版本 `26.0.1.120`；这是 Beta SDK，不应描述成稳定发行版。DSH 的 `@duke-dsh-plugins/dsh-deveco@0.10.0` 已启用，能提供工程检查、ArkWeb DOM/ArkTS 调试和 UI/日志工具；它依赖 Studio/CLT/HDC，本身不是 SDK。
 - 构建验证使用独立 detached worktree `C:\tmp\threads-harmony-build-5e4d`，HEAD 固定为代码候选 `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38`，未改主工作区的已提交源代码。先以原样 `26.0.0` 构建，Hvigor 明确失败：`00303313 Configuration Error`，`compileSdkVersion 26.0.0` 与本机 DevEco/SDK `26.0.1` 不兼容。仅在临时 worktree 将 `app/build-profile.json5` 的 `compileSdkVersion` 改为 `26.0.1`（`compatibleSdkVersion` 和 `targetSdkVersion` 保持 `26.0.0`）后，执行 `hvigorw.bat clean assembleHap --no-daemon -p product=default` 成功：随后又从干净状态重复执行相同命令，`BUILD SUCCESSFUL in 5 s 651 ms`，35 tasks（34 executed、1 up-to-date）。产物 `entry-default-unsigned.hap` 为 61,814 bytes，SHA-256 `752600fdd706c4a06a62d06453d5f8927a2d27ba3fa96639808590094fe48b21`；另两次 clean build 同字节数，哈希分别为 `6b36c7437a35f05d0c8407aad920e88d1312b47e5d7ab78aa96e16fff31750c8` 与 `c8af50c3875d68ca4d967078c098cc5442b06a7790cffd904110562d36bb51ce`。新脚本再次验证 `BUILD SUCCESSFUL in 6 s 665 ms`。构建输出含 `No signingConfig found for product default`，所以未签名。此结果仅证明固定源码在**本地临时 SDK 对齐副本**可编译打包，不是原始已推送提交原样构建，也不是稳定 API 26 SDK/真机验证。
-- Hvigor 首次在原 Windows 工作区路径构建时被 Harmony 工程路径校验拒绝（路径含中文用户目录）；后续使用纯 ASCII 的 `C:\tmp` worktree。该次失败在主工作区留下 `.hvigor/outputs/build-logs/build.log`；仓库现忽略根目录下的 `.hvigor/`，不提交生成日志。HDC CLI 可运行，但 `hdc list targets` 无输出：当前没有被 HDC 发现的设备，故本轮无设备部署、签名、安装、启动或 ArkWeb 实测。
+- Hvigor 首次在原 Windows 工作区路径构建时被 Harmony 工程路径校验拒绝（路径含中文用户目录）；后续使用纯 ASCII 的 `C:\tmp` worktree。该次失败在主工作区留下 `.hvigor/outputs/build-logs/build.log`；仓库现忽略根目录下的 `.hvigor/`，不提交生成日志。HDC 初次探测无目标；最新平板模拟器连通证据见下节。没有签名、部署或应用运行证据。
+
+### Windows 平板模拟器
+
+- 经用户同意接受模拟器许可后，通过 DevEco CLI 下载了官方 HarmonyOS 7.0.0（26.0.0）平板 Release 映像 `7.0.0.107`（1,930,878,514 字节），创建独立 `ThreadsHarmonyTablet` 实例；原有手机和折叠模拟器未启动。
+- 冷启动首次等待超时，但实例随后上线。DevEco CLI `device list --format json` 和 `hdc list targets` 都发现 `127.0.0.1:5555`；HDC 只读系统参数确认软件版本 `7.0.0.107(SP8DEVC00E16R1P1)`。这是 Windows 本地模拟器，不是 MatePad 真机。目前仅验证目标启动和 HDC 连通；未签名、安装或运行本项目，也未验证 ArkUI Inspector、ArkTS 断点、ArkWeb DOM 或 Threads 页面。
 
 ### 固定 SHA 的本机构建方法（手工备用）
 
@@ -45,7 +50,7 @@ $env:PATH = "$env:NODE_HOME;C:\DevEco Studio\tools\ohpm\bin;$env:PATH"
 - 当时未发现 DevEco Studio 和 HarmonyOS SDK；本节及随后“仍缺 Studio/Windows SDK”的描述已被上方新实测取代。历史 CLI 调查见下文，切勿把旧环境状态当作当前状态。
 - 官方下载中心 `https://developer.huawei.com/consumer/cn/download/` 与 CLT 页面均只返回 Angular SPA 外壳。其公开前端 JS 声明下载 API，但匿名 POST 得到 nginx 404；页面下载流程涉及开发者联盟登录。没有取得可校验的 Windows 安装包 URL、版本或哈希，因此**没有下载/安装未知镜像，也没有尝试绕过登录**。官方入口可由已登录浏览器访问；当前这台 DSH 无可用的开发者联盟下载会话。
 - 历史 CLI 构建试验：`devecocli build --project .` 返回 `error: unknown option '--project'`；工具会从当前目录探测工程。随后直接执行 `devecocli build` 超过当时的 25 秒工具时限，未获构建结果。该历史 CLI 试验不等于 Hvigor 编译；当前 Windows 原生编译证据见上方。
-- 历史 CLI Lint 试验：当时 `check lint` 报 `Error: DevEco Studio installation not found in default locations.`，没有取得 Lint 通过证据。该错误发生在 Studio 安装/发现修复前；当前仍没有重新运行 CLI Lint 的证据。
+- 历史 CLI Lint 试验：当时 `check lint` 报 `Error: DevEco Studio installation not found in default locations.`，没有取得 Lint 通过证据。修复 Studio 发现后在独立工作树试用官方模板配置。配置必须位于工程内；移入后 CLI 返回 `No defects found`，但同时报告 `Files checked: 0`，不能记为 Lint 通过。
 - DSH 的 GitHub 仓库现已由用户改为公开；提交、推送后的内容可在两端读取，但这只是版本共享，不是文件实时同步、Agent 对话共享或自动唤醒。当前 Remote Hosts 发现失败，且没有 WorkBuddy 的远程执行/调度接口。因此本轮可把一次性验收任务写进仓库并固定 SHA，不能在 DSH 中直接启动 MatePad WorkBuddy。用户已确认 MatePad WorkBuddy 使用 **HY4Flash**，不是此前文档误记的 DeepSeek 4 Flash。
 
 ## 归档仓库候选 CLT（只读核验，未安装）
@@ -60,4 +65,4 @@ $env:PATH = "$env:NODE_HOME;C:\DevEco Studio\tools\ohpm\bin;$env:PATH"
 - DevEco CLI 可由 DSH 用于本地文档查询、静态 Lint（在能发现 Studio/CLT 的机器上）、设备列表/日志/截图/UI 检查等；每条命令仍按副作用审查。`device/run/signature` 可能访问设备或改变签名/安装状态，必须先取得本轮明确授权，默认不自动执行。
 - Windows 承担常规编译与回归；MatePad WorkBuddy 仅负责确实需要设备或 MatePad 工具链的固定版本核验。签名、安装、运行、登录由用户掌控。
 - 后续迭代：DSH 设计/实现 → 从生产页提取方法做回归和同步镜像 → 本机文档/Lint（如可用）→ 审查 diff 和安全边界 → 固定 SHA → WorkBuddy 单任务 MatePad 构建或用户批准的单项设备检查 → DSH 独立核对回执。失败由 DSH 根据脱敏错误修复；不让 WorkBuddy 自行改代码。
-- HDC 已可运行，但本次未列出设备。ArkUI Inspector、ArkTS 断点和 ArkWeb DOM 均尚未在实际目标上验证。
+- HDC 已验证可连接本地平板模拟器；未验证华为真机调试。ArkUI Inspector、ArkTS 断点和 ArkWeb DOM 均尚未在本项目上验证。

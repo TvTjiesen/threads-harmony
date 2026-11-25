@@ -21,7 +21,7 @@
 ### Windows 平板模拟器
 
 - 经用户同意接受模拟器许可后，通过 DevEco CLI 下载了官方 HarmonyOS 7.0.0（26.0.0）平板 Release 映像 `7.0.0.107`（1,930,878,514 字节），创建独立 `ThreadsHarmonyTablet` 实例；原有手机和折叠模拟器未启动。
-- 冷启动首次等待超时，但实例随后上线。DevEco CLI `device list --format json` 和 `hdc list targets` 都发现 `127.0.0.1:5555`；HDC 只读系统参数确认软件版本 `7.0.0.107(SP8DEVC00E16R1P1)`。这是 Windows 本地模拟器，不是 MatePad 真机。目前仅验证目标启动和 HDC 连通；未签名、安装或运行本项目，也未验证 ArkUI Inspector、ArkTS 断点、ArkWeb DOM 或 Threads 页面。
+- 冷启动首次等待超时，但实例随后上线。DevEco CLI `device list --format json` 和 `hdc list targets` 都发现 `127.0.0.1:5555`；HDC 只读系统参数确认软件版本 `7.0.0.107(SP8DEVC00E16R1P1)`。这是 Windows 本地模拟器，不是 MatePad 真机。目前仅验证目标启动和 HDC 连通；本轮后续查询时实例状态为 stopped，需要验收前重新启动。未签名、安装或运行本项目，也未验证 ArkUI Inspector、ArkTS 断点、ArkWeb DOM 或 Threads 页面。
 
 ### 固定 SHA 的本机构建方法（手工备用）
 
@@ -50,7 +50,8 @@ $env:PATH = "$env:NODE_HOME;C:\DevEco Studio\tools\ohpm\bin;$env:PATH"
 - 当时未发现 DevEco Studio 和 HarmonyOS SDK；本节及随后“仍缺 Studio/Windows SDK”的描述已被上方新实测取代。历史 CLI 调查见下文，切勿把旧环境状态当作当前状态。
 - 官方下载中心 `https://developer.huawei.com/consumer/cn/download/` 与 CLT 页面均只返回 Angular SPA 外壳。其公开前端 JS 声明下载 API，但匿名 POST 得到 nginx 404；页面下载流程涉及开发者联盟登录。没有取得可校验的 Windows 安装包 URL、版本或哈希，因此**没有下载/安装未知镜像，也没有尝试绕过登录**。官方入口可由已登录浏览器访问；当前这台 DSH 无可用的开发者联盟下载会话。
 - 历史 CLI 构建试验：`devecocli build --project .` 返回 `error: unknown option '--project'`；工具会从当前目录探测工程。随后直接执行 `devecocli build` 超过当时的 25 秒工具时限，未获构建结果。该历史 CLI 试验不等于 Hvigor 编译；当前 Windows 原生编译证据见上方。
-- 历史 CLI Lint 试验：当时 `check lint` 报 `Error: DevEco Studio installation not found in default locations.`，没有取得 Lint 通过证据。修复 Studio 发现后在独立工作树试用官方模板配置。配置必须位于工程内；移入后 CLI 返回 `No defects found`，但同时报告 `Files checked: 0`，不能记为 Lint 通过。
+- DevEco CLI Lint 后续复测：Studio 安装后可运行，但官方模板配置和显式文件/目录参数均返回 `Files checked: 0`（exit 0，`No defects found`）。生成的完整报告也确认 0 个文件被检查，因此**不计为源码 Lint 通过**。ArkTS 语法/类型编译证据来自 Hvigor 的 `CompileArkTS`，不是这次 Lint。仍需找出 CLI Lint 正确的工程配置/入口后再测。
+- 模拟器部署授权已获用户明确同意，但 `devecocli auth status` 返回 `Not logged in`；`devecocli signature generate --product default` 因需先登录而失败（`Failed to automatically generate signatures.Run devecocli auth login to sign in.`）。未尝试登录、获取账号凭据或上传任何签名材料；尚无可用的本地调试签名配置，故未安装/运行 HAP。需要用户在 DevEco Studio 本机自行完成账号授权与调试签名配置，随后再由 DSH 执行获授权的模拟器安装/启动。
 - DSH 的 GitHub 仓库现已由用户改为公开；提交、推送后的内容可在两端读取，但这只是版本共享，不是文件实时同步、Agent 对话共享或自动唤醒。当前 Remote Hosts 发现失败，且没有 WorkBuddy 的远程执行/调度接口。因此本轮可把一次性验收任务写进仓库并固定 SHA，不能在 DSH 中直接启动 MatePad WorkBuddy。用户已确认 MatePad WorkBuddy 使用 **HY4Flash**，不是此前文档误记的 DeepSeek 4 Flash。
 
 ## 归档仓库候选 CLT（只读核验，未安装）

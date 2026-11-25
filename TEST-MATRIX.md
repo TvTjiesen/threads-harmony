@@ -10,7 +10,7 @@
 | MatePad Edge / CodeArts | QXS-W00 7.0.0.111(SP16C00E111R5P5)（用户提供）；构建 SDK API 26 | 基线原型工程曾用本机 Hvigor 7.26.11 构建通过；候选 bundle `com.example.threadsharmony`，deviceTypes tablet/2in1；SHA `2d106031f2fa6d0bd8018b053abaf9e257f40513` 已由 WorkBuddy 构建；最新代理状态修复 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 已由 WorkBuddy 构建（未签名 HAP 62,003 字节），待签名安装/运行 | 未测 | 未测 | PC 形态及本机 HAP 运行已对旧独立工程验证；本次固定提交 HAP 未签名，安装与运行待测 | 2026-11-24 CodeArts MCP 交接提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6`，15 个白名单文本文件；MatePad 独立目录重建通过，结果提交 `7bbe80b0ec74e393d9e690e71671db491c2239cf`。两个 PNG 在本机补入构建目录。未签名 HAP 27,229 字节；详见 [项目状态](STATUS.md) |
 | Pura X View | HarmonyOS 7.0.0.115 SP10（用户提供）；具体应用 API level 待核实 | 尚无 HAP | ArkWeb 未测 | 五项未测 | 折叠形态待试 | 用户确认系统浏览器可正常使用 Threads；版本号不自动等同 SDK compileSdk/API level |
 | HarmonyOS phone emulator | SDK/API 待装 | 未配置 | 未测 | 未测 | 尺寸模拟 | 仅验证布局及可模拟 API |
-| HarmonyOS tablet emulator | HarmonyOS 7.0.0 Release / API 26，`7.0.0.107` | `ThreadsHarmonyTablet` 启动并通过 HDC 连通；项目未安装、未运行 | 未测 | 未测 | 平板尺寸和输入待验 | Windows 本地模拟器，不等于 2in1 或 MatePad Edge 真机 |
+| HarmonyOS tablet emulator | HarmonyOS 7.0.0 Release / API 26，`7.0.0.107` | `ThreadsHarmonyTablet` 曾启动并通过 HDC 连通；当前已停止。安装/运行因缺本机调试签名暂未完成 | 未测 | 未测 | 平板尺寸和输入待验 | Windows 本地模拟器，不等于 2in1 或 MatePad Edge 真机 |
 | Android emulator/device | 尚未决策 | 无工程 | 未测 | 未测 | 后续扩展 | 先做平台技术 spike，再定最低版本/工具链 |
 
 ## 核心功能（同一测试账号）

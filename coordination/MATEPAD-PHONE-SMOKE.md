@@ -1,6 +1,6 @@
 # 手机优先验收任务单
 
-状态：Windows 手机模拟器此前已启动并通过 HDC 连通；当前是否在线未复核。手机候选工程已在 DevEco 打开。请用户本人完成本地调试签名授权后，DSH 再确认设备在线并继续安装/启动和无登录 smoke。Pura X View 真机验收另行安排。此任务单记录窄范围验收步骤，不要求用户复制长提示词。
+状态（2026-11-25）：Windows 手机模拟器 `ThreadsHarmonyPhone` 当前在线（HDC `127.0.0.1:5555`，HarmonyOS 7.0.0.107）。新固定 SHA 的 Windows clean build 与 ArkTS 编译已通过。待用户本人在 DevEco 本机完成自动调试签名授权；DSH 暂不签名、安装或启动。签名完成后再继续无登录 smoke。Pura X View 真机验收另行安排。此任务单记录窄范围验收步骤，不要求用户复制长提示词。
 
 ## 已锁定代码
 
@@ -14,7 +14,7 @@
 
 1. 在已打开的 `threads-harmony-phone-56785d26-local/app` 工程中（候选 SHA `56785d268d3f028dbe19d21a2c6736bcbb5990d2`），打开 **File > Project Structure... > Project > Signing Configs**。
 2. 勾选 **Automatically generate signature** 和 **Support HarmonyOS**；若出现 **Sign In**，仅由你本人在 IDE 完成华为账号登录/授权，不要把账号信息发给 DSH。
-3. 用户确认华为后台已有与 `com.tvtjiesen.threadsharmony` 完全一致的 HarmonyOS 应用记录。工程已据此更新 `app/AppScope/app.json5` 和 `app/build-profile.json5`，现需从更新后的新 SHA 重新验证构建；此前占位名 `com.example.threadsharmony` 的 HAP 不用于签名/安装。账号授权由用户本人完成。不要把生成的证书或 HAP 提交到 GitHub；完成关联和签名配置后告诉 DSH「签名已配好」。安装和启动由 DSH 使用已授权的本机模拟器流程继续。
+3. 用户确认华为后台已有与 `com.tvtjiesen.threadsharmony` 完全一致的 HarmonyOS 应用记录；新固定 SHA `56785d268d3f028dbe19d21a2c6736bcbb5990d2` 已据此更新并通过 Windows clean build。此前占位名 `com.example.threadsharmony` 的 HAP 不用于签名/安装。账号授权由用户本人完成。不要把生成的证书或 HAP 提交到 GitHub；完成关联和签名配置后告诉 DSH「签名已配好」。安装和启动由 DSH 使用已授权的本机模拟器流程继续。
 
 ## 手机 smoke 范围
 

@@ -22,9 +22,9 @@
 
 **手机优先更新（2026-11-25）**：工程入口 `app/` 已在 `entry/src/main/module.json5` 声明 `phone`、`tablet`、`2in1`，因此下一编译/验收不再只有平板。手机候选 SHA `da480b43c92fbf9d364ae84efaf63197d17205c7` 执行了 `CompileArkTS` 并生成 61,838 字节 unsigned HAP（SHA-256 `97478d6efd05c7327562dcde2a51b25bbb5801f386d74a79e214c33986912963`）；只在临时工作树对齐 `compileSdkVersion`，兼容/目标仍 26.0.0。没有签名/安装/运行。
 
-手机模拟器：官方镜像目录列出 HarmonyOS 7.0.0(26.0.0) phone Release 7.0.0.107，但 CLI 下载被许可门槛拒绝；没有接受新许可或下载。旧 `Mate 90 Pro` 配置引用的 26.0.1 Beta1 镜像缺失，无法启动。不要将平板实例/目标称为手机验收。
+手机模拟器：在用户明确同意后，DevEco CLI 接受模拟器许可并下载官方 HarmonyOS 7.0.0(26.0.0) phone Release 7.0.0.107 镜像（2,090,038,765 字节）。新建 `ThreadsHarmonyPhone` 并启动成功，HDC `list targets` 返回 `127.0.0.1:5555`，读取系统版本为 `7.0.0.107(SP8DEVC00E999R4P11)`。这只证明官方手机模拟器/HDC 通道可用；应用尚未签名、安装或运行。旧 `Mate 90 Pro` 配置引用的 26.0.1 Beta1 镜像缺失，仍无法启动。
 
-**DevEco 自动调试签名的实际界面**：从 Windows Studio 打开要验收的工程 `app/`（本轮隔离候选副本位于 `C:\tmp\threads-harmony-phone-da480b4-local\app`），菜单 **File > Project Structure... > Project > Signing Configs**。HarmonyOS Stage 文档说明选择 **Automatically generate signature**；若页面要求登录，会显示 **Sign In**。请用户本人在此界面完成账号登录与授权；操作前不要把密码、验证码或生成的证书发给 DSH。登录按钮不在欢迎页或 CLI auth 状态页。完成后检查签名配置仅保存在本机，不提交/上传证书与 HAP。
+**DevEco 自动调试签名的实际界面**：从 Windows Studio 打开要验收的工程 `app/`（本轮隔离候选副本位于 `C:\tmp\threads-harmony-phone-da480b4-local\app`），菜单 **File > Project Structure... > Project > Signing Configs**。官方 DevEco FAQ 要求：手机/模拟器已连接后，在 **File > Project Structure... > Project > Signing Configs** 勾选 **Automatically generate signature**；HarmonyOS 工程还要勾选 **Support HarmonyOS**。若未登录，点击 **Sign In**，由用户本人在 DevEco Studio 完成账号授权。不要把密码、验证码或生成的证书发给 DSH；签名配置与 `.p12/.cer/.p7b` 材料只保存在本机，不提交/上传证书或 HAP。CLI 的 `auth status` 不决定 IDE 登录状态。
 
 - 经用户此前同意接受模拟器许可后，下载官方 HarmonyOS 7.0.0（26.0.0）平板 Release 映像 `7.0.0.107`（1,930,878,514 字节），创建独立 `ThreadsHarmonyTablet`；曾启动并由 HDC 连接 `127.0.0.1:5555`。后续查询时该实例已停止；本文只记录历史 HDC 连通，不代表当前有设备在线。
 - 用户要求手机优先后，发现官方 HarmonyOS 7.0.0（26.0.0）手机 Release `7.0.0.107` 可下载，但 DevEco CLI 因 emulator license 尚未接受而拒绝下载。本轮没有接受新许可或下载镜像。已有 `Mate 90 Pro` 模拟器属于 26.0.1 Beta1，镜像缺失、启动失败。需用户先查看/接受对应许可后再下载；手机镜像下载后要重新确认 `device list` 与 `hdc list targets`，再部署。

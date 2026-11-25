@@ -21,7 +21,7 @@ GitHub 仓库已由用户告知转为公开；MatePad 与 Windows DSH 的分工�
 
 1. 当前 Stage 工程 `app/` 已在仓库中，来自固定的已构建 MatePad 脱敏基线；包名为 `com.example.threadsharmony`，签名配置为空，图标为自制占位图。Windows 当前本地编译用 Beta SDK，需要临时副本对齐 `compileSdkVersion`；不要把这个差异提交或擅自改 MatePad 固定版本。
 2. 主开发在 Windows DSH 工作区进行：先查华为本地 API 文档，再改 `overlay/entry/src/main/ets/pages/Index.ets`；运行 `node tools/sync-overlay.mjs` 预览并审阅，只有符合脚本保护条件时才 `--apply` 同步 Stage 镜像。运行 Node 回归、检查 `git diff --check` 和安全差异。
-3. Windows DSH 使用 DevEco Studio 自带 Hvigor 在纯 ASCII 的隔离工作树编译 ArkTS。因本机 SDK `26.0.1.120` 为 Beta1，固定 `5e4d5abf` 构建时仅在副本将 `compileSdkVersion` 从 `26.0.0` 对齐到 `26.0.1`；该补丁不进入提交或 MatePad 回执。可重复入口为 `tools/build-windows-arkts.ps1 -SourceSha <40位SHA>`，会检查精确 HEAD、构建 unsigned HAP、输出 SHA256 并清理临时工作树，不签名、不部署。具体限制见 [华为工具验证](HUAWEI-TOOLS.md)。Windows 已有可通过 HDC 访问的本地平板模拟器；需在 DevEco Studio 本机完成登录与调试签名后，才能部署运行。
+3. Windows DSH 使用 DevEco Studio 自带 Hvigor 在纯 ASCII 的隔离工作树编译 ArkTS。因本机 SDK `26.0.1.120` 为 Beta1，固定 `5e4d5abf` 构建时仅在副本将 `compileSdkVersion` 从 `26.0.0` 对齐到 `26.0.1`；该补丁不进入提交或 MatePad 回执。可重复入口为 `tools/build-windows-arkts.ps1 -SourceSha <40位SHA>`，会检查精确 HEAD、构建 unsigned HAP、输出 SHA256 并清理临时工作树，不签名、不部署。具体限制见 [华为工具验证](HUAWEI-TOOLS.md)。Windows 已有可通过 HDC 访问的本地 HarmonyOS 手机模拟器；当前 phone 候选仍未签名，需在 DevEco Studio 本机完成自动调试签名后才能部署运行。
 4. 构建通过后用户在 MatePad DevEco GUI 自行签名、安装、启动；签名材料不可提交或交给 DSH。先不登录，检查代理提示、Threads 首页、公开内容、图片和返回。
 5. Pura X View 连接、签名、安装、登录、发帖/消息和折叠适配均需用户亲自授权并分项验收；按 `TEST-MATRIX.md` 记录，不把构建成功当作实机功能通过。
 

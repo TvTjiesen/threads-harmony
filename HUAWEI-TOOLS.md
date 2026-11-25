@@ -21,6 +21,7 @@
 
 - 为避免猜测文件名，从 `https://repo.huaweicloud.com/harmonyos/compiler/hvigor/26.0.0.621/` 的目录索引发现 `command-line-tools.tar` 及同名 `.sha256`。下载至 Windows 临时目录后，文件为 351,515,648 字节；随包校验值与本地重新计算的 SHA-256 一致：`83888fb65cb80d40f07af0bd27d76cae005551265a3b0cd437b8a4f0c93d13cc`。该地址属于公开 Huawei Cloud 镜像域名，但本轮未取得它与华为开发者下载中心发布记录的对应证明；因此只把它作为候选归档信息，不视为已确认的官方正式安装来源。
 - TAR 内 `version.txt` 明确标注 `Command Line Tools(linux-x64)`、版本 `26.0.0.621`、`releaseType: beta`、Hvigor `6.26.2`、HarmonyOS SDK `26.0.0 Beta2`（API 26）。`sdk/` 在归档中只有空目录，没有 SDK 文件；该包目标平台也是 Linux x64，不能给当前 Windows 主机建立构建链，也不应安装或拿它拼接本机工具链。已删除下载的 351 MB 临时归档；不更改项目依赖或系统配置。
+- 只读查询同一归档索引中的其他 CLT 条目：`26.0.1.290`（TAR，360,777,728 字节）、`6.26.1`（ZIP，77,819,058 字节）、`7.26.0-arkts1.2-0601-02`（TAR，327,954,944 字节）。对 `6.26.1` ZIP 使用 HTTP Range 读取中央目录和 `version.txt`，确认也是 `Command Line Tools(linux-x64)`、`26.0.0.461`、Beta1、API 26，且仅有空 `sdk/` 目录。并未下载或安装这些包；索引不是已确认的 Windows 发布源，其他两个条目的平台/版本未验证。
 - 故此结果没有改变本机状态：Windows 仍缺已验证的 DevEco Studio/Windows CLT/HarmonyOS SDK；没有构建、Lint、HDC 或设备调试的新证据。官方开发者下载中心仍是推荐获取 Windows 包的入口；本轮未找到可公开、可验证的 Windows 安装包 URL 与版本/哈希组合。
 
 ## 工具边界与下一步

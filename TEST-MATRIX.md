@@ -6,23 +6,25 @@
 
 | 检查项 | 结果 | 边界 |
 | --- | --- | --- |
-| Node 回归与同步 | 14/14 通过；Stage ArkWeb 页与 overlay 字节一致；`git diff --check` 通过 | 仅代码级验证 |
-| DevEco Hvigor clean 构建 | E 盘开发工程 `clean assembleHap` 成功，`CompileArkTS` 执行，35 tasks；产出已签名 HAP | 工程本地签名；不是 Pura X View 实机签装证据 |
-| 手机模拟器安装、启动 | 最新签名 HAP 覆盖安装并重启成功；`uitest dumpLayout` 确认首屏 `pages/Timeline` | 1280×2832 模拟器，不是真机 |
-| 点赞、关注 | 第一帖点赞后显示 `♥` 和 `87`，关注按钮变为「已关注」 | 仅组件运行态，不发送网络请求 |
-| ArkWeb 往返 | 「网页」打开 `pages/Index`；「本地首页」和无网页历史时的模拟器系统返回键均可返回 `pages/Timeline` | 验证页面路由，不等于真实网页加载或真机返回手势 |
-| 返回后的滚动位置 | 滑到后续帖子，进入网页页再返回；「周末书架」「夜归电台」位置与进入前一致 | 进程未重启；未测旋转与折叠 |
-| 真实网页与真机 | 未验证 | HTTPS/代理连通、Pura X View 签装和折叠仍待验 |
+| Node 回归与同步 | 16/16 通过；Stage ArkWeb 页与 overlay 字节一致；`git diff --check` 通过 | 代码级验证 |
+| DevEco Hvigor clean 构建 | E 盘工程 clean `assembleHap` 成功，35 tasks（34 executed）；`CompileArkTS` 2.736 s、`SignHap` 1.423 s，签名 HAP | 本机签名工程；不是 Pura X View 实机签装证据 |
+| 手机模拟器安装、启动 | 最新签名 HAP 覆盖安装、force-stop、启动成功；UI 树确认 `pages/Timeline` 与设置面板 | 1280×2832 模拟器，不是真机 |
+| 点赞动画与状态 | 第一帖计数经点击 `86→87→86→87`；代码级覆盖多帖、连续点击、减少动效重置与恢复不重播 | 模拟器确认数值切换；未测实际动画流畅度/帧率 |
+| 设置面板 | 减少动效切换开/关均更新状态；点击「完成」关闭后重开仍保留会话内值；修复系统关闭图标与「完成」命中区域重叠 | 模拟器 UI 树与触控检查；状态不持久化、不自动跟随系统 |
+| 点赞、关注 | 第一帖显示 `♥` 和 `87`，MatePad 基线回执曾验证关注按钮变为「已关注」 | 当前模拟器本轮未重验关注；全部是本地运行态，不发送网络请求 |
+| ArkWeb 往返与滚动位置 | 当前新版手机模拟器通过：先连续两次读取静止布局，再打开网页并点「本地首页」返回，前后城市观察员 `[332,681][595,743]`、周末书架 `[332,1471][543,1533]`、夜归电台 `[332,2261][543,2323]` 坐标完全一致；MatePad 基线 `2c07c5f` 也有独立真机回执 | 验证原生页与 ArkWeb 容器往返，不代表真实 Threads 网页可用；首次未确认停稳的采样有 40 px 差异，稳定基线复测未复现，未据此修改滚动逻辑 |
+| MatePad 真机回执（基线旧版） | 固定验收代码 SHA `2c07c5f99aa7e0d647e30279e656b2107892706a`；点赞/关注/网页入口/返回保读位及窄窗 `776×1469`、大窗 `2090×1394` 通过；无代理网页 20 秒超时及刷新重试不锁死 | 回执 commit `254b3755a0f61e90890ceb6ebeeb8e76cd44d010` 仅新增回执文档；未测新版设置 UI，用户跳过代理测试；真实网页未打开 |
+| 真实网页与折叠真机 | 未验证 | HTTPS/代理连通、Pura X View 签装、系统返回手势、折叠行为仍待验；本轮截图没有由视觉模型审查 |
 
 ## 设备能力
 
 | 设备/环境 | 系统/API | 构建/安装 | ArkWeb 登录 | 功能验收 | 形态/输入 | 证据/说明 |
 | --- | --- | --- | --- | --- | --- | --- |
 | Windows 主机 | DevEco SDK API 26，`26.0.1.120` Beta1 | 旧包名手机候选 `da480b43` + 仅本地 `compileSdkVersion=26.0.1`：clean build 执行 `CompileArkTS` 并打包通过，未签名 HAP 61,838 字节；用户确认后台已有 Bundle Name `com.tvtjiesen.threadsharmony`；新候选 SHA `56785d268d3f028dbe19d21a2c6736bcbb5990d2` clean build/CompileArkTS 通过，unsigned HAP 61,850 B，SHA256 `aa6f33c540b4763fb1ee59ccc76457b12e63f2f1556b423cc58112601b33d74c`；未安装、未运行 | 未测 | 未测 | DSH/键鼠 | 历史未签名候选；新版已在独立 E 盘工程完成签装，见上方原生原型一节。[旧构建记录](HUAWEI-TOOLS.md) |
-| MatePad Edge / CodeArts | QXS-W00 7.0.0.111(SP16C00E111R5P5)（用户提供）；构建 SDK API 26 | 基线原型工程曾用本机 Hvigor 7.26.11 构建通过；原始基线 bundle `com.example.threadsharmony`；手机候选改用 `com.tvtjiesen.threadsharmony`，重新构建待验，deviceTypes tablet/2in1；SHA `2d106031f2fa6d0bd8018b053abaf9e257f40513` 已由 WorkBuddy 构建；最新代理状态修复 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 已由 WorkBuddy 构建（未签名 HAP 62,003 字节），待签名安装/运行 | 未测 | 未测 | PC 形态及本机 HAP 运行已对旧独立工程验证；本次固定提交 HAP 未签名，安装与运行待测 | 2026-11-24 CodeArts MCP 交接提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6`，15 个白名单文本文件；MatePad 独立目录重建通过，结果提交 `7bbe80b0ec74e393d9e690e71671db491c2239cf`。两个 PNG 在本机补入构建目录。未签名 HAP 27,229 字节；详见 [项目状态](STATUS.md) |
+| MatePad Edge / CodeArts | QXS-W00 7.0.0.111(SP16C00E111R5P5)（用户提供）；构建 SDK API 26 | `2c07c5f99aa7e0d647e30279e656b2107892706a` 基线原生时间线由 MatePad DevEco 本机签名、安装、启动 | 未测真实网页 | 基线回执验证点赞、关注、返回保读位、无代理超时重试；**未测当前新版设置 UI** | 窄窗 `776×1469` 与大窗 `2090×1394` 窗口通过；本轮版式和折叠硬件手势未测 | 回执 commit `254b3755a0f61e90890ceb6ebeeb8e76cd44d010` 仅新增验收文档；当前代码更新后需重新固定 SHA 再验收 |
 | Pura X View | HarmonyOS 7.0.0.115 SP10（用户提供）；具体应用 API level 待核实 | 尚无 HAP | ArkWeb 未测 | 五项未测 | 折叠形态待试 | 用户确认系统浏览器可正常使用 Threads；版本号不自动等同 SDK compileSdk/API level |
 | HarmonyOS phone emulator（首测） | 官方 HarmonyOS 7.0.0 Release / API 26 phone 镜像 `7.0.0.107`，2,090,038,765 字节；本轮 `ThreadsHarmonyPhone` 成功启动，HDC `127.0.0.1:5555` | E 盘工程原生时间线候选已完成签名、覆盖安装及启动 | 未测 | 见上方原生模拟时间线原型 | 窄屏、滚动和网页往返已测 | `com.tvtjiesen.threadsharmony`；模拟结果不能代替 Pura X View 真机 |
-| HarmonyOS tablet emulator | HarmonyOS 7.0.0 Release / API 26，`7.0.0.107` | `ThreadsHarmonyTablet` 曾启动并通过 HDC 连通；当前已停止。安装/运行因缺本机调试签名暂未完成 | 未测 | 未测 | 平板尺寸和输入待验 | Windows 本地模拟器，不等于 2in1 或 MatePad Edge 真机 |
+| HarmonyOS tablet emulator | HarmonyOS 7.0.0 Release / API 26，`7.0.0.107` | `ThreadsHarmonyTablet` 曾启动并通过 HDC 连通；当前已停止，未部署当前原生时间线 | 未测 | 未测 | 平板尺寸和输入待验 | Windows 本地模拟器，不等于 2in1 或 MatePad Edge 真机 |
 | Android emulator/device | 尚未决策 | 无工程 | 未测 | 未测 | 后续扩展 | 先做平台技术 spike，再定最低版本/工具链 |
 
 ## 核心功能（同一测试账号）
@@ -51,7 +53,7 @@
 | ArkWeb 候选 MatePad 重建 | **通过**：固定 SHA `2d106031f2fa6d0bd8018b053abaf9e257f40513` | 回执分支 `feat/arkweb-build-2d1060`，提交 `40f34cec5c14da8abd16dbf465d385828fb2b665` 的父提交精确匹配固定 SHA；回执文件 SHA `d42df8b572bebe5724de041a32401e5ca398650b`，记载三次构建 exit 0，指定命令含 `-p product=default`，HAP 均 56,075 B、unsigned | 仅构建通过；未签名、安装、运行；旧回执 `8fdfd93f...` 仍是旧 SHA 证据 |
 | 合并冲突与分支协作 | 未确认 | 未测 | 两端禁止同时写同一分支，首次先串行交接 |
 
-## 代理修复版验收（MatePad 构建已通过；设备功能待验收）
+## 历史代理修复版验收（当前原生时间线状态见文首；本节设备记录仅适用于旧 ArkWeb 候选）
 
 下一步 MatePad 任务单：[`coordination/MATEPAD-NEXT.md`](coordination/MATEPAD-NEXT.md)。它省去复制长提示词，但不提供自动唤醒。
 

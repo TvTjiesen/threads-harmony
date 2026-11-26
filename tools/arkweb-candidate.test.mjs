@@ -61,6 +61,66 @@ test('native timeline is a separate mock-data page and does not replace the ArkW
   assert.deepEqual(pages.src, ['pages/Index', 'pages/Timeline']);
 });
 
+test('like counters and per-post animation triggers follow interaction state', () => {
+  const timeline = readFileSync(new URL('../app/entry/src/main/ets/pages/Timeline.ets', import.meta.url), 'utf8');
+  const methods = timeline.slice(timeline.indexOf('  private animationTriggerFor('), timeline.indexOf('  private toggleFollow('))
+    .replace(/private (animationTriggerFor|setReduceMotion|async openWeb|toggleLike)/g, '$1');
+  const Timeline = vm.runInNewContext(stripTypeScriptTypes(`class Timeline { ${methods} }; Timeline`), {
+    POSTS: [{ id: 'p1' }, { id: 'p2' }]
+  });
+  const page = new Timeline();
+  page.animationTriggers = [-1, -1];
+  page.likedIds = [];
+  page.reduceMotion = false;
+  assert.equal(page.animationTriggerFor('p1'), -1);
+  page.toggleLike('p1');
+  assert.deepEqual(Array.from(page.likedIds), ['p1']);
+  assert.deepEqual(Array.from(page.animationTriggers), [0, -1]);
+  assert.equal(page.animationTriggerFor('p1'), 0);
+  assert.equal(page.animationTriggerFor('p2'), -1);
+  page.toggleLike('p1');
+  assert.deepEqual(Array.from(page.likedIds), []);
+  assert.deepEqual(Array.from(page.animationTriggers), [-1, -1]);
+  page.toggleLike('p2');
+  assert.deepEqual(Array.from(page.likedIds), ['p2']);
+  assert.deepEqual(Array.from(page.animationTriggers), [-1, 0]);
+  page.setReduceMotion(true);
+  assert.deepEqual(Array.from(page.animationTriggers), [-1, -1]);
+  page.toggleLike('p1');
+  assert.deepEqual(Array.from(page.likedIds), ['p2', 'p1']);
+  assert.deepEqual(Array.from(page.animationTriggers), [-1, -1]);
+  assert.equal(page.animationTriggerFor('unknown'), -1);
+  page.setReduceMotion(false);
+  assert.deepEqual(Array.from(page.animationTriggers), [-1, -1], 'restoring motion must not replay old feedback');
+  page.toggleLike('unknown');
+  assert.deepEqual(Array.from(page.likedIds), ['p2', 'p1']);
+  page.toggleLike('p1');
+  for (let i = 0; i < 20; i++) page.toggleLike('p1');
+  assert.deepEqual(Array.from(page.likedIds), ['p2'], 'even rapid toggles cancel cleanly');
+  assert.deepEqual(Array.from(page.animationTriggers), [-1, -1]);
+  page.toggleLike('p1');
+  page.toggleLike('p2');
+  page.toggleLike('p2');
+  assert.deepEqual(Array.from(page.animationTriggers), [0, 0]);
+  assert.equal(page.animationTriggerFor('p1'), 0, 'liking another post must not change this trigger');
+
+  assert.match(timeline, /\.symbolEffect\(new BounceSymbolEffect\(EffectScope\.WHOLE\), this\.animationTriggerFor\(post\.id\)\)/);
+  assert.match(timeline, /Toggle\(\{ type: ToggleType\.Switch, isOn: this\.reduceMotion \}\)/);
+  assert.match(timeline, /\.onChange\(\(enabled: boolean\) => \{ this\.setReduceMotion\(enabled\); \}\)/);
+  assert.match(timeline, /\.bindSheet\(\$\$this\.settingsVisible, this\.SettingsSheet\(\), \{/);
+  assert.doesNotMatch(timeline, /animatedPostId|@State private notice: string/);
+});
+
+test('settings sheet has one explicit close control and synchronized dismiss state', () => {
+  const timeline = readFileSync(new URL('../app/entry/src/main/ets/pages/Timeline.ets', import.meta.url), 'utf8');
+  const settings = timeline.slice(timeline.indexOf('  SettingsSheet()'), timeline.indexOf('  PostCard('));
+  assert.match(settings, /Button\('完成',/);
+  assert.match(settings, /this\.settingsVisible = false/);
+  assert.match(timeline, /\.bindSheet\(\$\$this\.settingsVisible, this\.SettingsSheet\(\), \{/);
+  assert.match(timeline, /showClose: false/);
+  assert.doesNotMatch(timeline, /showClose: true/);
+});
+
 test('Stage bundle names agree and signing remains disabled', () => {
   const bundle = appConfig.app.bundleName;
   assert.equal(bundle, 'com.tvtjiesen.threadsharmony');

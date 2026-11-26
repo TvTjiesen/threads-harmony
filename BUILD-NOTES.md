@@ -20,15 +20,18 @@
 
 ## 当前状态
 
-MatePad 已精确构建候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513`，回执 `40f34cec5c14da8abd16dbf465d385828fb2b665` 记录三次未签名 HAP 56,075 字节。新代理修复 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 已由 MatePad 独立构建通过，回执 `f9603240237d91791f1923a9a035d638997da4ed` 记录 unsigned HAP 62,003 字节；尚未签名、安装或运行。旧结果不能代替新版回执。Windows 已通过 DevEco Studio 自带 Hvigor 编译 ArkTS 并打包：在纯 ASCII 工作树从同一 SHA 出发，仅本地覆盖 `compileSdkVersion` 为 `26.0.1`，保留 `compatibleSdkVersion` 和 `targetSdkVersion` 为 `26.0.0`。未签名、未部署；复现步骤见 [工具验证](HUAWEI-TOOLS.md)。Node 测试与实际 ArkTS 编译分别记录。
+## 历史构建（当前版本状态见下节）
 
-## 原生时间线首轮验证（2026-11-26）
+MatePad 曾精确构建候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513`，回执 `40f34cec5c14da8abd16dbf465d385828fb2b665` 记录三次未签名 HAP 56,075 字节。代理修复 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 也曾由 MatePad 独立构建通过，回执 `f9603240237d91791f1923a9a035d638997da4ed` 记录 unsigned HAP 62,003 字节。当时未签名/部署；该旧状态不代表目前。Windows 也曾在纯 ASCII 工作树从固定 SHA 出发，仅本地覆盖 `compileSdkVersion` 为 `26.0.1`，保留 `compatibleSdkVersion` 和 `targetSdkVersion` 为 `26.0.0`，实际编译 ArkTS 并打包；复现步骤见 [工具验证](HUAWEI-TOOLS.md)。
+
+## 原生时间线与视觉首轮迭代（2026-11-26）
 
 - `app/entry/src/main/ets/pages/Timeline.ets` 是单独 ArkUI 页面，入口改为该页；ArkWeb 仍留在 `pages/Index`，顶部显示本地首页栈内回退按钮，系统/工具栏返回优先尝试网页历史，无可用历史时才回到模拟时间线。两页均注册在 `main_pages.json`。
 - 时间线内为 8 条本地演示帖；点赞/关注只存组件状态，回复/分享/发帖只显示“未接入”提示。没有账户、网络供数或 Threads API。
-- `node --test tools/arkweb-candidate.test.mjs tools/sync-overlay.test.mjs`：14/14 通过；`git diff --check` 通过；Stage ArkWeb 页与 overlay 字节一致。生产回退方法的回归用例覆盖设置面板优先、网页历史优先，以及无历史或控制器异常时回到时间线。
-- E 盘已签名的独立开发工程执行 `clean assembleHap --no-daemon -p product=default` 成功，实际执行 `CompileArkTS`，35 tasks，产生 signed/unsigned HAP。存在 `getContext`、`router.getLength/back/pushUrl` API 弃用警告；无 ArkTS 编译错误。首次复制采用了模板工程 `$media:icon`，编译报 `The resource reference '$media:icon' is not defined.`，改回 E 盘原有 `$media:layered_image` / `$media:startIcon` 模板资源并保留其 backup ability 后重建成功；失败版本没有覆盖原工程备份。
-- 修正回退逻辑后，E 盘最新版签名 HAP 已在手机模拟器 `127.0.0.1:5555` 覆盖安装并重启成功。`uitest dumpLayout` 确认首屏 `pages/Timeline`、第一帖点赞后显示 `♥` 和 `87`、关注后显示「已关注」。点「网页」进入 `pages/Index`，点「本地首页」回时间线；滚动到后续帖子后重做往返，两条帖子的布局坐标一致。`E:/threadsharmony/smoke-timeline.jpeg` 是较早的同版型首屏截图，最新版交互以设备 UI 树为证。最新版也通过模拟器系统返回键测试：没有网页历史时返回时间线。真实网页连通、触控返回手势与 Pura X View 真机未在本轮验证。
+- `node --test tools/arkweb-candidate.test.mjs tools/sync-overlay.test.mjs`：**16/16** 通过；`git diff --check` 通过；Stage ArkWeb 页与 overlay 字节一致。生产代码方法测试覆盖点赞/取消、多帖状态隔离、快速反复点击、减少动效开关和清除旧触发值；ArkWeb 回退覆盖设置面板、网页历史、无历史及控制器异常。
+- 设置页使用 ArkUI `bindSheet($$this.settingsVisible, ...)` 同步显隐，提供「完成」与拖动关闭。首次 UI 树发现系统关闭图标与「完成」按钮 bounds 重叠；关闭系统 X（`showClose: false`），保留显式完成按钮，避免同一区域双重命中。手机模拟器重复点击「设置」打开、切换减少动效、点击完成、重开并保留会话状态、再切回关闭均通过。设置仅在当前页面会话有效，不持久化、不跟随系统辅助功能设置。
+- E 盘签名工程执行 `clean assembleHap --no-daemon -p product=default` 成功：35 tasks（34 executed），`CompileArkTS` 2.736 s、`SignHap` 1.423 s；生成签名 HAP 266,690 B，SHA-256 `39cc64f1b45cd6815f987aa5b5103ac88cb6f7b738f494d9e55bd81524ab0357`。真实 ArkTS 编译和签名均执行；仅保留 ArkWeb 路由/旧 `getContext` 弃用警告。
+- 最新签名 HAP 覆盖安装至手机模拟器 `127.0.0.1:5555` 并启动成功；UI 树证据确认首屏、设置开关状态、重开保留和点赞数 `86→87→86→87`。新增网页往返读位实测：先两次读取静止布局，再打开 ArkWeb 并点「本地首页」返回，城市观察员、周末书架、夜归电台坐标三者完全一致；另一次未停稳采样曾见 40 px 偏移，静止基线复测未复现，因此未改滚动代码。MatePad 真机旧版回执仅覆盖基线 SHA `2c07c5f99aa7e0d647e30279e656b2107892706a`；回执 `254b3755a0f61e90890ceb6ebeeb8e76cd44d010` 只新增 `coordination/matepad-native-smoke-5e4d.md`。真实 Threads 网页连通、Pura X View 折叠与当前新版真机体验仍未验证。
 
 ## 原型同步工具验证
 

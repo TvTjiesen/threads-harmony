@@ -1,6 +1,6 @@
 # Threads for HarmonyOS · P0 原型
 
-**手机优先**：已有 ArkUI 本地模拟时间线首屏和独立 ArkWeb 网页入口；8 条演示帖子可点赞/关注（仅当前运行态），回复、分享、发帖按钮明确提示尚未接入，不调用 Threads API。E 盘 DevEco 工程已编译、签名并在鸿蒙手机模拟器安装启动；代码回归 14/14 通过。模拟器已验证点赞、关注、网页入口以及返回后保持列表滚动位置；Pura X View 真机和真实网页加载尚未验证。详见 [手机优先计划](PLAN.md) 与 [测试矩阵](TEST-MATRIX.md)。
+**手机优先**：ArkUI 本地模拟时间线与独立 ArkWeb 网页入口并存；8 条演示帖的点赞/关注仅改变本地运行态，回复、分享、发帖尚未接入，不调用 Threads API。E 盘 DevEco 工程已 clean 编译、签名，并安装到 HarmonyOS 手机模拟器。代码回归 **16/16** 通过；设备触控验证设置面板减少动效开关与重开状态、点赞计数 86↔87。MatePad 的旧版真机回执验证了基线页面与窄/大窗口布局，但不覆盖当前设置面板；Pura X View、当前版本折叠手势、真实 Threads 网页连通仍未验证。详见 [手机优先计划](PLAN.md) 与 [测试矩阵](TEST-MATRIX.md)。
 
 非官方 ArkTS/ArkUI + ArkWeb 原型，使用官方 Threads 网站，外层提供基础原生导航和错误提示。MatePad 上的独立探针曾编译出未签名 HAP，且单独通过 DevEco 签名安装运行；Threads 页面仍曾白屏。2026-11-24 MatePad 已通过 GitHub MCP 将 15 个无签名的 HarmonyLocalProbe 源文件交接到分支 `matepad/source-handoff-6b5c`（固定 SHA `f0caae1554dfbe691be9b9690bd59e007e4a14e6`）。同日，CodeArts 在 MatePad 独立目录从该提交重建成功（15 个文本文件按 blob SHA 校验，另补两个原有 PNG）；Windows 核验了回执 `7bbe80b0ec74e393d9e690e71671db491c2239cf`。本次 HAP 未签名、未安装、未运行，与下文的完整 ArkWeb 候选是不同版本。
 
@@ -11,17 +11,17 @@ GitHub 仓库已由用户告知转为公开；MatePad 与 Windows DSH 的分工�
 - Windows DSH 主助手负责主仓库中的产品设计、ArkTS实现、代码审查、安全测试、Git 与错误修复。MatePad WorkBuddy 只按 DSH 固定的 SHA 执行一次一个的本机构建/窄设备核验并回传脱敏结果，不自行修改业务代码。它不是实时同步：先提交并固定 SHA，MatePad 从该 SHA 工作，在独立分支写回验收记录；Windows DSH 再核对父 SHA、差异文件及回执。不得两端同时编辑同一业务分支。
 - MatePad 上已验证手动构建与结果回写；未验证定时唤醒、后台驻留或无人自动接单，不应把它当作持续运行的 Git worker。
 - 进度以 `STATUS.md` 和 `TEST-MATRIX.md` 为准；协作者不要记录账号凭据、cookie、私信原文或签名私钥。
-- MatePad Edge 已验证旧独立探针可在 PC 本机 DevEco 形态签名、安装和启动；当前代理修复版虽已构建，但尚未签名、安装或启动。Pura X View 是主要手机硬件验收设备；授权登录、真实消息、设备通知、折叠体验和性能必须留到手机测试。
+- MatePad Edge 已验证旧独立探针可在 PC 本机 DevEco 形态签名、安装和启动；MatePad 真机也已对 `2c07c5f` 基线原生时间线完成独立验收，但没有覆盖本轮新版设置 UI。E 盘独立 DevEco 工程中的当前新版已签名、安装并在手机模拟器启动。Pura X View 是主要手机硬件验收设备；授权登录、真实消息、设备通知、当前版折叠体验和性能仍需后续实测。
 
 ## 当前开发工程（Stage）
 
-已从 MatePad 验收的脱敏源码提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 在 Windows 仓库准备 `app/` Stage 工程副本；15 个提交内文本文件经 Git blob SHA 校验后复制，两个图标用本地自制占位 PNG 替代。`app/entry/src/main/ets/pages/Index.ets` 来自 `overlay/`，WebView attach 后再应用已存代理并加载首页；代理改为回调成功后再持久化；20 秒无响应会停止请求并提示检查网络；明确拒绝网页权限和 TLS 错误，并捕获主框架 HTTP 错误。签名配置为空，构建产物、签名材料均被忽略。Windows 已用 DevEco SDK API 26 `26.0.1.120` Beta1 对同一代理修复版做本地编译验证，仅在隔离副本覆盖 `compileSdkVersion`。固定候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513` 已由 MatePad WorkBuddy 对精确源码 SHA 构建通过，三次 unsigned HAP 均为 56,075 字节；操作、环境及回执详见分支 `feat/arkweb-build-2d1060` 的 `coordination/arkweb-build-receipt.md`。Windows 已验证回执提交父 SHA 等于固定候选。该构建未签名、安装或运行。代理状态修复版已推送到 `fix/arkweb-proxy-state`，固定 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38`；WorkBuddy 已对这个精确 SHA 重新编译并回传结果；该构建尚未签名、安装或运行，下一步由用户在 MatePad DevEco 本机签名安装。构建回执位于公开仓库分支 `matepad/build-proxy-state-5e4d`，提交 `f9603240237d91791f1923a9a035d638997da4ed`，回执父提交是命名开发分支起点而非构建源码 SHA。新版区分页面等待超时与代理回调超时：前者可停止网页加载，后者不视为取消系统代理操作。不要回传或提交 HAP、完整日志或签名材料。
+已从 MatePad 验收的脱敏源码提交 `f0caae1554dfbe691be9b9690bd59e007e4a14e6` 在 Windows 仓库准备 `app/` Stage 工程副本；15 个提交内文本文件经 Git blob SHA 校验后复制，两个图标用本地自制占位 PNG 替代。`app/entry/src/main/ets/pages/Index.ets` 来自 `overlay/`，WebView attach 后再应用已存代理并加载首页；代理改为回调成功后再持久化；20 秒无响应会停止请求并提示检查网络；明确拒绝网页权限和 TLS 错误，并捕获主框架 HTTP 错误。签名配置为空，构建产物、签名材料均被忽略。Windows 已用 DevEco SDK API 26 `26.0.1.120` Beta1 对同一代理修复版做本地编译验证，仅在隔离副本覆盖 `compileSdkVersion`。**历史构建记录（不是当前阻塞）**：固定候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513` 曾由 MatePad WorkBuddy 对精确源码 SHA 构建通过，三次 unsigned HAP 均为 56,075 字节；回执详见分支 `feat/arkweb-build-2d1060` 的 `coordination/arkweb-build-receipt.md`。代理状态修复版 `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 也曾由 WorkBuddy 编译并回传，历史回执 `f9603240237d91791f1923a9a035d638997da4ed`。这些回执不覆盖目前原生时间线；现有当前版本构建、签名与模拟器验收状态见本文件顶部及 [测试矩阵](TEST-MATRIX.md)。
 
 ## 开发与构建流程
 
-1. 当前 Stage 工程 `app/` 已在仓库中，来自固定的已构建 MatePad 脱敏基线；Bundle Name 为 `com.tvtjiesen.threadsharmony`（由用户确认华为后台已有对应 HarmonyOS 应用记录），签名配置为空，图标为自制占位图。Windows 当前本地编译用 Beta SDK，需要临时副本对齐 `compileSdkVersion`；不要把这个差异提交或擅自改 MatePad 固定版本。
-2. 主开发在 Windows DSH 工作区进行：先查华为本地 API 文档，再改 `overlay/entry/src/main/ets/pages/Index.ets`；运行 `node tools/sync-overlay.mjs` 预览并审阅，只有符合脚本保护条件时才 `--apply` 同步 Stage 镜像。运行 Node 回归、检查 `git diff --check` 和安全差异。
-3. Windows DSH 使用 DevEco Studio 自带 Hvigor 在纯 ASCII 的隔离工作树编译 ArkTS。因本机 SDK `26.0.1.120` 为 Beta1，固定 `5e4d5abf` 与手机候选 `56785d268d3f028dbe19d21a2c6736bcbb5990d2` 构建时仅在副本将 `compileSdkVersion` 从 `26.0.0` 对齐到 `26.0.1`；该补丁不进入提交或 MatePad 回执。可重复入口为 `tools/build-windows-arkts.ps1 -SourceSha <40位SHA>`，会检查精确 HEAD、构建 unsigned HAP、输出 SHA256 并清理临时工作树，不签名、不部署。具体限制见 [华为工具验证](HUAWEI-TOOLS.md)。上述隔离构建只用于验证。实际安装使用独立的 E 盘 DevEco 工程及本机调试签名；该路径已验证手机模拟器。签名配置和本地 HAP 不进入仓库。
+1. 当前 Stage 工程 `app/` 已在仓库中，Bundle Name 为 `com.tvtjiesen.threadsharmony`（由用户确认华为后台已有对应 HarmonyOS 应用记录），签名配置为空，图标为自制占位图。Windows 仓库副本保持可复现配置；本机 Beta SDK 构建需在临时副本对齐 `compileSdkVersion`，不要把这个差异提交或擅自改仓库设置。
+2. 主开发在 Windows DSH 工作区进行：ArkUI 时间线维护在 `app/entry/src/main/ets/pages/Timeline.ets`，ArkWeb 页面维护在 `overlay/entry/src/main/ets/pages/Index.ets`；只有改 ArkWeb 时才运行 `node tools/sync-overlay.mjs` 预览并审阅，再按脚本保护条件同步 Stage 镜像。运行 Node 回归、检查 `git diff --check` 和安全差异。
+3. Windows DSH 使用 DevEco Studio 自带 Hvigor 在纯 ASCII 的隔离工作树编译 ArkTS。因本机 SDK `26.0.1.120` 为 Beta1，固定 SHA 构建时可能仅在副本将 `compileSdkVersion` 从 `26.0.0` 对齐到 `26.0.1`；该补丁不进入提交。可重复入口为 `tools/build-windows-arkts.ps1 -SourceSha <40位SHA>`，会检查精确 HEAD、构建 unsigned HAP、输出 SHA256 并清理临时工作树，不签名、不部署。具体限制见 [华为工具验证](HUAWEI-TOOLS.md)。实际安装使用独立的 E 盘 DevEco 工程及本机调试签名；该路径已验证当前版手机模拟器。签名配置和本地 HAP 不进入仓库。
 4. 构建通过后用户在 MatePad DevEco GUI 自行签名、安装、启动；签名材料不可提交或交给 DSH。先不登录，检查代理提示、Threads 首页、公开内容、图片和返回。
 5. Pura X View 连接、签名、安装、登录、发帖/消息和折叠适配均需用户亲自授权并分项验收；按 `TEST-MATRIX.md` 记录，不把构建成功当作实机功能通过。
 

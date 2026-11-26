@@ -76,8 +76,8 @@ test('native timeline is a separate mock-data page and does not replace the ArkW
 
 test('like counters and per-post animation triggers follow interaction state', () => {
   const timeline = readFileSync(new URL('../app/entry/src/main/ets/pages/Timeline.ets', import.meta.url), 'utf8');
-  const methods = timeline.slice(timeline.indexOf('  private animationTriggerFor('), timeline.indexOf('  private toggleFollow('))
-    .replace(/private (animationTriggerFor|setReduceMotion|async openWeb|toggleLike)/g, '$1');
+  const methods = timeline.slice(timeline.indexOf('  private allowsMotionFeedback('), timeline.indexOf('  private toggleFollow('))
+    .replace(/^  private /gm, '  ');
   const Timeline = vm.runInNewContext(stripTypeScriptTypes(`class Timeline { ${methods} }; Timeline`), {
     POSTS: [{ id: 'p1' }, { id: 'p2' }]
   });
@@ -85,6 +85,8 @@ test('like counters and per-post animation triggers follow interaction state', (
   page.animationTriggers = [-1, -1];
   page.likedIds = [];
   page.reduceMotion = false;
+  page.motionPreferenceReady = true;
+  page.systemReducesMotion = false;
   assert.equal(page.animationTriggerFor('p1'), -1);
   page.toggleLike('p1');
   assert.deepEqual(Array.from(page.likedIds), ['p1']);
@@ -119,9 +121,85 @@ test('like counters and per-post animation triggers follow interaction state', (
 
   assert.match(timeline, /\.symbolEffect\(new BounceSymbolEffect\(EffectScope\.WHOLE\), this\.animationTriggerFor\(post\.id\)\)/);
   assert.match(timeline, /Toggle\(\{ type: ToggleType\.Switch, isOn: this\.reduceMotion \}\)/);
-  assert.match(timeline, /\.onChange\(\(enabled: boolean\) => \{ this\.setReduceMotion\(enabled\); \}\)/);
+  assert.match(timeline, /\.onChange\(\(enabled: boolean\) => \{ this\.updateMotionPreference\(enabled\); \}\)/);
   assert.match(timeline, /\.bindSheet\(\$\$this\.settingsVisible, this\.SettingsSheet\(\), \{/);
   assert.doesNotMatch(timeline, /animatedPostId|@State private notice: string/);
+});
+
+test('motion preference is loaded before animation, serialized to disk and independent of the system override', async () => {
+  const timeline = readFileSync(new URL('../app/entry/src/main/ets/pages/Timeline.ets', import.meta.url), 'utf8');
+  const methods = timeline.slice(timeline.indexOf('  private watchingSystemMotion'), timeline.indexOf('  private toggleFollow('))
+    .replace(/^  private (?:readonly )?/gm, '  ');
+  let disk = false;
+  let pending = false;
+  let failSave = false;
+  let writes = 0;
+  let subscribed;
+  const accessibility = {
+    isAnimationReduceEnabledSync: () => false,
+    onAnimationReduceStateChange: (callback) => { subscribed = callback; },
+    offAnimationReduceStateChange: (callback) => { assert.equal(callback, subscribed); subscribed = undefined; }
+  };
+  const preferences = {
+    getPreferences: async (context, options) => {
+      assert.equal(context, 'host');
+      assert.equal(options.name, 'timeline_display');
+      return {
+        get: async (key, fallback) => { assert.equal(key, 'reduce_motion'); assert.equal(fallback, false); return disk; },
+        put: async (key, value) => { assert.equal(key, 'reduce_motion'); pending = value; writes++; },
+        flush: async () => { if (failSave) throw new Error('storage unavailable'); disk = pending; }
+      };
+    }
+  };
+  const Timeline = vm.runInNewContext(stripTypeScriptTypes(`class Timeline {
+    reduceMotion = false; systemReducesMotion = false; motionPreferenceReady = false; motionPreferenceSaving = false;
+    motionPreferenceWarning = ''; likedIds = []; animationTriggers = [-1];
+    getUIContext() { return { getHostContext: () => 'host' }; }
+    ${methods}
+  }; Timeline`), { POSTS: [{ id: 'p1' }], DISPLAY_PREFERENCES: 'timeline_display', REDUCE_MOTION_KEY: 'reduce_motion', preferences, accessibility });
+
+  const page = new Timeline();
+  page.aboutToAppear();
+  page.toggleLike('p1');
+  assert.equal(page.animationTriggerFor('p1'), -1, 'no bounce while preference is loading');
+  await new Promise(setImmediate);
+  assert.equal(page.allowsMotionFeedback(), true);
+  const save = page.updateMotionPreference(true);
+  assert.equal(page.allowsMotionFeedback(), false, 'suppress immediately, not after I/O');
+  await page.updateMotionPreference(false);
+  await save;
+  assert.equal(disk, true);
+  assert.equal(writes, 1, 'no competing writes');
+  page.aboutToDisappear();
+  assert.equal(subscribed, undefined);
+
+  const restart = new Timeline();
+  restart.aboutToAppear();
+  await new Promise(setImmediate);
+  assert.equal(restart.reduceMotion, true);
+  restart.toggleLike('p1');
+  assert.equal(restart.animationTriggerFor('p1'), -1);
+  assert.deepEqual(Array.from(restart.likedIds), ['p1']);
+  subscribed(true);
+  await restart.updateMotionPreference(false);
+  assert.equal(disk, false);
+  restart.toggleLike('p1');
+  restart.toggleLike('p1');
+  assert.equal(restart.animationTriggerFor('p1'), -1, 'system reduction overrides the local switch');
+  subscribed(false);
+  assert.equal(restart.animationTriggerFor('p1'), -1, 'no replay when the system setting is restored');
+  restart.toggleLike('p1');
+  restart.toggleLike('p1');
+  assert.equal(restart.animationTriggerFor('p1'), 0);
+
+  failSave = true;
+  await restart.updateMotionPreference(true);
+  assert.equal(restart.allowsMotionFeedback(), false);
+  assert.equal(restart.motionPreferenceSaving, false);
+  assert.match(restart.motionPreferenceWarning, /未能保存/);
+  assert.equal(disk, false);
+  restart.aboutToDisappear();
+  assert.match(timeline, /if \(this\.allowsMotionFeedback\(\)\) \{\s+SymbolGlyph[\s\S]*?\.symbolEffect\([\s\S]*?\} else \{\s+SymbolGlyph[^}]*\}/);
 });
 
 test('settings sheet has one explicit close control and synchronized dismiss state', () => {

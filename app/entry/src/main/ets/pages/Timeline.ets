@@ -1,6 +1,10 @@
+import { accessibility } from '@kit.AccessibilityKit';
+import { preferences } from '@kit.ArkData';
 import { LengthMetrics, router } from '@kit.ArkUI';
 
 const LARGE_TEXT_SCALE = 1.4;
+const DISPLAY_PREFERENCES = 'timeline_display';
+const REDUCE_MOTION_KEY = 'reduce_motion';
 
 interface MockPost {
   id: string;
@@ -34,7 +38,77 @@ struct Timeline {
   @StorageProp('timelineFontScale') private fontScale: number = 1;
   @State private animationTriggers: number[] = POSTS.map((_post: MockPost) => -1);
   @State private reduceMotion: boolean = false;
+  @State private systemReducesMotion: boolean = false;
+  @State private motionPreferenceReady: boolean = false;
+  @State private motionPreferenceSaving: boolean = false;
+  @State private motionPreferenceWarning: string = '';
   @State private settingsVisible: boolean = false;
+  private watchingSystemMotion: boolean = false;
+  private readonly systemMotionListener = (enabled: boolean): void => {
+    this.systemReducesMotion = enabled;
+    if (enabled) {
+      this.resetMotionFeedback();
+    }
+  };
+
+  aboutToAppear(): void {
+    try {
+      this.systemMotionListener(accessibility.isAnimationReduceEnabledSync());
+      accessibility.onAnimationReduceStateChange(this.systemMotionListener);
+      this.watchingSystemMotion = true;
+    } catch (_error) {
+      // The local preference still works if this device cannot report system motion settings.
+    }
+    this.loadMotionPreference();
+  }
+
+  aboutToDisappear(): void {
+    if (this.watchingSystemMotion) {
+      this.watchingSystemMotion = false;
+      try {
+        accessibility.offAnimationReduceStateChange(this.systemMotionListener);
+      } catch (_error) {
+        // Keep the rest of the page teardown independent of the system service.
+      }
+    }
+  }
+
+  private async displayPreferences(): Promise<preferences.Preferences> {
+    const context = this.getUIContext().getHostContext();
+    if (context === undefined) {
+      throw new Error('Timeline host context unavailable');
+    }
+    return preferences.getPreferences(context, { name: DISPLAY_PREFERENCES });
+  }
+
+  private async loadMotionPreference(): Promise<void> {
+    try {
+      const store = await this.displayPreferences();
+      this.setReduceMotion(await store.get(REDUCE_MOTION_KEY, false) === true);
+    } catch (_error) {
+      this.motionPreferenceWarning = '无法读取已保存的偏好。';
+    } finally {
+      this.motionPreferenceReady = true;
+    }
+  }
+
+  private async updateMotionPreference(enabled: boolean): Promise<void> {
+    if (!this.motionPreferenceReady || this.motionPreferenceSaving || this.reduceMotion === enabled) {
+      return;
+    }
+    this.setReduceMotion(enabled);
+    this.motionPreferenceSaving = true;
+    this.motionPreferenceWarning = '';
+    try {
+      const store = await this.displayPreferences();
+      await store.put(REDUCE_MOTION_KEY, enabled);
+      await store.flush();
+    } catch (_error) {
+      this.motionPreferenceWarning = '偏好未能保存，本次仍然生效。';
+    } finally {
+      this.motionPreferenceSaving = false;
+    }
+  }
 
   private inform(message: string): void {
     try {
@@ -44,15 +118,23 @@ struct Timeline {
     }
   }
 
+  private allowsMotionFeedback(): boolean {
+    return this.motionPreferenceReady && !this.reduceMotion && !this.systemReducesMotion;
+  }
+
   private animationTriggerFor(id: string): number {
     const index = POSTS.findIndex((post: MockPost) => post.id === id);
-    return index >= 0 && !this.reduceMotion ? this.animationTriggers[index] : -1;
+    return index >= 0 && this.allowsMotionFeedback() ? this.animationTriggers[index] : -1;
+  }
+
+  private resetMotionFeedback(): void {
+    this.animationTriggers = POSTS.map((_post: MockPost) => -1);
   }
 
   private setReduceMotion(enabled: boolean): void {
     this.reduceMotion = enabled;
     if (enabled) {
-      this.animationTriggers = POSTS.map((_post: MockPost) => -1);
+      this.resetMotionFeedback();
     }
   }
 
@@ -80,7 +162,7 @@ struct Timeline {
       ? this.likedIds.filter((item: string) => item !== id)
       : [...this.likedIds, id];
     const nextTriggers = [...this.animationTriggers];
-    nextTriggers[index] = wasLiked || this.reduceMotion ? -1 : nextTriggers[index] + 1;
+    nextTriggers[index] = wasLiked || !this.allowsMotionFeedback() ? -1 : nextTriggers[index] + 1;
     this.animationTriggers = nextTriggers;
   }
 
@@ -106,12 +188,17 @@ struct Timeline {
       Row({ space: 16 }) {
         Column({ space: 4 }) {
           Text('减少动效').fontSize(15).fontWeight(FontWeight.Medium).fontColor($r('app.color.timeline_text_primary'))
-          Text('仅影响本页点赞反馈；当前会话有效').fontSize(12).fontColor($r('app.color.timeline_text_muted'))
+          Text(this.systemReducesMotion ? '系统已减少动效；点赞不会播放弹跳。' : '仅影响本页点赞弹跳；偏好保存在本机。')
+            .fontSize(12).fontColor($r('app.color.timeline_text_muted'))
         }.alignItems(HorizontalAlign.Start).layoutWeight(1)
         Toggle({ type: ToggleType.Switch, isOn: this.reduceMotion })
           .accessibilityText('减少动效')
-          .onChange((enabled: boolean) => { this.setReduceMotion(enabled); })
+          .enabled(this.motionPreferenceReady && !this.motionPreferenceSaving)
+          .onChange((enabled: boolean) => { this.updateMotionPreference(enabled); })
       }.width('100%').padding(16).backgroundColor($r('app.color.timeline_background')).borderRadius(18)
+      if (this.motionPreferenceWarning.length > 0) {
+        Text(this.motionPreferenceWarning).fontSize(12).fontColor($r('app.color.timeline_text_secondary')).width('100%')
+      }
     }
     .width('100%').padding({ left: 22, right: 22, top: 20, bottom: 28 })
     .backgroundColor($r('app.color.timeline_surface'))
@@ -153,9 +240,14 @@ struct Timeline {
         space: { cross: LengthMetrics.vp(6) } }) {
         Row({ space: 4 }) {
           Button({ type: ButtonType.Circle, stateEffect: false }) {
-            SymbolGlyph(this.likedIds.includes(post.id) ? $r('sys.symbol.heart_fill') : $r('sys.symbol.heart'))
-              .fontSize(21).fontColor([this.likedIds.includes(post.id) ? $r('app.color.timeline_like') : $r('app.color.timeline_text_secondary')])
-              .symbolEffect(new BounceSymbolEffect(EffectScope.WHOLE), this.animationTriggerFor(post.id))
+            if (this.allowsMotionFeedback()) {
+              SymbolGlyph(this.likedIds.includes(post.id) ? $r('sys.symbol.heart_fill') : $r('sys.symbol.heart'))
+                .fontSize(21).fontColor([this.likedIds.includes(post.id) ? $r('app.color.timeline_like') : $r('app.color.timeline_text_secondary')])
+                .symbolEffect(new BounceSymbolEffect(EffectScope.WHOLE), this.animationTriggerFor(post.id))
+            } else {
+              SymbolGlyph(this.likedIds.includes(post.id) ? $r('sys.symbol.heart_fill') : $r('sys.symbol.heart'))
+                .fontSize(21).fontColor([this.likedIds.includes(post.id) ? $r('app.color.timeline_like') : $r('app.color.timeline_text_secondary')])
+            }
           }.width(48).height(48).buttonStyle(ButtonStyleMode.TEXTUAL)
             .accessibilityText(this.likedIds.includes(post.id) ? '取消点赞' : '点赞')
             .accessibilitySelected(this.likedIds.includes(post.id))

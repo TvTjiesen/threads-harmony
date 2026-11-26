@@ -31,7 +31,7 @@
 | 用户 | 设备上的身份授权、DevEco 调试签名、安装/启动及登录等必须由本人掌控的动作；在 MatePad 上运行 WorkBuddy 的明确小任务；提供真实设备现象 | 不必写代码；只回传分支/commit、退出码、产物字节数或第一条脱敏错误，不发送凭据/代理地址 |
 | 华为官方工具（DevEco Studio、HarmonyOS CLT/Hvigor、DevEco CLI、hdc 等） | DSH 使用 Studio 自带 Hvigor 在 Windows 本机做 ArkTS 编译；CLI 用于补充文档检索；MatePad 工具链留给 WorkBuddy 的设备专属核验 | Windows SDK 为 API 26 `26.0.1.120` Beta1；固定版本编译仅在临时副本对齐 `compileSdkVersion`；HarmonyOS 7.0.0 phone 模拟器此前由 HDC 连通，但本轮未复核在线状态；未验证物理设备 |
 
-任务按“DSH 设计/实现 → DSH 本地文档、Node 回归与 Hvigor 编译 → DSH 审查 → 固定 SHA → WorkBuddy 一项 MatePad 专属设备/环境核验 → DSH 独立核验 → DSH 修复下一轮”串行交接。一次只让 WorkBuddy 做一个具体动作；完成即回传并停止，不派开放式“继续开发”。代理修复版已从完整固定 SHA 在独立目录构建通过；回执另开分支，只报源 SHA、命令、退出码、未签名 HAP 字节数或第一条脱敏错误。回执分支可从命名分支创建，但必须在回执里区分构建源码 SHA 与分支起点，不能误称父提交就是构建源码。不要签名、安装、启动、修改源码或上传 HAP。每轮实施差异仍由 DSH 主写；WorkBuddy 不负责合并、重构或排错。Windows 本地工具证据与限制见 [华为工具验证](HUAWEI-TOOLS.md)。
+DSH 完成一项改动并通过本地回归后，推送固定 SHA，先写好 MatePad 验收提示词，再从该版本开独立分支继续开发。每份提示词只围绕一个验收主题；WorkBuddy 完成即回报，不修改业务代码，不负责合并或重构。只构建的任务不签装；明确要求本机运行的任务由用户在 DevEco 本机授权签名和安装。回报实际构建 SHA、设备现象和脱敏证据，不上传 HAP。Windows 本地工具证据与限制见 [华为工具验证](HUAWEI-TOOLS.md)。
 
 ## 已验证：MatePad 本机 CLT 构建链
 
@@ -70,11 +70,11 @@ DevEco Studio 版本：<关于页面显示的版本>
 - 交接单位是 Git commit：DSH 改动后推送分支/提交；CodeArts 在 MatePad 通过认证 GitHub MCP 读取固定 SHA，在独立工作区构建，并把脱敏结果关联到新分支/提交。已验收源码基线 `f0caae1554dfbe691be9b9690bd59e007e4a14e6`，构建结果提交 `7bbe80b0ec74e393d9e690e71671db491c2239cf` 的父提交正是此 SHA，且只新增回执文件。
 - Git 负责**共享已提交并推送的文件和版本**，不会实时同步未提交内容，也不负责唤醒对端 Agent 或执行命令。此次真实 MCP 往返只证明异步读写；Agent 自动接单需要另有受控任务通道。不要导出凭据供沙箱使用，也不要把 HAP 上传到 Git。
 
-### 无需复制提示词的交接（仓库任务单）
+### 每轮先交提示词，再并行开发
 
-- 项目根目录的 `coordination/MATEPAD-NEXT.md` 是当前给 MatePad WorkBuddy 的固定小任务；代码已锁定 SHA，任务只含本机无登录验收及脱敏回执。
-- 你无需在两个 Agent 之间复制长提示词：让 MatePad WorkBuddy 读取该仓库文件即可。它不需要改代码或选择版本；只按任务单执行并提交最小回执。DSH 再读取回执并继续主开发。
-- 这减少人工复制，但**不是实时共享、也不会自动唤醒**。DSH 当前无法启动 MatePad 上的 WorkBuddy；Remote host discovery 未连接，官方下载/API 亦未证明存在可用的自动执行回调。WorkBuddy 只有在用户打开它并要求读取该任务单时才会执行。用户不必复制全文，只需告诉它按仓库文件执行。
+- DSH 先把可验收版本推送到 GitHub，再在对话中给出一段可直接复制到 MatePad Edge WorkBuddy 的中文提示词。写明完整源码 SHA、独立构建目录、适用的设备和窗口、逐项预期、未测边界及脱敏回执要求。不要让 WorkBuddy 自行挑分支最新版；默认直接回话，不必提交回执分支。
+- 提示词发出后，DSH 从固定版在独立分支继续下一轮，不必等 MatePad 回报，也不改已发出的验收版本。收到回执时按其源码 SHA 归档，不把旧版结果算到新版本上。
+- 这不是实时共享或自动唤醒，仍由用户把提示词交给 MatePad。旧仓库任务单只作历史参考，不替代当轮提示词。
 
 ### 受限任务桥（尚未接通；不可连接公网裸 HTTP）
 

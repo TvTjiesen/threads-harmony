@@ -1,8 +1,21 @@
 {
   "color": [
-    {
-      "name": "start_window_background",
-      "value": "#FFFFFF"
-    }
+    { "name": "start_window_background", "value": "#F5F3EF" },
+    { "name": "timeline_background", "value": "#F5F3EF" },
+    { "name": "timeline_surface", "value": "#FFFFFF" },
+    { "name": "timeline_surface_muted", "value": "#F1EEE9" },
+    { "name": "timeline_text_primary", "value": "#242320" },
+    { "name": "timeline_text_body", "value": "#34322F" },
+    { "name": "timeline_text_secondary", "value": "#6D6862" },
+    { "name": "timeline_text_muted", "value": "#706960" },
+    { "name": "timeline_action", "value": "#292824" },
+    { "name": "timeline_on_action", "value": "#FFFFFF" },
+    { "name": "timeline_action_muted", "value": "#615D57" },
+    { "name": "timeline_toolbar_button", "value": "#EAE6E0" },
+    { "name": "timeline_border", "value": "#ECE8E2" },
+    { "name": "timeline_shadow", "value": "#10000000" },
+    { "name": "timeline_header_overlay", "value": "#EEF5F3EF" },
+    { "name": "timeline_like", "value": "#B53C53" },
+    { "name": "timeline_on_avatar", "value": "#FFFFFF" }
   ]
 }

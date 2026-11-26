@@ -8,6 +8,19 @@ const overlay = readFileSync(new URL('../overlay/entry/src/main/ets/pages/Index.
 const app = readFileSync(new URL('../app/entry/src/main/ets/pages/Index.ets', import.meta.url), 'utf8');
 const appConfig = JSON.parse(readFileSync(new URL('../app/AppScope/app.json5', import.meta.url), 'utf8'));
 const buildConfig = JSON.parse(readFileSync(new URL('../app/build-profile.json5', import.meta.url), 'utf8'));
+const colors = JSON.parse(readFileSync(new URL('../app/entry/src/main/resources/base/element/color.json', import.meta.url), 'utf8'));
+const darkColors = JSON.parse(readFileSync(new URL('../app/entry/src/main/resources/dark/element/color.json', import.meta.url), 'utf8'));
+const fontConfig = JSON.parse(readFileSync(new URL('../app/AppScope/resources/base/profile/configuration.json', import.meta.url), 'utf8'));
+const themeColors = (list) => Object.fromEntries(list.color.map((entry) => [entry.name, entry.value]));
+
+function luminance(hex) {
+  assert.match(hex, /^#[0-9A-F]{6}$/i);
+  const rgb = hex.slice(1).match(/../g).map((channel) => {
+    const srgb = Number.parseInt(channel, 16) / 255;
+    return srgb <= 0.04045 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+}
 
 test('ArkWeb source remains the reviewed proxy implementation and Stage keeps it as a page', () => {
   assert.match(overlay, /private changeProxy\(/);
@@ -119,6 +132,45 @@ test('settings sheet has one explicit close control and synchronized dismiss sta
   assert.match(timeline, /\.bindSheet\(\$\$this\.settingsVisible, this\.SettingsSheet\(\), \{/);
   assert.match(timeline, /showClose: false/);
   assert.doesNotMatch(timeline, /showClose: true/);
+});
+
+test('timeline color resources exist in both modes and readable pairings meet 4.5:1', () => {
+  const timeline = readFileSync(new URL('../app/entry/src/main/ets/pages/Timeline.ets', import.meta.url), 'utf8');
+  const light = themeColors(colors);
+  const dark = themeColors(darkColors);
+  assert.equal(Object.keys(light).length, colors.color.length);
+  assert.equal(Object.keys(dark).length, darkColors.color.length);
+  assert.deepEqual(Object.keys(dark).sort(), Object.keys(light).sort());
+  assert.notEqual(light.timeline_background, dark.timeline_background);
+  for (const [, name] of timeline.matchAll(/\$r\('app\.color\.(timeline_\w+)'\)/g)) {
+    assert.ok(name in light, `missing timeline palette entry: ${name}`);
+  }
+  const pairs = [
+    ['text_primary', 'background'], ['text_secondary', 'background'],
+    ['text_primary', 'surface'], ['text_body', 'surface'], ['text_secondary', 'surface'],
+    ['text_muted', 'surface'], ['text_muted', 'background'],
+    ['text_body', 'toolbar_button'], ['on_action', 'action'],
+    ['action_muted', 'surface_muted'], ['like', 'surface'],
+  ];
+  for (const [mode, palette] of Object.entries({ light, dark })) {
+    for (const [foreground, background] of pairs) {
+      const [a, b] = [foreground, background].map((role) => luminance(palette[`timeline_${role}`]));
+      assert.ok((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) >= 4.5,
+        `${mode}: ${foreground} on ${background} must meet 4.5:1`);
+    }
+  }
+});
+
+test('Stage follows system font scale and timeline reflows when text grows', () => {
+  const timeline = readFileSync(new URL('../app/entry/src/main/ets/pages/Timeline.ets', import.meta.url), 'utf8');
+  assert.equal(appConfig.app.configuration, '$profile:configuration');
+  assert.deepEqual(fontConfig.configuration, { fontSizeScale: 'followSystem', fontSizeMaxScale: '3.2' });
+  const ability = readFileSync(new URL('../app/entry/src/main/ets/entryability/EntryAbility.ets', import.meta.url), 'utf8');
+  assert.match(ability, /onConfigurationUpdate\(config: Configuration\)[\s\S]*AppStorage\.setOrCreate\('timelineFontScale', config\.fontSizeScale/);
+  assert.match(ability, /this\.onConfigurationUpdate\(this\.context\.config\);\s+windowStage\.loadContent\('pages\/Timeline'\)/);
+  assert.match(timeline, /@StorageProp\('timelineFontScale'\)/);
+  assert.match(timeline, /\.lanes\(this\.viewportWidth >= 680 && this\.fontScale < LARGE_TEXT_SCALE \? 2 : 1/);
+  assert.doesNotMatch(timeline, /Text\(post\.body\)[^\n]*(?:lineHeight|maxLines)/);
 });
 
 test('Stage bundle names agree and signing remains disabled', () => {

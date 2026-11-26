@@ -62,6 +62,7 @@ interface MockPost {
   replies: number;
   likes: number;
   avatarColor: string;
+  local?: boolean;
 }
 
 const POSTS: MockPost[] = [
@@ -78,6 +79,7 @@ const POSTS: MockPost[] = [
 @Entry
 @Component
 struct Timeline {
+  @State private timelinePosts: MockPost[] = [...POSTS];
   @State private likedIds: string[] = [];
   @State private followedIds: string[] = [];
   @State private openingWeb: boolean = false;
@@ -98,6 +100,9 @@ struct Timeline {
   @State private postDraftBusy: boolean = false;
   @State private postDraftMessage: string = '';
   @State private draftDecision: DraftDecision = DraftDecision.None;
+  @State private showingPostPreview: boolean = false;
+  @State private previewBody: string = '';
+  private postSequence: number = 0;
   private postDraftLoadId: number = 0;
   private replySequence: number = 0;
   private readonly detailPaths: NavPathStack = new NavPathStack();
@@ -166,7 +171,7 @@ struct Timeline {
       if (offset === undefined || index < 0) {
         return;
       }
-      const post = POSTS[index - (this.toolbarInList() ? 1 : 0)];
+      const post = this.timelinePosts[index - (this.toolbarInList() ? 1 : 0)];
       if (offset.yOffset <= 1 || (index === 0 && post === undefined)) {
         this.readingAnchor = { postId: '', clipped: 0 };
       } else if (post !== undefined) {
@@ -208,7 +213,7 @@ struct Timeline {
         }
         return;
       }
-      const postIndex = POSTS.findIndex((post: MockPost) => post.id === anchor.postId);
+      const postIndex = this.timelinePosts.findIndex((post: MockPost) => post.id === anchor.postId);
       if (postIndex < 0) {
         return;
       }
@@ -275,12 +280,12 @@ struct Timeline {
   }
 
   private animationTriggerFor(id: string): number {
-    const index = POSTS.findIndex((post: MockPost) => post.id === id);
+    const index = this.timelinePosts.findIndex((post: MockPost) => post.id === id);
     return index >= 0 && this.allowsMotionFeedback() ? this.animationTriggers[index] : -1;
   }
 
   private resetMotionFeedback(): void {
-    this.animationTriggers = POSTS.map((_post: MockPost) => -1);
+    this.animationTriggers = this.timelinePosts.map((_post: MockPost) => -1);
   }
 
   private setReduceMotion(enabled: boolean): void {
@@ -305,7 +310,7 @@ struct Timeline {
   }
 
   private toggleLike(id: string): void {
-    const index = POSTS.findIndex((post: MockPost) => post.id === id);
+    const index = this.timelinePosts.findIndex((post: MockPost) => post.id === id);
     if (index < 0) {
       return;
     }
@@ -353,7 +358,7 @@ struct Timeline {
 
   private submitReply(postId: string): void {
     const body = this.replyDraft.trim();
-    if (body.length === 0 || body.length > REPLY_LIMIT || !POSTS.some((post: MockPost) => post.id === postId)) {
+    if (body.length === 0 || body.length > REPLY_LIMIT || !this.timelinePosts.some((post: MockPost) => post.id === postId)) {
       return;
     }
     this.replySequence += 1;
@@ -383,6 +388,7 @@ struct Timeline {
     this.detailPaths.pushPath({ name: POST_COMPOSER, onPop: () => {
       this.postDraftLoadId += 1;
       this.postDraftBusy = false;
+      this.closePostPreview();
       this.onPageShow();
     } }, this.allowsMotionFeedback());
     if (!this.postDraftReady) {
@@ -420,9 +426,48 @@ struct Timeline {
     }
   }
 
+  private isValidPostBody(body: string): boolean {
+    return body.length <= POST_DRAFT_LIMIT && body.trim().length > 0;
+  }
+
   private canSavePostDraft(): boolean {
-    return this.postDraftReady && !this.postDraftBusy && this.postDraft.trim().length > 0 &&
-      this.postDraft.length <= POST_DRAFT_LIMIT && this.postDraft !== this.savedPostDraft;
+    return this.postDraftReady && !this.postDraftBusy && this.isValidPostBody(this.postDraft) &&
+      this.postDraft !== this.savedPostDraft;
+  }
+
+  private canPreviewPostDraft(): boolean {
+    return this.postDraftReady && !this.postDraftBusy && this.draftDecision === DraftDecision.None &&
+      !this.showingPostPreview && this.isValidPostBody(this.postDraft);
+  }
+
+  private openPostPreview(): void {
+    if (!this.canPreviewPostDraft()) {
+      return;
+    }
+    this.previewBody = this.postDraft;
+    this.showingPostPreview = true;
+  }
+
+  private closePostPreview(): void {
+    this.showingPostPreview = false;
+    this.previewBody = '';
+  }
+
+  private addPreviewToTimeline(): void {
+    if (!this.showingPostPreview || !this.isValidPostBody(this.previewBody)) {
+      return;
+    }
+    const post: MockPost = {
+      id: `preview-${++this.postSequence}`, name: '你', handle: '本地预演', time: '刚刚',
+      body: this.previewBody, replies: 0, likes: 0, avatarColor: '#4A7B78', local: true
+    };
+    this.closePostPreview();
+    this.animationTriggers = [-1, ...this.animationTriggers];
+    this.timelinePosts = [post, ...this.timelinePosts];
+    this.postDraft = this.savedPostDraft;
+    this.readingAnchor = { postId: '', clipped: 0 };
+    this.restorePending = true;
+    this.leaveComposer();
   }
 
   private leaveComposer(): void {
@@ -433,7 +478,9 @@ struct Timeline {
     if (this.postDraftReady && this.postDraftBusy) {
       return;
     }
-    if (this.draftDecision !== DraftDecision.None) {
+    if (this.showingPostPreview) {
+      this.closePostPreview();
+    } else if (this.draftDecision !== DraftDecision.None) {
       this.draftDecision = DraftDecision.None;
     } else if (this.postDraft !== this.savedPostDraft) {
       this.draftDecision = DraftDecision.Leave;
@@ -525,11 +572,11 @@ struct Timeline {
           Text(post.name).fontSize(15).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
           Text(`${post.handle}  ·  ${post.time}`).fontSize(12).fontColor($r('app.color.timeline_text_secondary'))
         }.alignItems(HorizontalAlign.Start).layoutWeight(1)
-        if (this.fontScale < LARGE_TEXT_SCALE && this.viewportWidth >= 360) {
+        if (!post.local && this.fontScale < LARGE_TEXT_SCALE && this.viewportWidth >= 360) {
           this.FollowAction(post)
         }
       }.width('100%')
-      if (this.fontScale >= LARGE_TEXT_SCALE || this.viewportWidth < 360) {
+      if (!post.local && (this.fontScale >= LARGE_TEXT_SCALE || this.viewportWidth < 360)) {
         Row() { this.FollowAction(post) }.width('100%').justifyContent(FlexAlign.End)
       }
 
@@ -564,10 +611,12 @@ struct Timeline {
             .accessibilityText(`查看${post.name}的帖子详情，${this.replyCount(post)} 条回复`)
             .onClick(() => this.openPost(post))
         }
-        Button({ type: ButtonType.Circle }) {
-          SymbolGlyph($r('sys.symbol.share')).fontSize(20).fontColor([$r('app.color.timeline_text_secondary')])
-        }.width(48).height(48).buttonStyle(ButtonStyleMode.TEXTUAL).accessibilityText('分享')
-          .onClick(() => { this.inform('分享功能尚未接入。'); })
+        if (!post.local) {
+          Button({ type: ButtonType.Circle }) {
+            SymbolGlyph($r('sys.symbol.share')).fontSize(20).fontColor([$r('app.color.timeline_text_secondary')])
+          }.width(48).height(48).buttonStyle(ButtonStyleMode.TEXTUAL).accessibilityText('分享')
+            .onClick(() => { this.inform('分享功能尚未接入。'); })
+        }
       }.width('100%')
     }
     .width('100%').padding(18).backgroundColor($r('app.color.timeline_surface')).borderRadius(22)
@@ -637,6 +686,35 @@ struct Timeline {
   }
 
   @Builder
+  PostPreviewContent() {
+    Scroll() {
+      Column({ space: 18 }) {
+        Button('返回编辑', { type: ButtonType.Capsule })
+          .constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16 })
+          .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body'))
+          .onClick(() => this.closePostPreview())
+        Column({ space: 6 }) {
+          Text('帖子预览').fontSize(28).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
+          Text('只加入本地演示时间线，关闭应用后消失。不会发送到 Threads，也不会更改已保存的草稿。')
+            .fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
+        }.width('100%').alignItems(HorizontalAlign.Start)
+        Column({ space: 12 }) {
+          Text('你 · 本地预演').fontSize(15).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
+          Text(this.previewBody).width('100%').fontSize(15).textAlign(TextAlign.Start)
+            .fontColor($r('app.color.timeline_text_body')).copyOption(CopyOptions.InApp)
+        }.width('100%').padding(18).alignItems(HorizontalAlign.Start)
+          .backgroundColor($r('app.color.timeline_surface')).borderRadius(22)
+          .border({ width: 1, color: $r('app.color.timeline_border') })
+        Button('加入本地时间线', { type: ButtonType.Capsule })
+          .width('100%').constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16, top: 10, bottom: 10 })
+          .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
+          .onClick(() => this.addPreviewToTimeline())
+      }.width('100%').constraintSize({ maxWidth: 600 }).alignItems(HorizontalAlign.Start)
+        .padding({ left: 18, right: 18, top: 16, bottom: 24 })
+    }.width('100%').height('100%').align(Alignment.Top).scrollBar(BarState.Auto)
+  }
+
+  @Builder
   ComposerContent() {
     Scroll() {
       Column({ space: 18 }) {
@@ -665,6 +743,10 @@ struct Timeline {
                 .width('100%').constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16, top: 10, bottom: 10 })
                 .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
                 .enabled(this.canSavePostDraft()).onClick(() => { this.savePostDraft(false); })
+              Button('预览帖子', { type: ButtonType.Capsule })
+                .width('100%').constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16, top: 10, bottom: 10 })
+                .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body'))
+                .enabled(this.canPreviewPostDraft()).onClick(() => this.openPostPreview())
               if (this.savedPostDraft.length > 0 && !this.postDraftBusy) {
                 Button('清空本机草稿', { type: ButtonType.Capsule })
                   .constraintSize({ minHeight: 48 }).buttonStyle(ButtonStyleMode.TEXTUAL)
@@ -715,7 +797,11 @@ struct Timeline {
   DetailDestination(name: string, post?: MockPost) {
     if (name === POST_COMPOSER) {
       NavDestination() {
-        this.ComposerContent()
+        if (this.showingPostPreview) {
+          this.PostPreviewContent()
+        } else {
+          this.ComposerContent()
+        }
       }.hideTitleBar(true).backgroundColor($r('app.color.timeline_background'))
         .onBackPressed(() => {
           this.requestComposerExit();
@@ -776,7 +862,7 @@ struct Timeline {
             }.width('100%').constraintSize({ maxWidth: 600 })
           }
         }
-        ForEach(POSTS, (post: MockPost) => {
+        ForEach(this.timelinePosts, (post: MockPost) => {
           ListItem() {
             this.PostCard(post, false)
           }

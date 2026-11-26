@@ -82,6 +82,7 @@ test('like counters and per-post animation triggers follow interaction state', (
     POSTS: [{ id: 'p1' }, { id: 'p2' }]
   });
   const page = new Timeline();
+  page.timelinePosts = [{ id: 'p1' }, { id: 'p2' }];
   page.animationTriggers = [-1, -1];
   page.likedIds = [];
   page.reduceMotion = false;
@@ -153,7 +154,7 @@ test('motion preference is loaded before animation, serialized to disk and indep
   };
   const Timeline = vm.runInNewContext(stripTypeScriptTypes(`class Timeline {
     reduceMotion = false; systemReducesMotion = false; motionPreferenceReady = false; motionPreferenceSaving = false;
-    motionPreferenceWarning = ''; likedIds = []; animationTriggers = [-1];
+    motionPreferenceWarning = ''; likedIds = []; animationTriggers = [-1]; timelinePosts = POSTS;
     getUIContext() { return { getHostContext: () => 'host' }; }
     ${methods}
   }; Timeline`), { POSTS: [{ id: 'p1' }], DISPLAY_PREFERENCES: 'timeline_display', REDUCE_MOTION_KEY: 'reduce_motion', preferences, accessibility });
@@ -262,7 +263,7 @@ test('reading reflow keeps a post ID, adjusts for the large-text toolbar and def
   let rect = { height: 120, y: -28 };
   const Timeline = vm.runInNewContext(stripTypeScriptTypes(`class Timeline {
     timelineVisible = true; restorePending = false; restoreScheduled = false;
-    viewportWidth = 400; fontScale = 1; firstVisibleIndex = 1;
+    viewportWidth = 400; fontScale = 1; firstVisibleIndex = 1; timelinePosts = POSTS;
     detailPaths = { size: () => 0 };
     getUIContext() { return { postFrameCallback: (frame) => frames.push(frame) }; }
     ${methods}
@@ -316,6 +317,18 @@ test('reading reflow keeps a post ID, adjusts for the large-text toolbar and def
   frames.shift().task();
   assert.deepEqual(calls.shift(), [0, false, 'start']);
   assert.equal(page.restorePending, false);
+
+  page.fontScale = 1;
+  page.timelinePosts = [{ id: 'preview-1' }, ...page.timelinePosts];
+  page.firstVisibleIndex = 2;
+  rect = { height: 120, y: -28 };
+  page.rememberReadingPosition();
+  assert.equal(page.readingAnchor.postId, 'p2', 'local posts count towards the visible index');
+  page.fontScale = 2;
+  page.onReadingLayoutChange();
+  rect = { height: 0, y: 0 };
+  frames.shift().task();
+  assert.deepEqual(calls.shift().slice(0, 3), [3, false, 'start']);
 });
 
 test('post detail uses one stack entry and keeps replies local and scoped to their post', () => {
@@ -326,7 +339,7 @@ test('post detail uses one stack entry and keeps replies local and scoped to the
   const other = { id: 'p2', replies: 7 };
   const Timeline = vm.runInNewContext(stripTypeScriptTypes(`class Timeline {
     timelineVisible = true; replyDraft = 'old draft'; replySequence = 0; localReplies = [];
-    motion = false; anchorCaptures = 0;
+    motion = false; anchorCaptures = 0; timelinePosts = POSTS;
     allowsMotionFeedback() { return this.motion; }
     rememberReadingPosition() { this.anchorCaptures++; }
     onPageShow() { this.timelineVisible = this.detailPaths.size() === 0; }
@@ -381,7 +394,7 @@ test('post detail uses one stack entry and keeps replies local and scoped to the
   assert.match(timeline, /this\.PostCard\(post, false\)/);
 });
 
-test('post drafts save and clear only explicitly, preserve unsaved edits on failure, and restore after restart', async () => {
+test('post drafts persist explicitly and preview posts are added once without modifying the saved draft', async () => {
   const timeline = readFileSync(new URL('../app/entry/src/main/ets/pages/Timeline.ets', import.meta.url), 'utf8');
   const constants = timeline.slice(timeline.indexOf('const POST_COMPOSER'), timeline.indexOf('interface DemoReply'));
   const methods = timeline.slice(timeline.indexOf('  private async postDraftPreferences('), timeline.indexOf('  @Builder\n  SettingsSheet()'))
@@ -391,6 +404,8 @@ test('post drafts save and clear only explicitly, preserve unsaved edits on fail
     class Composer {
       postDraft = ''; savedPostDraft = ''; postDraftReady = false; postDraftBusy = false;
       postDraftMessage = ''; draftDecision = DraftDecision.None; postDraftLoadId = 0;
+      showingPostPreview = false; previewBody = ''; postSequence = 0;
+      timelinePosts = [{ id: 'p1' }, { id: 'p2' }]; animationTriggers = [0, -1];
       timelineVisible = true; anchorCaptures = 0;
       constructor(store) {
         this.detailPaths = {
@@ -443,6 +458,8 @@ test('post drafts save and clear only explicitly, preserve unsaved edits on fail
   for (const invalid of [' ', 'x'.repeat(501)]) {
     page.postDraft = invalid;
     await page.savePostDraft(false);
+    page.openPostPreview();
+    assert.equal(page.showingPostPreview, false);
   }
   assert.equal(writes, 0);
   const body = '  草稿第一行\n第二行 🧵  ';
@@ -512,6 +529,36 @@ test('post drafts save and clear only explicitly, preserve unsaved edits on fail
   await settle();
   assert.equal(canceled.postDraftReady, true);
   assert.match(timeline, /不会发布到 Threads/);
+
+  page.openComposer();
+  const preview = '  新版本\n保留换行 🧵  ';
+  page.postDraft = preview;
+  page.openPostPreview();
+  assert.equal(page.route.name, 'PostComposer');
+  assert.equal(page.previewBody, preview);
+  assert.equal(page.timelinePosts.length, 2, 'preview alone must not add anything');
+  page.requestComposerExit();
+  assert.equal(page.showingPostPreview, false);
+  assert.equal(page.postDraft, preview, 'Back goes to editing without discarding');
+  const writesBeforeAdd = writes;
+  page.openPostPreview();
+  page.addPreviewToTimeline();
+  page.addPreviewToTimeline();
+  assert.equal(page.timelineVisible, true);
+  assert.equal(page.showingPostPreview, false);
+  assert.equal(page.previewBody, '');
+  assert.equal(page.timelinePosts[0].body, preview);
+  assert.equal(page.timelinePosts[0].local, true);
+  assert.equal(page.timelinePosts[0].id, 'preview-1');
+  assert.deepEqual(Array.from(page.timelinePosts, (post) => post.id), ['preview-1', 'p1', 'p2']);
+  assert.deepEqual(Array.from(page.animationTriggers), [-1, 0, -1], 'existing likes stay with their posts');
+  assert.equal(page.readingAnchor.postId, '', 'adding explicitly returns to the top');
+  assert.equal(page.restorePending, true);
+  assert.equal(writes, writesBeforeAdd, 'adding a preview does not write to preferences');
+  page.openComposer();
+  assert.equal(page.postDraft, body, 'saved draft is unchanged by a preview');
+  assert.ok(new Composer(store).timelinePosts.every((post) => !post.local));
+  assert.match(timeline, /ForEach\(this\.timelinePosts,/);
 });
 
 test('Stage bundle names agree and signing remains disabled', () => {

@@ -1,6 +1,7 @@
 import { accessibility } from '@kit.AccessibilityKit';
 import { preferences } from '@kit.ArkData';
 import { FrameCallback, LengthMetrics, router } from '@kit.ArkUI';
+import { decodeLibrary, emptyLibrary, LibraryPost, LIBRARY_POST_LIMIT, LOCAL_POST_BODY_LIMIT, LocalLibrary, matchesPost } from '../model/LocalLibrary';
 
 const LARGE_TEXT_SCALE = 1.4;
 const WIDE_VIEWPORT = 680;
@@ -8,7 +9,11 @@ const MAX_LIST_WIDTH = 1248;
 const REPLY_LIMIT = 280;
 const POST_DETAIL = 'PostDetail';
 const POST_COMPOSER = 'PostComposer';
-const POST_DRAFT_LIMIT = 500;
+const POST_DRAFT_LIMIT = LOCAL_POST_BODY_LIMIT;
+const POST_SEARCH = 'LocalSearch';
+const POST_LIBRARY = 'LocalLibrary';
+const LIBRARY_STORE = 'timeline_local_library';
+const LIBRARY_KEY = 'content_v1';
 const POST_DRAFT_STORE = 'timeline_post_draft';
 const POST_DRAFT_KEY = 'body';
 
@@ -82,6 +87,14 @@ struct Timeline {
   @State private timelinePosts: MockPost[] = [...POSTS];
   @State private likedIds: string[] = [];
   @State private followedIds: string[] = [];
+  @State private savedIds: string[] = [];
+  @State private libraryReady: boolean = false;
+  @State private libraryLoading: boolean = false;
+  @State private libraryBusy: boolean = false;
+  @State private libraryMessage: string = '';
+  @State private searchQuery: string = '';
+  @State private libraryShowsSaved: boolean = true;
+  @State private confirmingDelete: boolean = false;
   @State private openingWeb: boolean = false;
   @State private viewportWidth: number = 0;
   @StorageProp('timelineFontScale') @Watch('onReadingLayoutChange') private fontScale: number = 1;
@@ -102,6 +115,7 @@ struct Timeline {
   @State private draftDecision: DraftDecision = DraftDecision.None;
   @State private showingPostPreview: boolean = false;
   @State private previewBody: string = '';
+  private library: LocalLibrary = emptyLibrary();
   private postSequence: number = 0;
   private postDraftLoadId: number = 0;
   private replySequence: number = 0;
@@ -129,6 +143,7 @@ struct Timeline {
       // The local preference still works if this device cannot report system motion settings.
     }
     this.loadMotionPreference();
+    this.loadLibrary();
   }
 
   aboutToDisappear(): void {
@@ -309,41 +324,48 @@ struct Timeline {
     }
   }
 
-  private toggleLike(id: string): void {
+  private async toggleLike(id: string): Promise<void> {
     const index = this.timelinePosts.findIndex((post: MockPost) => post.id === id);
     if (index < 0) {
       return;
     }
-    const wasLiked = this.likedIds.includes(id);
-    this.likedIds = wasLiked
-      ? this.likedIds.filter((item: string) => item !== id)
-      : [...this.likedIds, id];
-    const nextTriggers = [...this.animationTriggers];
-    nextTriggers[index] = wasLiked || !this.allowsMotionFeedback() ? -1 : nextTriggers[index] + 1;
-    this.animationTriggers = nextTriggers;
+    const next = this.nextSelection(this.likedIds, id);
+    if (await this.saveLibrary({ posts: this.library.posts, likedIds: next, followedIds: this.followedIds,
+      savedIds: this.savedIds })) {
+      const nextTriggers = [...this.animationTriggers];
+      nextTriggers[index] = !next.includes(id) || !this.allowsMotionFeedback() ? -1 : nextTriggers[index] + 1;
+      this.animationTriggers = nextTriggers;
+    }
   }
 
-  private toggleFollow(id: string): void {
-    this.followedIds = this.followedIds.includes(id)
-      ? this.followedIds.filter((item: string) => item !== id)
-      : [...this.followedIds, id];
+  private async toggleFollow(id: string): Promise<void> {
+    const next = this.nextSelection(this.followedIds, id);
+    await this.saveLibrary({ posts: this.library.posts, likedIds: this.likedIds, followedIds: next,
+      savedIds: this.savedIds });
   }
 
   private openPost(post: MockPost): void {
-    if (this.detailPaths.size() > 0) {
+    const routes = this.detailPaths.getAllPathName();
+    if (routes.length > 1 || (routes.length === 1 && routes[0] !== POST_SEARCH && routes[0] !== POST_LIBRARY)) {
       return;
     }
     this.rememberReadingPosition();
     this.timelineVisible = false;
     this.replyDraft = '';
+    this.confirmingDelete = false;
     this.detailPaths.pushPath({ name: POST_DETAIL, param: post, onPop: () => {
       this.replyDraft = '';
+      this.confirmingDelete = false;
       this.onPageShow();
     } }, this.allowsMotionFeedback());
   }
 
   private closePost(): void {
-    if (this.detailPaths.size() > 0) {
+    if (this.confirmingDelete) {
+      if (!this.libraryBusy) {
+        this.confirmingDelete = false;
+      }
+    } else if (this.detailPaths.size() > 0) {
       this.detailPaths.pop({ closed: true }, this.allowsMotionFeedback());
     }
   }
@@ -366,6 +388,131 @@ struct Timeline {
       id: `local-${this.replySequence}`, postId: postId, author: '你', body: body, local: true
     }];
     this.replyDraft = '';
+  }
+
+  private localPost(post: LibraryPost): MockPost {
+    return { id: post.id, name: '你', handle: '本机帖子', time: '离线', body: post.body,
+      replies: 0, likes: 0, avatarColor: '#4A7B78', local: true };
+  }
+
+  private async libraryPreferences(): Promise<preferences.Preferences> {
+    const context = this.getUIContext().getHostContext();
+    if (context === undefined) {
+      throw new Error('Timeline host context unavailable');
+    }
+    return preferences.getPreferences(context, { name: LIBRARY_STORE });
+  }
+
+  private applyLibrary(value: LocalLibrary): void {
+    const previousPosts = this.timelinePosts;
+    const previousTriggers = this.animationTriggers;
+    this.library = value;
+    this.likedIds = value.likedIds;
+    this.followedIds = value.followedIds;
+    this.savedIds = value.savedIds;
+    if (value.posts.length !== previousPosts.length - POSTS.length ||
+      value.posts.some((post: LibraryPost, index: number) => post.id !== previousPosts[index]?.id)) {
+      const next = [...value.posts.map((post: LibraryPost) => this.localPost(post)), ...POSTS];
+      this.animationTriggers = next.map((post: MockPost) => {
+        const index = previousPosts.findIndex((previous: MockPost) => previous.id === post.id);
+        return index < 0 ? -1 : previousTriggers[index];
+      });
+      this.timelinePosts = next;
+    }
+  }
+
+  private async loadLibrary(): Promise<void> {
+    if (this.libraryLoading || this.libraryReady) {
+      return;
+    }
+    this.libraryLoading = true;
+    this.libraryMessage = '';
+    try {
+      const store = await this.libraryPreferences();
+      const raw = await store.get(LIBRARY_KEY, '');
+      if (typeof raw !== 'string') {
+        throw new Error('Invalid library store');
+      }
+      const value = decodeLibrary(raw, POSTS.map((post: MockPost) => post.id));
+      this.applyLibrary(value);
+      this.postSequence = value.posts.reduce((latest: number, post: LibraryPost) =>
+        Math.max(latest, Number(post.id.substring('local-post-'.length))), 0);
+      this.libraryReady = true;
+    } catch (_error) {
+      this.libraryMessage = '暂时无法读取本机内容，浏览演示帖不受影响。';
+    } finally {
+      this.libraryLoading = false;
+    }
+  }
+
+  private async saveLibrary(value: LocalLibrary): Promise<boolean> {
+    if (!this.libraryReady || this.libraryBusy) {
+      return false;
+    }
+    this.libraryBusy = true;
+    this.libraryMessage = '';
+    try {
+      const store = await this.libraryPreferences();
+      await store.put(LIBRARY_KEY, JSON.stringify({ version: 1, posts: value.posts, likedIds: value.likedIds,
+        followedIds: value.followedIds, savedIds: value.savedIds }));
+      await store.flush();
+      this.applyLibrary(value);
+      return true;
+    } catch (_error) {
+      this.libraryMessage = '未能保存本机更改，请重试。';
+      this.inform(this.libraryMessage);
+      return false;
+    } finally {
+      this.libraryBusy = false;
+    }
+  }
+
+  private nextSelection(ids: string[], id: string): string[] {
+    return ids.includes(id) ? ids.filter((item: string) => item !== id) : [...ids, id];
+  }
+
+  private async toggleSaved(post: MockPost): Promise<void> {
+    const next = this.nextSelection(this.savedIds, post.id);
+    await this.saveLibrary({ posts: this.library.posts, likedIds: this.likedIds, followedIds: this.followedIds,
+      savedIds: next });
+  }
+
+  private openLocalView(name: string): void {
+    if (this.detailPaths.size() !== 0) {
+      return;
+    }
+    this.rememberReadingPosition();
+    this.timelineVisible = false;
+    this.searchQuery = '';
+    this.libraryShowsSaved = true;
+    this.detailPaths.pushPath({ name: name, onPop: () => this.onPageShow() }, this.allowsMotionFeedback());
+  }
+
+  private listedPosts(search: boolean): MockPost[] {
+    return this.timelinePosts.filter((post: MockPost) => search
+      ? matchesPost(this.searchQuery, post.name, post.handle, post.body)
+      : (this.libraryShowsSaved ? this.savedIds.includes(post.id) : post.local === true));
+  }
+
+  private async removeLocalPost(post: MockPost): Promise<void> {
+    if (!post.local || !this.confirmingDelete || this.libraryBusy) {
+      return;
+    }
+    const saved = await this.saveLibrary({
+      posts: this.library.posts.filter((item: LibraryPost) => item.id !== post.id),
+      likedIds: this.likedIds.filter((id: string) => id !== post.id),
+      followedIds: this.followedIds,
+      savedIds: this.savedIds.filter((id: string) => id !== post.id)
+    });
+    if (saved) {
+      this.confirmingDelete = false;
+      this.localReplies = this.localReplies.filter((reply: DemoReply) => reply.postId !== post.id);
+      if (this.readingAnchor.postId === post.id) {
+        this.readingAnchor = { postId: '', clipped: 0 };
+      }
+      this.restorePending = true;
+      this.closePost();
+    }
   }
 
   private async postDraftPreferences(): Promise<preferences.Preferences> {
@@ -453,21 +600,26 @@ struct Timeline {
     this.previewBody = '';
   }
 
-  private addPreviewToTimeline(): void {
-    if (!this.showingPostPreview || !this.isValidPostBody(this.previewBody)) {
+  private async addPreviewToTimeline(): Promise<void> {
+    if (!this.showingPostPreview || !this.isValidPostBody(this.previewBody) || this.libraryBusy || !this.libraryReady) {
       return;
     }
-    const post: MockPost = {
-      id: `preview-${++this.postSequence}`, name: '你', handle: '本地预演', time: '刚刚',
-      body: this.previewBody, replies: 0, likes: 0, avatarColor: '#4A7B78', local: true
-    };
-    this.closePostPreview();
-    this.animationTriggers = [-1, ...this.animationTriggers];
-    this.timelinePosts = [post, ...this.timelinePosts];
-    this.postDraft = this.savedPostDraft;
-    this.readingAnchor = { postId: '', clipped: 0 };
-    this.restorePending = true;
-    this.leaveComposer();
+    if (this.library.posts.length >= LIBRARY_POST_LIMIT) {
+      this.inform('本机帖子已满，请在「我的」中删除不再需要的帖子。');
+      return;
+    }
+    const body = this.previewBody;
+    this.postSequence = Math.max(this.postSequence + 1, Date.now());
+    const post: LibraryPost = { id: `local-post-${this.postSequence}`, body: body };
+    const saved = await this.saveLibrary({ posts: [post, ...this.library.posts], likedIds: this.likedIds,
+      followedIds: this.followedIds, savedIds: this.savedIds });
+    if (saved) {
+      this.closePostPreview();
+      this.postDraft = this.savedPostDraft;
+      this.readingAnchor = { postId: '', clipped: 0 };
+      this.restorePending = true;
+      this.leaveComposer();
+    }
   }
 
   private leaveComposer(): void {
@@ -475,7 +627,7 @@ struct Timeline {
   }
 
   private requestComposerExit(): void {
-    if (this.postDraftReady && this.postDraftBusy) {
+    if ((this.postDraftReady && this.postDraftBusy) || (this.showingPostPreview && this.libraryBusy)) {
       return;
     }
     if (this.showingPostPreview) {
@@ -558,7 +710,8 @@ struct Timeline {
       .backgroundColor(this.followedIds.includes(post.id) ? $r('app.color.timeline_surface_muted') : $r('app.color.timeline_action'))
       .fontColor(this.followedIds.includes(post.id) ? $r('app.color.timeline_action_muted') : $r('app.color.timeline_on_action'))
       .accessibilitySelected(this.followedIds.includes(post.id))
-      .onClick(() => this.toggleFollow(post.id))
+      .enabled(this.libraryReady && !this.libraryBusy)
+      .onClick(() => { this.toggleFollow(post.id); })
   }
 
   @Builder
@@ -598,7 +751,8 @@ struct Timeline {
           }.width(48).height(48).buttonStyle(ButtonStyleMode.TEXTUAL)
             .accessibilityText(this.likedIds.includes(post.id) ? '取消点赞' : '点赞')
             .accessibilitySelected(this.likedIds.includes(post.id))
-            .onClick(() => this.toggleLike(post.id))
+            .enabled(this.libraryReady && !this.libraryBusy)
+            .onClick(() => { this.toggleLike(post.id); })
           Text(`${post.likes + (this.likedIds.includes(post.id) ? 1 : 0)}`).fontSize(12).fontColor($r('app.color.timeline_text_secondary'))
         }
         if (!inDetail) {
@@ -611,12 +765,10 @@ struct Timeline {
             .accessibilityText(`查看${post.name}的帖子详情，${this.replyCount(post)} 条回复`)
             .onClick(() => this.openPost(post))
         }
-        if (!post.local) {
-          Button({ type: ButtonType.Circle }) {
-            SymbolGlyph($r('sys.symbol.share')).fontSize(20).fontColor([$r('app.color.timeline_text_secondary')])
-          }.width(48).height(48).buttonStyle(ButtonStyleMode.TEXTUAL).accessibilityText('分享')
-            .onClick(() => { this.inform('分享功能尚未接入。'); })
-        }
+        Button(this.savedIds.includes(post.id) ? '已收藏' : '收藏')
+          .constraintSize({ minWidth: 48, minHeight: 48 }).buttonStyle(ButtonStyleMode.TEXTUAL)
+          .fontSize(13).fontColor($r('app.color.timeline_text_secondary')).accessibilitySelected(this.savedIds.includes(post.id))
+          .enabled(this.libraryReady && !this.libraryBusy).onClick(() => { this.toggleSaved(post); })
       }.width('100%')
     }
     .width('100%').padding(18).backgroundColor($r('app.color.timeline_surface')).borderRadius(22)
@@ -663,6 +815,19 @@ struct Timeline {
           Text('本地演示 · 不访问 Threads').fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
         }.width('100%').alignItems(HorizontalAlign.Start)
         this.PostCard(post, true)
+        if (post.local) {
+          if (this.confirmingDelete) {
+            Text('删除这条本机帖子？相关的本机互动也会移除。')
+              .fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
+            Button('取消删除').constraintSize({ minHeight: 48 }).enabled(!this.libraryBusy)
+              .onClick(() => { this.confirmingDelete = false; })
+            Button('确认删除').constraintSize({ minHeight: 48 }).enabled(!this.libraryBusy)
+              .onClick(() => { this.removeLocalPost(post); })
+          } else {
+            Button('删除本机帖子').constraintSize({ minHeight: 48 }).buttonStyle(ButtonStyleMode.TEXTUAL)
+              .enabled(this.libraryReady && !this.libraryBusy).onClick(() => { this.confirmingDelete = true; })
+          }
+        }
         this.ReplyComposer(post)
         Text('回复预览').fontSize(18).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
         Text('此处只展示示例和本次添加的本地回复。').fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
@@ -692,10 +857,10 @@ struct Timeline {
         Button('返回编辑', { type: ButtonType.Capsule })
           .constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16 })
           .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body'))
-          .onClick(() => this.closePostPreview())
+          .enabled(!this.libraryBusy).onClick(() => this.closePostPreview())
         Column({ space: 6 }) {
           Text('帖子预览').fontSize(28).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
-          Text('只加入本地演示时间线，关闭应用后消失。不会发送到 Threads，也不会更改已保存的草稿。')
+          Text('保存到这台设备，不会发送到 Threads，也不会更改已保存的草稿。')
             .fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
         }.width('100%').alignItems(HorizontalAlign.Start)
         Column({ space: 12 }) {
@@ -705,10 +870,11 @@ struct Timeline {
         }.width('100%').padding(18).alignItems(HorizontalAlign.Start)
           .backgroundColor($r('app.color.timeline_surface')).borderRadius(22)
           .border({ width: 1, color: $r('app.color.timeline_border') })
-        Button('加入本地时间线', { type: ButtonType.Capsule })
+        Button(this.libraryBusy ? '正在保存…' : '加入本机时间线', { type: ButtonType.Capsule })
           .width('100%').constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16, top: 10, bottom: 10 })
           .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
-          .onClick(() => this.addPreviewToTimeline())
+          .enabled(this.libraryReady && !this.libraryBusy).onClick(() => { this.addPreviewToTimeline(); })
+        this.LibraryStatus()
       }.width('100%').constraintSize({ maxWidth: 600 }).alignItems(HorizontalAlign.Start)
         .padding({ left: 18, right: 18, top: 16, bottom: 24 })
     }.width('100%').height('100%').align(Alignment.Top).scrollBar(BarState.Auto)
@@ -794,6 +960,59 @@ struct Timeline {
   }
 
   @Builder
+  LibraryStatus() {
+    if (this.libraryLoading) {
+      Text('正在读取本机内容…').fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
+    } else if (this.libraryMessage.length > 0) {
+      Text(this.libraryMessage).fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
+      if (!this.libraryReady) {
+        Button('重试读取').constraintSize({ minHeight: 48 }).onClick(() => { this.loadLibrary(); })
+      }
+    }
+  }
+
+  @Builder
+  LocalCollection(search: boolean) {
+    List({ space: 12 }) {
+      ListItem() {
+        Column({ space: 12 }) {
+          Button('返回时间线').constraintSize({ minHeight: 48 }).buttonStyle(ButtonStyleMode.TEXTUAL)
+            .fontColor($r('app.color.timeline_text_body')).onClick(() => this.closePost())
+          Text(search ? '搜索' : '我的').fontSize(28).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
+          Text(search ? '搜索本机帖子和演示内容，不查找 Threads 用户。' : '仅保存在这台设备，不是你的 Threads 账号。')
+            .fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
+          if (search) {
+            TextInput({ text: this.searchQuery, placeholder: '按作者或正文搜索' }).width('100%').maxLength(120)
+              .constraintSize({ minHeight: 48 }).fontColor($r('app.color.timeline_text_body'))
+              .backgroundColor($r('app.color.timeline_surface')).accessibilityText('搜索本机帖子')
+              .onChange((value: string) => { this.searchQuery = value; })
+          } else {
+            Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(8) } }) {
+              Button('收藏').constraintSize({ minHeight: 48 }).accessibilitySelected(this.libraryShowsSaved)
+                .backgroundColor(this.libraryShowsSaved ? $r('app.color.timeline_action') : $r('app.color.timeline_toolbar_button'))
+                .fontColor(this.libraryShowsSaved ? $r('app.color.timeline_on_action') : $r('app.color.timeline_text_body'))
+                .onClick(() => { this.libraryShowsSaved = true; })
+              Button('本机帖子').constraintSize({ minHeight: 48 }).accessibilitySelected(!this.libraryShowsSaved)
+                .backgroundColor(!this.libraryShowsSaved ? $r('app.color.timeline_action') : $r('app.color.timeline_toolbar_button'))
+                .fontColor(!this.libraryShowsSaved ? $r('app.color.timeline_on_action') : $r('app.color.timeline_text_body'))
+                .onClick(() => { this.libraryShowsSaved = false; })
+            }.width('100%')
+          }
+          this.LibraryStatus()
+          if (this.listedPosts(search).length === 0 && !this.libraryLoading) {
+            Text(search ? '未找到匹配的帖子。' : (this.libraryShowsSaved ? '还没有收藏。' : '还没有本机帖子。'))
+              .fontSize(15).fontColor($r('app.color.timeline_text_secondary'))
+          }
+        }.width('100%').alignItems(HorizontalAlign.Start).padding({ top: 10, bottom: 8 })
+      }
+      ForEach(this.listedPosts(search), (post: MockPost) => {
+        ListItem() { this.PostCard(post, false) }
+      }, (post: MockPost) => post.id)
+    }.width('100%').height('100%').constraintSize({ maxWidth: 640 }).alignListItem(ListItemAlign.Center)
+      .padding({ left: 18, right: 18, bottom: 20 }).scrollBar(BarState.Auto)
+  }
+
+  @Builder
   DetailDestination(name: string, post?: MockPost) {
     if (name === POST_COMPOSER) {
       NavDestination() {
@@ -807,6 +1026,11 @@ struct Timeline {
           this.requestComposerExit();
           return true;
         })
+    } else if (name === POST_SEARCH || name === POST_LIBRARY) {
+      NavDestination() {
+        Column() { this.LocalCollection(name === POST_SEARCH) }.width('100%').height('100%')
+      }.hideTitleBar(true).backgroundColor($r('app.color.timeline_background'))
+        .onBackPressed(() => { this.closePost(); return true; })
     } else if (post !== undefined) {
       NavDestination() {
         this.DetailContent(post)
@@ -836,6 +1060,12 @@ struct Timeline {
         .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body')).fontSize(12)
         .accessibilityText('显示与动效设置')
         .onClick(() => { this.settingsVisible = true; })
+      Button('搜索', { type: ButtonType.Capsule }).constraintSize({ minHeight: 48 })
+        .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body')).fontSize(13)
+        .onClick(() => this.openLocalView(POST_SEARCH))
+      Button('我的', { type: ButtonType.Capsule }).constraintSize({ minHeight: 48 })
+        .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body')).fontSize(13)
+        .onClick(() => this.openLocalView(POST_LIBRARY))
       Button('打开网页', { type: ButtonType.Capsule }).constraintSize({ minHeight: 48 }).padding({ left: 18, right: 18, top: 10, bottom: 10 })
         .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body')).fontSize(13).enabled(!this.openingWeb)
         .onClick(() => { this.openWeb(); })
@@ -848,8 +1078,11 @@ struct Timeline {
       if (!this.toolbarInList()) {
         Column() { this.Toolbar() }.width('100%')
           .backgroundEffect({ radius: 24, saturation: 1.16, brightness: 1.02, color: $r('app.color.timeline_header_overlay') })
-        Text('演示内容不会连接 Threads').fontSize(12).fontColor($r('app.color.timeline_text_secondary'))
-          .width('100%').padding({ left: 22, right: 22, bottom: 14 })
+        Column({ space: 6 }) {
+          Text('本机内容不会连接 Threads；真实账号请打开网页。').fontSize(12)
+            .fontColor($r('app.color.timeline_text_secondary'))
+          this.LibraryStatus()
+        }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 22, right: 22, bottom: 14 })
       }
 
       List({ space: 12, scroller: this.timelineScroller }) {
@@ -857,8 +1090,11 @@ struct Timeline {
           ListItem() {
             Column() {
               this.Toolbar()
-              Text('演示内容不会连接 Threads').fontSize(12).fontColor($r('app.color.timeline_text_secondary'))
-                .width('100%').padding({ left: 22, right: 22, bottom: 14 })
+              Column({ space: 6 }) {
+                Text('本机内容不会连接 Threads；真实账号请打开网页。').fontSize(12)
+                  .fontColor($r('app.color.timeline_text_secondary'))
+                this.LibraryStatus()
+              }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 22, right: 22, bottom: 14 })
             }.width('100%').constraintSize({ maxWidth: 600 })
           }
         }

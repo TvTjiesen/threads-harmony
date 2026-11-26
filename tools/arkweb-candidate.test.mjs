@@ -6,6 +6,18 @@ import { test } from 'node:test';
 
 const overlay = readFileSync(new URL('../overlay/entry/src/main/ets/pages/Index.ets', import.meta.url), 'utf8');
 const app = readFileSync(new URL('../app/entry/src/main/ets/pages/Index.ets', import.meta.url), 'utf8');
+const timelineSource = readFileSync(new URL('../app/entry/src/main/ets/pages/Timeline.ets', import.meta.url), 'utf8');
+const librarySource = readFileSync(new URL('../app/entry/src/main/ets/model/LocalLibrary.ets', import.meta.url), 'utf8');
+const libraryModel = await import(`data:text/javascript,${encodeURIComponent(stripTypeScriptTypes(librarySource))}`);
+
+function timelineMethods(start, end) {
+  const first = timelineSource.indexOf(start);
+  const last = timelineSource.indexOf(end, first + start.length);
+  assert.ok(first >= 0 && last > first, `cannot extract Timeline methods between ${start} and ${end}`);
+  return timelineSource.slice(first, last).replace(/^  private (?:readonly )?/gm, '  ');
+}
+
+const nextSelection = timelineMethods('  private nextSelection(', '  private async toggleSaved(');
 const appConfig = JSON.parse(readFileSync(new URL('../app/AppScope/app.json5', import.meta.url), 'utf8'));
 const buildConfig = JSON.parse(readFileSync(new URL('../app/build-profile.json5', import.meta.url), 'utf8'));
 const colors = JSON.parse(readFileSync(new URL('../app/entry/src/main/resources/base/element/color.json', import.meta.url), 'utf8'));
@@ -74,13 +86,14 @@ test('native timeline is a separate mock-data page and does not replace the ArkW
   assert.deepEqual(pages.src, ['pages/Index', 'pages/Timeline']);
 });
 
-test('like counters and per-post animation triggers follow interaction state', () => {
-  const timeline = readFileSync(new URL('../app/entry/src/main/ets/pages/Timeline.ets', import.meta.url), 'utf8');
-  const methods = timeline.slice(timeline.indexOf('  private allowsMotionFeedback('), timeline.indexOf('  private toggleFollow('))
-    .replace(/^  private /gm, '  ');
-  const Timeline = vm.runInNewContext(stripTypeScriptTypes(`class Timeline { ${methods} }; Timeline`), {
-    POSTS: [{ id: 'p1' }, { id: 'p2' }]
-  });
+test('like counters and per-post animation triggers follow interaction state', async () => {
+  const methods = timelineMethods('  private allowsMotionFeedback(', '  private async toggleFollow(');
+  const Timeline = vm.runInNewContext(stripTypeScriptTypes(`class Timeline {
+    library = emptyLibrary(); followedIds = []; savedIds = [];
+    async saveLibrary(value) { this.library = value; this.likedIds = value.likedIds; return true; }
+    ${nextSelection}
+    ${methods}
+  }; Timeline`), { emptyLibrary: libraryModel.emptyLibrary });
   const page = new Timeline();
   page.timelinePosts = [{ id: 'p1' }, { id: 'p2' }];
   page.animationTriggers = [-1, -1];
@@ -89,48 +102,48 @@ test('like counters and per-post animation triggers follow interaction state', (
   page.motionPreferenceReady = true;
   page.systemReducesMotion = false;
   assert.equal(page.animationTriggerFor('p1'), -1);
-  page.toggleLike('p1');
+  await page.toggleLike('p1');
   assert.deepEqual(Array.from(page.likedIds), ['p1']);
   assert.deepEqual(Array.from(page.animationTriggers), [0, -1]);
   assert.equal(page.animationTriggerFor('p1'), 0);
   assert.equal(page.animationTriggerFor('p2'), -1);
-  page.toggleLike('p1');
+  await page.toggleLike('p1');
   assert.deepEqual(Array.from(page.likedIds), []);
   assert.deepEqual(Array.from(page.animationTriggers), [-1, -1]);
-  page.toggleLike('p2');
+  await page.toggleLike('p2');
   assert.deepEqual(Array.from(page.likedIds), ['p2']);
   assert.deepEqual(Array.from(page.animationTriggers), [-1, 0]);
   page.setReduceMotion(true);
   assert.deepEqual(Array.from(page.animationTriggers), [-1, -1]);
-  page.toggleLike('p1');
+  await page.toggleLike('p1');
   assert.deepEqual(Array.from(page.likedIds), ['p2', 'p1']);
   assert.deepEqual(Array.from(page.animationTriggers), [-1, -1]);
   assert.equal(page.animationTriggerFor('unknown'), -1);
   page.setReduceMotion(false);
   assert.deepEqual(Array.from(page.animationTriggers), [-1, -1], 'restoring motion must not replay old feedback');
-  page.toggleLike('unknown');
+  await page.toggleLike('unknown');
   assert.deepEqual(Array.from(page.likedIds), ['p2', 'p1']);
-  page.toggleLike('p1');
-  for (let i = 0; i < 20; i++) page.toggleLike('p1');
-  assert.deepEqual(Array.from(page.likedIds), ['p2'], 'even rapid toggles cancel cleanly');
+  await page.toggleLike('p1');
+  for (let i = 0; i < 20; i++) await page.toggleLike('p1');
+  assert.deepEqual(Array.from(page.likedIds), ['p2'], 'an even number of completed toggles cancels cleanly');
   assert.deepEqual(Array.from(page.animationTriggers), [-1, -1]);
-  page.toggleLike('p1');
-  page.toggleLike('p2');
-  page.toggleLike('p2');
+  await page.toggleLike('p1');
+  await page.toggleLike('p2');
+  await page.toggleLike('p2');
   assert.deepEqual(Array.from(page.animationTriggers), [0, 0]);
   assert.equal(page.animationTriggerFor('p1'), 0, 'liking another post must not change this trigger');
 
-  assert.match(timeline, /\.symbolEffect\(new BounceSymbolEffect\(EffectScope\.WHOLE\), this\.animationTriggerFor\(post\.id\)\)/);
-  assert.match(timeline, /Toggle\(\{ type: ToggleType\.Switch, isOn: this\.reduceMotion \}\)/);
-  assert.match(timeline, /\.onChange\(\(enabled: boolean\) => \{ this\.updateMotionPreference\(enabled\); \}\)/);
-  assert.match(timeline, /\.bindSheet\(\$\$this\.settingsVisible, this\.SettingsSheet\(\), \{/);
-  assert.doesNotMatch(timeline, /animatedPostId|@State private notice: string/);
+  assert.match(timelineSource, /\.symbolEffect\(new BounceSymbolEffect\(EffectScope\.WHOLE\), this\.animationTriggerFor\(post\.id\)\)/);
+  assert.match(timelineSource, /Toggle\(\{ type: ToggleType\.Switch, isOn: this\.reduceMotion \}\)/);
+  assert.match(timelineSource, /\.onChange\(\(enabled: boolean\) => \{ this\.updateMotionPreference\(enabled\); \}\)/);
+  assert.match(timelineSource, /\.bindSheet\(\$\$this\.settingsVisible, this\.SettingsSheet\(\), \{/);
+  assert.doesNotMatch(timelineSource, /animatedPostId|@State private notice: string/);
 });
 
 test('motion preference is loaded before animation, serialized to disk and independent of the system override', async () => {
-  const timeline = readFileSync(new URL('../app/entry/src/main/ets/pages/Timeline.ets', import.meta.url), 'utf8');
-  const methods = timeline.slice(timeline.indexOf('  private watchingSystemMotion'), timeline.indexOf('  private toggleFollow('))
-    .replace(/^  private (?:readonly )?/gm, '  ');
+  const methods = timelineMethods('  private watchingSystemMotion', '  private async toggleFollow(');
+  let finishMotionRead;
+  const motionRead = new Promise((resolve) => { finishMotionRead = resolve; });
   let disk = false;
   let pending = false;
   let failSave = false;
@@ -146,7 +159,12 @@ test('motion preference is loaded before animation, serialized to disk and indep
       assert.equal(context, 'host');
       assert.equal(options.name, 'timeline_display');
       return {
-        get: async (key, fallback) => { assert.equal(key, 'reduce_motion'); assert.equal(fallback, false); return disk; },
+        get: async (key, fallback) => {
+          assert.equal(key, 'reduce_motion');
+          assert.equal(fallback, false);
+          await motionRead;
+          return disk;
+        },
         put: async (key, value) => { assert.equal(key, 'reduce_motion'); pending = value; writes++; },
         flush: async () => { if (failSave) throw new Error('storage unavailable'); disk = pending; }
       };
@@ -154,15 +172,22 @@ test('motion preference is loaded before animation, serialized to disk and indep
   };
   const Timeline = vm.runInNewContext(stripTypeScriptTypes(`class Timeline {
     reduceMotion = false; systemReducesMotion = false; motionPreferenceReady = false; motionPreferenceSaving = false;
-    motionPreferenceWarning = ''; likedIds = []; animationTriggers = [-1]; timelinePosts = POSTS;
+    motionPreferenceWarning = ''; likedIds = []; followedIds = []; savedIds = [];
+    animationTriggers = [-1]; timelinePosts = POSTS; library = emptyLibrary();
     getUIContext() { return { getHostContext: () => 'host' }; }
+    async loadLibrary() {}
+    async saveLibrary(value) { this.library = value; this.likedIds = value.likedIds; return true; }
+    ${nextSelection}
     ${methods}
-  }; Timeline`), { POSTS: [{ id: 'p1' }], DISPLAY_PREFERENCES: 'timeline_display', REDUCE_MOTION_KEY: 'reduce_motion', preferences, accessibility });
+  }; Timeline`), { POSTS: [{ id: 'p1' }], DISPLAY_PREFERENCES: 'timeline_display', REDUCE_MOTION_KEY: 'reduce_motion',
+    preferences, accessibility, emptyLibrary: libraryModel.emptyLibrary });
 
   const page = new Timeline();
   page.aboutToAppear();
-  page.toggleLike('p1');
+  await page.toggleLike('p1');
+  assert.deepEqual(Array.from(page.likedIds), ['p1']);
   assert.equal(page.animationTriggerFor('p1'), -1, 'no bounce while preference is loading');
+  finishMotionRead();
   await new Promise(setImmediate);
   assert.equal(page.allowsMotionFeedback(), true);
   const save = page.updateMotionPreference(true);
@@ -178,19 +203,19 @@ test('motion preference is loaded before animation, serialized to disk and indep
   restart.aboutToAppear();
   await new Promise(setImmediate);
   assert.equal(restart.reduceMotion, true);
-  restart.toggleLike('p1');
+  await restart.toggleLike('p1');
   assert.equal(restart.animationTriggerFor('p1'), -1);
   assert.deepEqual(Array.from(restart.likedIds), ['p1']);
   subscribed(true);
   await restart.updateMotionPreference(false);
   assert.equal(disk, false);
-  restart.toggleLike('p1');
-  restart.toggleLike('p1');
+  await restart.toggleLike('p1');
+  await restart.toggleLike('p1');
   assert.equal(restart.animationTriggerFor('p1'), -1, 'system reduction overrides the local switch');
   subscribed(false);
   assert.equal(restart.animationTriggerFor('p1'), -1, 'no replay when the system setting is restored');
-  restart.toggleLike('p1');
-  restart.toggleLike('p1');
+  await restart.toggleLike('p1');
+  await restart.toggleLike('p1');
   assert.equal(restart.animationTriggerFor('p1'), 0);
 
   failSave = true;
@@ -200,7 +225,7 @@ test('motion preference is loaded before animation, serialized to disk and indep
   assert.match(restart.motionPreferenceWarning, /未能保存/);
   assert.equal(disk, false);
   restart.aboutToDisappear();
-  assert.match(timeline, /if \(this\.allowsMotionFeedback\(\)\) \{\s+SymbolGlyph[\s\S]*?\.symbolEffect\([\s\S]*?\} else \{\s+SymbolGlyph[^}]*\}/);
+  assert.match(timelineSource, /if \(this\.allowsMotionFeedback\(\)\) \{\s+SymbolGlyph[\s\S]*?\.symbolEffect\([\s\S]*?\} else \{\s+SymbolGlyph[^}]*\}/);
 });
 
 test('settings sheet has one explicit close control and synchronized dismiss state', () => {
@@ -332,9 +357,7 @@ test('reading reflow keeps a post ID, adjusts for the large-text toolbar and def
 });
 
 test('post detail uses one stack entry and keeps replies local and scoped to their post', () => {
-  const timeline = readFileSync(new URL('../app/entry/src/main/ets/pages/Timeline.ets', import.meta.url), 'utf8');
-  const methods = timeline.slice(timeline.indexOf('  private openPost('), timeline.indexOf('  private async postDraftPreferences('))
-    .replace(/^  private /gm, '  ');
+  const methods = timelineMethods('  private openPost(', '  private localPost(');
   const post = { id: 'p1', replies: 12 };
   const other = { id: 'p2', replies: 7 };
   const Timeline = vm.runInNewContext(stripTypeScriptTypes(`class Timeline {
@@ -345,7 +368,8 @@ test('post detail uses one stack entry and keeps replies local and scoped to the
     onPageShow() { this.timelineVisible = this.detailPaths.size() === 0; }
     ${methods}
   }; Timeline`), {
-    POSTS: [post, other], POST_DETAIL: 'PostDetail', REPLY_LIMIT: 280,
+    POSTS: [post, other], POST_DETAIL: 'PostDetail', POST_SEARCH: 'LocalSearch', POST_LIBRARY: 'LocalLibrary',
+    REPLY_LIMIT: 280,
     SAMPLE_REPLIES: [{ id: 's1', postId: 'p1', body: 'sample' }]
   });
   const page = new Timeline();
@@ -353,6 +377,7 @@ test('post detail uses one stack entry and keeps replies local and scoped to the
   const transitions = [];
   page.detailPaths = {
     size: () => stack.length,
+    getAllPathName: () => stack.map(({ name }) => name),
     pushPath: (entry, animated) => { stack.push(entry); transitions.push(animated); },
     pop: (result, animated) => { transitions.push(animated); stack.pop().onPop(result); }
   };
@@ -387,45 +412,56 @@ test('post detail uses one stack entry and keeps replies local and scoped to the
   page.closePost();
   assert.deepEqual(transitions, [false, false, true, true]);
   assert.equal(page.replyCount(post), 13);
-  assert.equal(new Timeline().replyCount(post), 12, 'local demo data does not survive a fresh page');
-  assert.match(timeline, /Navigation\(this\.detailPaths\)/);
-  assert.match(timeline, /\.onBackPressed\(\(\) => \{\s*this\.closePost\(\)/);
-  assert.match(timeline, /this\.PostCard\(post, true\)/);
-  assert.match(timeline, /this\.PostCard\(post, false\)/);
+  assert.equal(new Timeline().replyCount(post), 12, 'local replies do not survive a fresh page');
+  for (const source of ['LocalSearch', 'LocalLibrary']) {
+    stack.push({ name: source });
+    page.openPost(post);
+    page.openPost(other);
+    assert.deepEqual(stack.map(({ name }) => name), [source, 'PostDetail']);
+    assert.equal(stack[1].param.id, post.id);
+    page.closePost();
+    assert.equal(page.timelineVisible, false);
+    assert.deepEqual(stack.map(({ name }) => name), [source]);
+    stack.pop();
+  }
+  assert.match(timelineSource, /Navigation\(this\.detailPaths\)/);
+  assert.match(timelineSource, /\.onBackPressed\(\(\) => \{\s*this\.closePost\(\)/);
+  assert.match(timelineSource, /this\.PostCard\(post, true\)/);
+  assert.match(timelineSource, /this\.PostCard\(post, false\)/);
 });
 
 test('post drafts persist explicitly and preview posts are added once without modifying the saved draft', async () => {
-  const timeline = readFileSync(new URL('../app/entry/src/main/ets/pages/Timeline.ets', import.meta.url), 'utf8');
-  const constants = timeline.slice(timeline.indexOf('const POST_COMPOSER'), timeline.indexOf('interface DemoReply'));
-  const methods = timeline.slice(timeline.indexOf('  private async postDraftPreferences('), timeline.indexOf('  @Builder\n  SettingsSheet()'))
-    .replace(/^  private /gm, '  ');
+  const constants = timelineSource.slice(timelineSource.indexOf('const POST_COMPOSER'), timelineSource.indexOf('interface DemoReply'));
+  const methods = timelineMethods('  private localPost(', '  @Builder\n  SettingsSheet()');
   const { Composer, DraftDecision } = vm.runInNewContext(stripTypeScriptTypes(`
     ${constants}
     class Composer {
       postDraft = ''; savedPostDraft = ''; postDraftReady = false; postDraftBusy = false;
       postDraftMessage = ''; draftDecision = DraftDecision.None; postDraftLoadId = 0;
       showingPostPreview = false; previewBody = ''; postSequence = 0;
-      timelinePosts = [{ id: 'p1' }, { id: 'p2' }]; animationTriggers = [0, -1];
+      library = emptyLibrary(); libraryReady = false; libraryLoading = false; libraryBusy = false;
+      likedIds = []; followedIds = []; savedIds = [];
+      timelinePosts = [...POSTS]; animationTriggers = [0, -1];
       timelineVisible = true; anchorCaptures = 0;
-      constructor(store) {
+      constructor(stores) {
         this.detailPaths = {
           size: () => this.route ? 1 : 0,
           pushPath: (entry, animated) => { this.route = entry; this.pushAnimated = animated; },
           pop: (_result, animated) => { const entry = this.route; this.route = undefined; this.popAnimated = animated; entry.onPop(); }
         };
-        this.store = store;
+        this.stores = stores;
       }
-      getUIContext() { return { getHostContext: () => this.store }; }
+      getUIContext() { return { getHostContext: () => this.stores }; }
       rememberReadingPosition() { this.anchorCaptures++; }
       onPageShow() { this.timelineVisible = true; }
       allowsMotionFeedback() { return false; }
+      inform() {}
       ${methods}
     }
     ({ Composer, DraftDecision });`, { mode: 'transform' }), {
-    preferences: { getPreferences: async (store, { name }) => {
-      assert.equal(name, 'timeline_post_draft');
-      return store;
-    } }
+    ...libraryModel,
+    POSTS: [{ id: 'p1' }, { id: 'p2' }],
+    preferences: { getPreferences: async (stores, { name }) => stores[name] }
   });
   const settle = () => new Promise(setImmediate);
   let disk = '';
@@ -446,7 +482,25 @@ test('post drafts persist explicitly and preview posts are added once without mo
     async flush() { if (failWrite) throw new Error('write failed'); disk = pending; }
   };
 
-  const page = new Composer(store);
+  let libraryDisk = '';
+  let libraryPending = '';
+  let libraryWrites = 0;
+  let failLibraryWrite = false;
+  const stores = {
+    timeline_post_draft: store,
+    timeline_local_library: {
+      async get(key, fallback) { assert.equal(key, 'content_v1'); assert.equal(fallback, ''); return libraryDisk; },
+      async put(key, text) { assert.equal(key, 'content_v1'); libraryPending = text; libraryWrites++; },
+      async flush() {
+        if (failLibraryWrite) throw new Error('library write failed');
+        libraryDisk = libraryPending;
+      }
+    }
+  };
+
+  const page = new Composer(stores);
+  await page.loadLibrary();
+  assert.equal(page.libraryReady, true);
   page.openComposer();
   page.openComposer();
   assert.equal(page.route.name, 'PostComposer');
@@ -484,7 +538,7 @@ test('post drafts persist explicitly and preview posts are added once without mo
   assert.equal(page.popAnimated, false);
   assert.equal(disk, body);
 
-  const restarted = new Composer(store);
+  const restarted = new Composer(stores);
   restarted.openComposer();
   await settle();
   assert.equal(restarted.postDraft, body);
@@ -505,7 +559,7 @@ test('post drafts persist explicitly and preview posts are added once without mo
   restarted.requestComposerExit();
   assert.equal(restarted.timelineVisible, true);
 
-  const retry = new Composer(store);
+  const retry = new Composer(stores);
   failRead = true;
   retry.openComposer();
   await settle();
@@ -515,7 +569,7 @@ test('post drafts persist explicitly and preview posts are added once without mo
   await retry.loadPostDraft();
   assert.equal(retry.postDraft, '', 'cleared draft also stays empty in a fresh page');
 
-  const canceled = new Composer(store);
+  const canceled = new Composer(stores);
   releaseRead = () => {};
   canceled.openComposer();
   await settle();
@@ -528,7 +582,7 @@ test('post drafts persist explicitly and preview posts are added once without mo
   canceled.openComposer();
   await settle();
   assert.equal(canceled.postDraftReady, true);
-  assert.match(timeline, /不会发布到 Threads/);
+  assert.match(timelineSource, /不会发布到 Threads/);
 
   page.openComposer();
   const preview = '  新版本\n保留换行 🧵  ';
@@ -540,25 +594,46 @@ test('post drafts persist explicitly and preview posts are added once without mo
   page.requestComposerExit();
   assert.equal(page.showingPostPreview, false);
   assert.equal(page.postDraft, preview, 'Back goes to editing without discarding');
-  const writesBeforeAdd = writes;
+  const draftWritesBeforeAdd = writes;
   page.openPostPreview();
-  page.addPreviewToTimeline();
-  page.addPreviewToTimeline();
+  failLibraryWrite = true;
+  await page.addPreviewToTimeline();
+  assert.equal(libraryDisk, '', 'failed flush does not publish the post');
+  assert.equal(page.timelinePosts.length, 2);
+  assert.equal(page.route.name, 'PostComposer');
+  assert.equal(page.previewBody, preview, 'failed save preserves the preview for retry');
+  assert.match(page.libraryMessage, /未能保存/);
+
+  failLibraryWrite = false;
+  const libraryWritesBeforeRetry = libraryWrites;
+  const add = page.addPreviewToTimeline();
+  assert.equal(page.libraryBusy, true);
+  await page.addPreviewToTimeline();
+  await add;
+  assert.equal(libraryWrites, libraryWritesBeforeRetry + 1, 'a concurrent add cannot write twice');
   assert.equal(page.timelineVisible, true);
   assert.equal(page.showingPostPreview, false);
   assert.equal(page.previewBody, '');
-  assert.equal(page.timelinePosts[0].body, preview);
-  assert.equal(page.timelinePosts[0].local, true);
-  assert.equal(page.timelinePosts[0].id, 'preview-1');
-  assert.deepEqual(Array.from(page.timelinePosts, (post) => post.id), ['preview-1', 'p1', 'p2']);
-  assert.deepEqual(Array.from(page.animationTriggers), [-1, 0, -1], 'existing likes stay with their posts');
+  const added = page.timelinePosts[0];
+  assert.equal(added.body, preview);
+  assert.equal(added.local, true);
+  assert.match(added.id, /^local-post-[1-9][0-9]{0,14}$/);
+  assert.deepEqual(Array.from(page.timelinePosts, (post) => post.id), [added.id, 'p1', 'p2']);
+  assert.deepEqual(Array.from(page.animationTriggers), [-1, 0, -1], 'existing animation triggers stay with their posts');
   assert.equal(page.readingAnchor.postId, '', 'adding explicitly returns to the top');
   assert.equal(page.restorePending, true);
-  assert.equal(writes, writesBeforeAdd, 'adding a preview does not write to preferences');
+  assert.equal(writes, draftWritesBeforeAdd, 'adding a preview does not write to the draft store');
   page.openComposer();
-  assert.equal(page.postDraft, body, 'saved draft is unchanged by a preview');
-  assert.ok(new Composer(store).timelinePosts.every((post) => !post.local));
-  assert.match(timeline, /ForEach\(this\.timelinePosts,/);
+  assert.equal(page.postDraft, body, 'the in-memory saved draft is unchanged by a preview');
+  assert.deepEqual(JSON.parse(libraryDisk), {
+    version: 1, posts: [{ id: added.id, body: preview }], likedIds: [], followedIds: [], savedIds: []
+  });
+  const reopened = new Composer(stores);
+  await reopened.loadLibrary();
+  assert.equal(reopened.libraryReady, true);
+  assert.deepEqual(Array.from(reopened.timelinePosts, (post) => post.id), [added.id, 'p1', 'p2']);
+  assert.equal(reopened.timelinePosts[0].body, preview);
+  assert.match(timelineSource, /ForEach\(this\.timelinePosts,/);
 });
 
 test('Stage bundle names agree and signing remains disabled', () => {
@@ -708,6 +783,35 @@ test('fake-timer execution of production changeProxy: timeout retains lock; late
   assert.equal(failedStartup.saved, '', 'synchronous rejection clears stale startup preference');
   assert.equal(failedStartup.startupPaused, true);
   rejectApply = false;
+});
+
+test('system browser fallback opens only the fixed Threads URL and shows a manual fallback on failure', async () => {
+  const home = app.match(/^const HOME_URL: string = .+;$/m)?.[0];
+  assert.ok(home, 'the ArkWeb page must declare a fixed home URL');
+  const method = app.slice(app.indexOf('  private async openExternalHome('), app.indexOf('  private goBack('))
+    .replace('private async', 'async');
+  const Harness = vm.runInNewContext(stripTypeScriptTypes(`${home}\nclass Harness {
+    externalHomeFailed = true;
+    proxyActive = 'proxy.example:8080';
+    proxyPending = true;
+    getUIContext() { return { getHostContext: () => this.context }; }
+    ${method}
+  }; Harness`));
+  const page = new Harness();
+  const opened = [];
+  page.context = { openLink: async (url, options) => { opened.push([url, { ...options }]); } };
+  await page.openExternalHome();
+  assert.deepEqual(opened, [['https://www.threads.com/', { appLinkingOnly: false }]], 'no proxy or user-supplied URL is forwarded');
+  assert.equal(page.externalHomeFailed, false);
+  page.context = { openLink: async () => { throw new Error('no browser handler'); } };
+  await page.openExternalHome();
+  assert.equal(page.externalHomeFailed, true);
+  page.externalHomeFailed = false;
+  page.context = undefined;
+  await page.openExternalHome();
+  assert.equal(page.externalHomeFailed, true);
+  assert.match(app, /Button\('通过系统打开 Threads 网页'\)\.onClick\(\(\) => \{ this\.openExternalHome\(\); \}\)/);
+  assert.match(app, /if \(this\.externalHomeFailed\) \{\s+Text\(`[^`]*\$\{HOME_URL\}`\)/);
 });
 
 test('candidate keeps navigation, TLS, permission, and HTTP error guardrails', () => {

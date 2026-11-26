@@ -2,6 +2,7 @@ import { webview } from '@kit.ArkWeb';
 import { url } from '@kit.ArkTS';
 import { preferences } from '@kit.ArkData';
 import { router } from '@kit.ArkUI';
+import { common } from '@kit.AbilityKit';
 
 const HOME_URL: string = 'https://www.threads.com/';
 const TOP_LEVEL_HOSTS: string[] = [
@@ -59,6 +60,7 @@ struct Index {
   private loadAttempt: number = 0;
   private startupPaused: boolean = true;
   @State private proxyPending: boolean = false;
+  @State private externalHomeFailed: boolean = false;
 
   private initializeNetwork(): void {
     let saved: preferences.ValueType = '';
@@ -257,6 +259,20 @@ struct Index {
     }
   }
 
+  private async openExternalHome(): Promise<void> {
+    this.externalHomeFailed = false;
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined;
+      if (!context) {
+        this.externalHomeFailed = true;
+        return;
+      }
+      await context.openLink(HOME_URL, { appLinkingOnly: false });
+    } catch (_error) {
+      this.externalHomeFailed = true;
+    }
+  }
+
   private goBack(): boolean {
     if (this.canNavigate()) {
       try {
@@ -298,6 +314,10 @@ struct Index {
       }.width('100%')
       if (!this.proxyPending && this.proxyActive.length > 0) {
         Text('代理已配置').fontSize(13).fontColor('#2a7d2a')
+      }
+      Button('通过系统打开 Threads 网页').onClick(() => { this.openExternalHome(); }).width('100%')
+      if (this.externalHomeFailed) {
+        Text(`系统未能打开链接。请在浏览器中手动访问 ${HOME_URL}`).fontSize(14)
       }
       Button('返回').onClick(() => { this.showSettings = false; }).width('100%')
     }

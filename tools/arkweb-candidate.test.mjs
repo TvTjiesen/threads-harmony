@@ -247,8 +247,74 @@ test('Stage follows system font scale and timeline reflows when text grows', () 
   assert.match(ability, /onConfigurationUpdate\(config: Configuration\)[\s\S]*AppStorage\.setOrCreate\('timelineFontScale', config\.fontSizeScale/);
   assert.match(ability, /this\.onConfigurationUpdate\(this\.context\.config\);\s+windowStage\.loadContent\('pages\/Timeline'\)/);
   assert.match(timeline, /@StorageProp\('timelineFontScale'\)/);
-  assert.match(timeline, /\.lanes\(this\.viewportWidth >= 680 && this\.fontScale < LARGE_TEXT_SCALE \? 2 : 1/);
+  assert.match(timeline, /\.lanes\(this\.readingLaneCount\(\), 12\)/);
+  assert.match(timeline, /this\.viewportWidth >= WIDE_VIEWPORT && !this\.toolbarInList\(\) \? 2 : 1/);
   assert.doesNotMatch(timeline, /Text\(post\.body\)[^\n]*(?:lineHeight|maxLines)/);
+});
+
+test('reading reflow keeps a post ID, adjusts for the large-text toolbar and defers while hidden', () => {
+  const timeline = readFileSync(new URL('../app/entry/src/main/ets/pages/Timeline.ets', import.meta.url), 'utf8');
+  const methods = timeline.slice(timeline.indexOf('  onPageShow('), timeline.indexOf('  private async displayPreferences('))
+    .replace(/^  private /gm, '  ');
+  const frames = [];
+  const calls = [];
+  let offset = 310;
+  let rect = { height: 120, y: -28 };
+  const Timeline = vm.runInNewContext(stripTypeScriptTypes(`class Timeline {
+    timelineVisible = true; restorePending = false; restoreScheduled = false;
+    viewportWidth = 400; fontScale = 1; firstVisibleIndex = 1;
+    getUIContext() { return { postFrameCallback: (frame) => frames.push(frame) }; }
+    ${methods}
+  }; Timeline`), {
+    POSTS: [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }], LARGE_TEXT_SCALE: 1.4, WIDE_VIEWPORT: 680,
+    LayoutFrame: class { constructor(task) { this.task = task; } }, frames,
+    ScrollAlign: { START: 'start' }, LengthMetrics: { vp: (n) => n }
+  });
+  const page = new Timeline();
+  page.timelineScroller = {
+    offset: () => ({ yOffset: offset }),
+    getItemRect: () => rect,
+    scrollToIndex: (...args) => calls.push(args)
+  };
+  page.rememberReadingPosition();
+  assert.equal(page.readingAnchor.postId, 'p2');
+  assert.equal(page.readingAnchor.clipped, 28);
+  page.viewportWidth = 820;
+  assert.equal(page.readingLaneCount(), 2);
+  page.onReadingLayoutChange();
+  page.onReadingLayoutChange();
+  assert.equal(frames.length, 1, 'coalesce several layout changes into one frame');
+  page.firstVisibleIndex = 0;
+  page.rememberReadingPosition();
+  assert.equal(page.readingAnchor.postId, 'p2', 'reflow must not overwrite the old anchor');
+  rect = { height: 0, y: 0 };
+  frames.shift().task();
+  const offscreen = calls.shift();
+  assert.deepEqual(offscreen.slice(0, 3), [1, false, 'start']);
+  assert.ok(offscreen[3].extraOffset === 0);
+
+  page.onPageHide();
+  page.fontScale = 2;
+  page.onReadingLayoutChange();
+  assert.equal(page.readingLaneCount(), 1);
+  assert.equal(frames.length, 0);
+  page.onPageShow();
+  rect = { height: 40, y: 25 };
+  frames.shift().task();
+  const [index, animated, align, options] = calls.shift();
+  assert.deepEqual([index, animated, align, options.extraOffset], [2, false, 'start', 20]);
+  page.onPageHide();
+  page.onPageShow();
+  assert.equal(frames.length, 0, 'return without a layout change leaves the native scroll position alone');
+
+  page.firstVisibleIndex = 0;
+  offset = 0;
+  page.rememberReadingPosition();
+  offset = 50;
+  page.onReadingLayoutChange();
+  frames.shift().task();
+  assert.deepEqual(calls.shift(), [0, false, 'start']);
+  assert.equal(page.restorePending, false);
 });
 
 test('Stage bundle names agree and signing remains disabled', () => {

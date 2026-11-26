@@ -1,8 +1,28 @@
 import { accessibility } from '@kit.AccessibilityKit';
 import { preferences } from '@kit.ArkData';
-import { LengthMetrics, router } from '@kit.ArkUI';
+import { FrameCallback, LengthMetrics, router } from '@kit.ArkUI';
 
 const LARGE_TEXT_SCALE = 1.4;
+const WIDE_VIEWPORT = 680;
+const MAX_LIST_WIDTH = 1248;
+
+interface ReadingAnchor {
+  postId: string;
+  clipped: number;
+}
+
+class LayoutFrame extends FrameCallback {
+  private readonly task: () => void;
+
+  constructor(task: () => void) {
+    super();
+    this.task = task;
+  }
+
+  onIdle(_timeLeftInNano: number): void {
+    this.task();
+  }
+}
 const DISPLAY_PREFERENCES = 'timeline_display';
 const REDUCE_MOTION_KEY = 'reduce_motion';
 
@@ -35,7 +55,7 @@ struct Timeline {
   @State private followedIds: string[] = [];
   @State private openingWeb: boolean = false;
   @State private viewportWidth: number = 0;
-  @StorageProp('timelineFontScale') private fontScale: number = 1;
+  @StorageProp('timelineFontScale') @Watch('onReadingLayoutChange') private fontScale: number = 1;
   @State private animationTriggers: number[] = POSTS.map((_post: MockPost) => -1);
   @State private reduceMotion: boolean = false;
   @State private systemReducesMotion: boolean = false;
@@ -43,6 +63,12 @@ struct Timeline {
   @State private motionPreferenceSaving: boolean = false;
   @State private motionPreferenceWarning: string = '';
   @State private settingsVisible: boolean = false;
+  private readonly timelineScroller: Scroller = new Scroller();
+  private firstVisibleIndex: number = 0;
+  private readingAnchor: ReadingAnchor = { postId: '', clipped: 0 };
+  private restorePending: boolean = false;
+  private restoreScheduled: boolean = false;
+  private timelineVisible: boolean = false;
   private watchingSystemMotion: boolean = false;
   private readonly systemMotionListener = (enabled: boolean): void => {
     this.systemReducesMotion = enabled;
@@ -70,6 +96,94 @@ struct Timeline {
       } catch (_error) {
         // Keep the rest of the page teardown independent of the system service.
       }
+    }
+  }
+
+  onPageShow(): void {
+    this.timelineVisible = true;
+    if (this.restorePending) {
+      this.scheduleReadingRestore();
+    }
+  }
+
+  onPageHide(): void {
+    this.timelineVisible = false;
+  }
+
+  private toolbarInList(): boolean {
+    return this.fontScale >= LARGE_TEXT_SCALE;
+  }
+
+  private readingLaneCount(): number {
+    return this.viewportWidth >= WIDE_VIEWPORT && !this.toolbarInList() ? 2 : 1;
+  }
+
+  private rememberReadingPosition(): void {
+    if (!this.timelineVisible || this.restorePending) {
+      return;
+    }
+    const index = this.firstVisibleIndex;
+    try {
+      const offset = this.timelineScroller.offset();
+      if (offset === undefined || index < 0) {
+        return;
+      }
+      const post = POSTS[index - (this.toolbarInList() ? 1 : 0)];
+      if (offset.yOffset <= 1 || (index === 0 && post === undefined)) {
+        this.readingAnchor = { postId: '', clipped: 0 };
+      } else if (post !== undefined) {
+        const rect = this.timelineScroller.getItemRect(index);
+        if (rect.height > 0) {
+          this.readingAnchor = { postId: post.id, clipped: Math.max(0, -rect.y) };
+        }
+      }
+    } catch (_error) {
+      // The layout can be detached during a window transition.
+    }
+  }
+
+  private onReadingLayoutChange(): void {
+    this.restorePending = true;
+    this.scheduleReadingRestore();
+  }
+
+  private scheduleReadingRestore(): void {
+    if (!this.timelineVisible || this.restoreScheduled) {
+      return;
+    }
+    this.restoreScheduled = true;
+    this.getUIContext().postFrameCallback(new LayoutFrame(() => {
+      this.restoreScheduled = false;
+      if (!this.timelineVisible || !this.restorePending) {
+        return;
+      }
+      this.restoreReadingPosition();
+    }));
+  }
+
+  private restoreReadingPosition(): void {
+    const anchor = this.readingAnchor;
+    try {
+      if (anchor.postId === '') {
+        if ((this.timelineScroller.offset()?.yOffset ?? 0) > 1) {
+          this.timelineScroller.scrollToIndex(0, false, ScrollAlign.START);
+        }
+        return;
+      }
+      const postIndex = POSTS.findIndex((post: MockPost) => post.id === anchor.postId);
+      if (postIndex < 0) {
+        return;
+      }
+      const index = postIndex + (this.toolbarInList() ? 1 : 0);
+      const rect = this.timelineScroller.getItemRect(index);
+      const clipped = rect.height > 0 ? Math.min(anchor.clipped, rect.height / 2) : 0;
+      if (rect.height <= 0 || Math.abs(rect.y + clipped) > 1) {
+        this.timelineScroller.scrollToIndex(index, false, ScrollAlign.START, { extraOffset: LengthMetrics.vp(clipped) });
+      }
+    } catch (_error) {
+      // A different window may have detached the list before this frame.
+    } finally {
+      this.restorePending = false;
     }
   }
 
@@ -295,15 +409,15 @@ struct Timeline {
 
   build() {
     Column() {
-      if (this.fontScale < LARGE_TEXT_SCALE) {
+      if (!this.toolbarInList()) {
         Column() { this.Toolbar() }.width('100%')
           .backgroundEffect({ radius: 24, saturation: 1.16, brightness: 1.02, color: $r('app.color.timeline_header_overlay') })
         Text('演示内容不会连接 Threads').fontSize(12).fontColor($r('app.color.timeline_text_secondary'))
           .width('100%').padding({ left: 22, right: 22, bottom: 14 })
       }
 
-      List({ space: 12 }) {
-        if (this.fontScale >= LARGE_TEXT_SCALE) {
+      List({ space: 12, scroller: this.timelineScroller }) {
+        if (this.toolbarInList()) {
           ListItem() {
             Column() {
               this.Toolbar()
@@ -318,21 +432,33 @@ struct Timeline {
           }
         }, (post: MockPost) => post.id)
       }
-      .lanes(this.viewportWidth >= 680 && this.fontScale < LARGE_TEXT_SCALE ? 2 : 1, 12)
+      .lanes(this.readingLaneCount(), 12)
       .alignListItem(ListItemAlign.Center)
       .cachedCount(2)
       .layoutWeight(1)
       .width('100%')
-      .constraintSize({ maxWidth: 1248 })
+      .constraintSize({ maxWidth: MAX_LIST_WIDTH })
       .padding({ left: 18, right: 18, bottom: 12 })
       .scrollBar(BarState.Auto)
-
+      .onScrollIndex((start: number) => {
+        this.firstVisibleIndex = start;
+      })
+      .onDidScroll((_offset: number, state: ScrollState) => {
+        if (state !== ScrollState.Idle) {
+          this.rememberReadingPosition();
+        }
+      })
+      .onScrollStop(() => this.rememberReadingPosition())
     }
     .width('100%').height('100%').backgroundColor($r('app.color.timeline_background'))
     .onAreaChange((_oldArea: Area, newArea: Area) => {
       const width = Number(newArea.width);
-      if (width !== this.viewportWidth) {
+      if (Number.isFinite(width) && width > 0 && width !== this.viewportWidth) {
+        const previousWidth = this.viewportWidth;
         this.viewportWidth = width;
+        if (previousWidth > 0 && Math.min(previousWidth, MAX_LIST_WIDTH) !== Math.min(width, MAX_LIST_WIDTH)) {
+          this.onReadingLayoutChange();
+        }
       }
     })
     .bindSheet($$this.settingsVisible, this.SettingsSheet(), {

@@ -263,6 +263,7 @@ test('reading reflow keeps a post ID, adjusts for the large-text toolbar and def
   const Timeline = vm.runInNewContext(stripTypeScriptTypes(`class Timeline {
     timelineVisible = true; restorePending = false; restoreScheduled = false;
     viewportWidth = 400; fontScale = 1; firstVisibleIndex = 1;
+    detailPaths = { size: () => 0 };
     getUIContext() { return { postFrameCallback: (frame) => frames.push(frame) }; }
     ${methods}
   }; Timeline`), {
@@ -315,6 +316,69 @@ test('reading reflow keeps a post ID, adjusts for the large-text toolbar and def
   frames.shift().task();
   assert.deepEqual(calls.shift(), [0, false, 'start']);
   assert.equal(page.restorePending, false);
+});
+
+test('post detail uses one stack entry and keeps replies local and scoped to their post', () => {
+  const timeline = readFileSync(new URL('../app/entry/src/main/ets/pages/Timeline.ets', import.meta.url), 'utf8');
+  const methods = timeline.slice(timeline.indexOf('  private openPost('), timeline.indexOf('  SettingsSheet()'))
+    .replace(/^  private /gm, '  ').replace('  @Builder\n', '');
+  const post = { id: 'p1', replies: 12 };
+  const other = { id: 'p2', replies: 7 };
+  const Timeline = vm.runInNewContext(stripTypeScriptTypes(`class Timeline {
+    timelineVisible = true; replyDraft = 'old draft'; replySequence = 0; localReplies = [];
+    motion = false; anchorCaptures = 0;
+    allowsMotionFeedback() { return this.motion; }
+    rememberReadingPosition() { this.anchorCaptures++; }
+    onPageShow() { this.timelineVisible = this.detailPaths.size() === 0; }
+    ${methods}
+  }; Timeline`), {
+    POSTS: [post, other], POST_DETAIL: 'PostDetail', REPLY_LIMIT: 280,
+    SAMPLE_REPLIES: [{ id: 's1', postId: 'p1', body: 'sample' }]
+  });
+  const page = new Timeline();
+  const stack = [];
+  const transitions = [];
+  page.detailPaths = {
+    size: () => stack.length,
+    pushPath: (entry, animated) => { stack.push(entry); transitions.push(animated); },
+    pop: (result, animated) => { transitions.push(animated); stack.pop().onPop(result); }
+  };
+  page.openPost(post);
+  page.openPost(other);
+  assert.equal(stack.length, 1);
+  assert.equal(stack[0].param.id, 'p1');
+  assert.equal(page.anchorCaptures, 1);
+  assert.equal(page.timelineVisible, false);
+  assert.equal(page.replyDraft, '');
+  assert.equal(page.replyCount(post), 12);
+  for (const draft of [' \n ', 'a'.repeat(281)]) {
+    page.replyDraft = draft;
+    page.submitReply('p1');
+  }
+  page.replyDraft = '  第一条本地回复  ';
+  page.submitReply('missing');
+  assert.equal(page.localReplies.length, 0);
+  page.submitReply('p1');
+  assert.equal(page.replyDraft, '');
+  assert.equal(page.replyCount(post), 13);
+  assert.equal(page.replyCount(other), 7);
+  assert.deepEqual(Array.from(page.repliesFor('p1'), (reply) => reply.body), ['第一条本地回复', 'sample']);
+  assert.equal(page.repliesFor('p2').length, 0);
+  page.replyDraft = '未提交的草稿';
+  page.closePost();
+  page.closePost();
+  assert.equal(page.replyDraft, '');
+  assert.equal(page.timelineVisible, true);
+  page.motion = true;
+  page.openPost(other);
+  page.closePost();
+  assert.deepEqual(transitions, [false, false, true, true]);
+  assert.equal(page.replyCount(post), 13);
+  assert.equal(new Timeline().replyCount(post), 12, 'local demo data does not survive a fresh page');
+  assert.match(timeline, /Navigation\(this\.detailPaths\)/);
+  assert.match(timeline, /\.onBackPressed\(\(\) => \{\s*this\.closePost\(\)/);
+  assert.match(timeline, /this\.PostCard\(post, true\)/);
+  assert.match(timeline, /this\.PostCard\(post, false\)/);
 });
 
 test('Stage bundle names agree and signing remains disabled', () => {

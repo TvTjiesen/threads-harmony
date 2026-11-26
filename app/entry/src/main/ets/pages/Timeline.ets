@@ -5,6 +5,23 @@ import { FrameCallback, LengthMetrics, router } from '@kit.ArkUI';
 const LARGE_TEXT_SCALE = 1.4;
 const WIDE_VIEWPORT = 680;
 const MAX_LIST_WIDTH = 1248;
+const REPLY_LIMIT = 280;
+const POST_DETAIL = 'PostDetail';
+
+interface DemoReply {
+  id: string;
+  postId: string;
+  author: string;
+  body: string;
+  local: boolean;
+}
+
+const SAMPLE_REPLIES: DemoReply[] = [
+  { id: 's1', postId: 'p1', author: '周末书架', body: '喜欢这种无目的的散步，回来时连熟悉的街道都不太一样了。', local: false },
+  { id: 's2', postId: 'p1', author: '城市观察员', body: '把这段话留给下一个想慢下来的周末。', local: false },
+  { id: 's3', postId: 'p2', author: '像素与纸', body: '切换设备时，我最想保留的是刚刚读到的那一句。', local: false },
+  { id: 's4', postId: 'p3', author: '小岛来信', body: '展开以后多一列，合上以后还能接着读，这就很舒服。', local: false }
+];
 
 interface ReadingAnchor {
   postId: string;
@@ -63,6 +80,10 @@ struct Timeline {
   @State private motionPreferenceSaving: boolean = false;
   @State private motionPreferenceWarning: string = '';
   @State private settingsVisible: boolean = false;
+  @State private localReplies: DemoReply[] = [];
+  @State private replyDraft: string = '';
+  private replySequence: number = 0;
+  private readonly detailPaths: NavPathStack = new NavPathStack();
   private readonly timelineScroller: Scroller = new Scroller();
   private firstVisibleIndex: number = 0;
   private readingAnchor: ReadingAnchor = { postId: '', clipped: 0 };
@@ -100,7 +121,7 @@ struct Timeline {
   }
 
   onPageShow(): void {
-    this.timelineVisible = true;
+    this.timelineVisible = this.detailPaths.size() === 0;
     if (this.restorePending) {
       this.scheduleReadingRestore();
     }
@@ -286,6 +307,45 @@ struct Timeline {
       : [...this.followedIds, id];
   }
 
+  private openPost(post: MockPost): void {
+    if (this.detailPaths.size() > 0) {
+      return;
+    }
+    this.rememberReadingPosition();
+    this.timelineVisible = false;
+    this.replyDraft = '';
+    this.detailPaths.pushPath({ name: POST_DETAIL, param: post, onPop: () => {
+      this.replyDraft = '';
+      this.onPageShow();
+    } }, this.allowsMotionFeedback());
+  }
+
+  private closePost(): void {
+    if (this.detailPaths.size() > 0) {
+      this.detailPaths.pop({ closed: true }, this.allowsMotionFeedback());
+    }
+  }
+
+  private repliesFor(postId: string): DemoReply[] {
+    return [...this.localReplies, ...SAMPLE_REPLIES].filter((reply: DemoReply) => reply.postId === postId);
+  }
+
+  private replyCount(post: MockPost): number {
+    return post.replies + this.localReplies.filter((reply: DemoReply) => reply.postId === post.id).length;
+  }
+
+  private submitReply(postId: string): void {
+    const body = this.replyDraft.trim();
+    if (body.length === 0 || body.length > REPLY_LIMIT || !POSTS.some((post: MockPost) => post.id === postId)) {
+      return;
+    }
+    this.replySequence += 1;
+    this.localReplies = [...this.localReplies, {
+      id: `local-${this.replySequence}`, postId: postId, author: '你', body: body, local: true
+    }];
+    this.replyDraft = '';
+  }
+
   @Builder
   SettingsSheet() {
     Column({ space: 18 }) {
@@ -302,7 +362,7 @@ struct Timeline {
       Row({ space: 16 }) {
         Column({ space: 4 }) {
           Text('减少动效').fontSize(15).fontWeight(FontWeight.Medium).fontColor($r('app.color.timeline_text_primary'))
-          Text(this.systemReducesMotion ? '系统已减少动效；点赞不会播放弹跳。' : '仅影响本页点赞弹跳；偏好保存在本机。')
+          Text(this.systemReducesMotion ? '系统已减少动效；不播放点赞弹跳和详情转场。' : '影响点赞弹跳和详情转场；偏好保存在本机。')
             .fontSize(12).fontColor($r('app.color.timeline_text_muted'))
         }.alignItems(HorizontalAlign.Start).layoutWeight(1)
         Toggle({ type: ToggleType.Switch, isOn: this.reduceMotion })
@@ -329,7 +389,7 @@ struct Timeline {
   }
 
   @Builder
-  PostCard(post: MockPost) {
+  PostCard(post: MockPost, inDetail: boolean) {
     Column({ space: 16 }) {
       Row({ space: 12 }) {
         Text(post.name.substring(0, 1)).width(46).height(46).fontSize('18vp').fontWeight(FontWeight.Medium)
@@ -368,12 +428,15 @@ struct Timeline {
             .onClick(() => this.toggleLike(post.id))
           Text(`${post.likes + (this.likedIds.includes(post.id) ? 1 : 0)}`).fontSize(12).fontColor($r('app.color.timeline_text_secondary'))
         }
-        Row({ space: 4 }) {
-          Button({ type: ButtonType.Circle }) {
-            SymbolGlyph($r('sys.symbol.message')).fontSize(20).fontColor([$r('app.color.timeline_text_secondary')])
-          }.width(48).height(48).buttonStyle(ButtonStyleMode.TEXTUAL).accessibilityText('回复')
-            .onClick(() => { this.inform('回复仅为界面演示，当前不会发送。'); })
-          Text(`${post.replies}`).fontSize(12).fontColor($r('app.color.timeline_text_muted'))
+        if (!inDetail) {
+          Button({ type: ButtonType.Capsule }) {
+            Row({ space: 6 }) {
+              SymbolGlyph($r('sys.symbol.message')).fontSize(20).fontColor([$r('app.color.timeline_text_secondary')])
+              Text(`${this.replyCount(post)}`).fontSize(12).fontColor($r('app.color.timeline_text_muted'))
+            }.padding({ left: 10, right: 10, top: 8, bottom: 8 })
+          }.constraintSize({ minWidth: 48, minHeight: 48 }).buttonStyle(ButtonStyleMode.TEXTUAL)
+            .accessibilityText(`查看${post.name}的帖子详情，${this.replyCount(post)} 条回复`)
+            .onClick(() => this.openPost(post))
         }
         Button({ type: ButtonType.Circle }) {
           SymbolGlyph($r('sys.symbol.share')).fontSize(20).fontColor([$r('app.color.timeline_text_secondary')])
@@ -385,6 +448,77 @@ struct Timeline {
     .border({ width: 1, color: $r('app.color.timeline_border') })
     .shadow({ radius: 12, color: $r('app.color.timeline_shadow'), offsetX: 0, offsetY: 3 })
     .constraintSize({ maxWidth: 600 })
+  }
+
+  @Builder
+  ReplyComposer(post: MockPost) {
+    Column({ space: 12 }) {
+      Text('写一条本地回复').fontSize(17).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
+      Text('仅在本次运行中保留，不会发送到 Threads。').fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
+      TextArea({ text: this.replyDraft, placeholder: '写下你的想法' })
+        .width('100%').constraintSize({ minHeight: 100, maxHeight: 180 }).maxLength(REPLY_LIMIT)
+        .fontSize(15).fontColor($r('app.color.timeline_text_body')).placeholderColor($r('app.color.timeline_text_muted'))
+        .backgroundColor($r('app.color.timeline_background')).borderRadius(16)
+        .accessibilityText('本地回复内容')
+        .onChange((value: string) => { this.replyDraft = value; })
+      Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center, justifyContent: FlexAlign.SpaceBetween,
+        space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(8) } }) {
+        Text(`${this.replyDraft.length} / ${REPLY_LIMIT}`).fontSize(12).fontColor($r('app.color.timeline_text_secondary'))
+        Button('添加本地回复', { type: ButtonType.Capsule })
+          .constraintSize({ minHeight: 48 }).padding({ left: 18, right: 18, top: 10, bottom: 10 })
+          .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
+          .enabled(this.replyDraft.trim().length > 0 && this.replyDraft.trim().length <= REPLY_LIMIT)
+          .onClick(() => { this.submitReply(post.id); })
+      }.width('100%')
+    }.width('100%').alignItems(HorizontalAlign.Start).padding(18)
+      .backgroundColor($r('app.color.timeline_surface')).borderRadius(22)
+      .border({ width: 1, color: $r('app.color.timeline_border') })
+  }
+
+  @Builder
+  DetailContent(post: MockPost) {
+    Scroll() {
+      Column({ space: 16 }) {
+        Button('返回时间线', { type: ButtonType.Capsule })
+          .constraintSize({ minHeight: 48 }).padding({ left: 14, right: 14, top: 10, bottom: 10 })
+          .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body'))
+          .onClick(() => this.closePost())
+        Column({ space: 4 }) {
+          Text('帖子详情').fontSize(26).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
+          Text('本地演示 · 不访问 Threads').fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
+        }.width('100%').alignItems(HorizontalAlign.Start)
+        this.PostCard(post, true)
+        this.ReplyComposer(post)
+        Text('回复预览').fontSize(18).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
+        Text('此处只展示示例和本次添加的本地回复。').fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
+        if (this.repliesFor(post.id).length === 0) {
+          Text('这条帖子暂没有示例回复。').fontSize(15).fontColor($r('app.color.timeline_text_body'))
+            .width('100%').padding(18).backgroundColor($r('app.color.timeline_surface')).borderRadius(18)
+        }
+        ForEach(this.repliesFor(post.id), (reply: DemoReply) => {
+          Column({ space: 8 }) {
+            Text(reply.local ? `${reply.author} · 本地回复` : reply.author)
+              .fontSize(14).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
+            Text(reply.body).fontSize(15).fontColor($r('app.color.timeline_text_body')).width('100%')
+              .textAlign(TextAlign.Start).copyOption(CopyOptions.InApp)
+          }.width('100%').alignItems(HorizontalAlign.Start).padding(18)
+            .backgroundColor($r('app.color.timeline_surface')).borderRadius(18)
+            .border({ width: 1, color: $r('app.color.timeline_border') })
+        }, (reply: DemoReply) => reply.id)
+      }.width('100%').constraintSize({ maxWidth: 600 }).alignItems(HorizontalAlign.Start)
+        .padding({ left: 18, right: 18, top: 16, bottom: 24 })
+    }.width('100%').height('100%').align(Alignment.Top).scrollBar(BarState.Auto)
+  }
+
+  @Builder
+  DetailDestination(_name: string, post: MockPost) {
+    NavDestination() {
+      this.DetailContent(post)
+    }.hideTitleBar(true).backgroundColor($r('app.color.timeline_background'))
+      .onBackPressed(() => {
+        this.closePost();
+        return true;
+      })
   }
 
   @Builder
@@ -407,7 +541,8 @@ struct Timeline {
     }.width('100%').padding({ left: 22, right: 22, top: 18, bottom: 15 })
   }
 
-  build() {
+  @Builder
+  Feed() {
     Column() {
       if (!this.toolbarInList()) {
         Column() { this.Toolbar() }.width('100%')
@@ -428,7 +563,7 @@ struct Timeline {
         }
         ForEach(POSTS, (post: MockPost) => {
           ListItem() {
-            this.PostCard(post)
+            this.PostCard(post, false)
           }
         }, (post: MockPost) => post.id)
       }
@@ -461,6 +596,14 @@ struct Timeline {
         }
       }
     })
+  }
+
+  build() {
+    Navigation(this.detailPaths) {
+      this.Feed()
+    }
+    .width('100%').height('100%').mode(NavigationMode.Stack).hideTitleBar(true)
+    .navDestination(this.DetailDestination)
     .bindSheet($$this.settingsVisible, this.SettingsSheet(), {
       height: SheetSize.FIT_CONTENT,
       dragBar: true,

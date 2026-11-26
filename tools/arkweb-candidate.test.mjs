@@ -320,8 +320,8 @@ test('reading reflow keeps a post ID, adjusts for the large-text toolbar and def
 
 test('post detail uses one stack entry and keeps replies local and scoped to their post', () => {
   const timeline = readFileSync(new URL('../app/entry/src/main/ets/pages/Timeline.ets', import.meta.url), 'utf8');
-  const methods = timeline.slice(timeline.indexOf('  private openPost('), timeline.indexOf('  SettingsSheet()'))
-    .replace(/^  private /gm, '  ').replace('  @Builder\n', '');
+  const methods = timeline.slice(timeline.indexOf('  private openPost('), timeline.indexOf('  private async postDraftPreferences('))
+    .replace(/^  private /gm, '  ');
   const post = { id: 'p1', replies: 12 };
   const other = { id: 'p2', replies: 7 };
   const Timeline = vm.runInNewContext(stripTypeScriptTypes(`class Timeline {
@@ -379,6 +379,139 @@ test('post detail uses one stack entry and keeps replies local and scoped to the
   assert.match(timeline, /\.onBackPressed\(\(\) => \{\s*this\.closePost\(\)/);
   assert.match(timeline, /this\.PostCard\(post, true\)/);
   assert.match(timeline, /this\.PostCard\(post, false\)/);
+});
+
+test('post drafts save and clear only explicitly, preserve unsaved edits on failure, and restore after restart', async () => {
+  const timeline = readFileSync(new URL('../app/entry/src/main/ets/pages/Timeline.ets', import.meta.url), 'utf8');
+  const constants = timeline.slice(timeline.indexOf('const POST_COMPOSER'), timeline.indexOf('interface DemoReply'));
+  const methods = timeline.slice(timeline.indexOf('  private async postDraftPreferences('), timeline.indexOf('  @Builder\n  SettingsSheet()'))
+    .replace(/^  private /gm, '  ');
+  const { Composer, DraftDecision } = vm.runInNewContext(stripTypeScriptTypes(`
+    ${constants}
+    class Composer {
+      postDraft = ''; savedPostDraft = ''; postDraftReady = false; postDraftBusy = false;
+      postDraftMessage = ''; draftDecision = DraftDecision.None; postDraftLoadId = 0;
+      timelineVisible = true; anchorCaptures = 0;
+      constructor(store) {
+        this.detailPaths = {
+          size: () => this.route ? 1 : 0,
+          pushPath: (entry, animated) => { this.route = entry; this.pushAnimated = animated; },
+          pop: (_result, animated) => { const entry = this.route; this.route = undefined; this.popAnimated = animated; entry.onPop(); }
+        };
+        this.store = store;
+      }
+      getUIContext() { return { getHostContext: () => this.store }; }
+      rememberReadingPosition() { this.anchorCaptures++; }
+      onPageShow() { this.timelineVisible = true; }
+      allowsMotionFeedback() { return false; }
+      ${methods}
+    }
+    ({ Composer, DraftDecision });`, { mode: 'transform' }), {
+    preferences: { getPreferences: async (store, { name }) => {
+      assert.equal(name, 'timeline_post_draft');
+      return store;
+    } }
+  });
+  const settle = () => new Promise(setImmediate);
+  let disk = '';
+  let pending = '';
+  let failWrite = false;
+  let failRead = false;
+  let releaseRead;
+  let writes = 0;
+  const store = {
+    async get(key, fallback) {
+      assert.equal(key, 'body');
+      assert.equal(fallback, '');
+      if (failRead) throw new Error('read failed');
+      if (releaseRead) await new Promise((resolve) => { releaseRead = resolve; });
+      return disk;
+    },
+    async put(key, text) { assert.equal(key, 'body'); pending = text; writes++; },
+    async flush() { if (failWrite) throw new Error('write failed'); disk = pending; }
+  };
+
+  const page = new Composer(store);
+  page.openComposer();
+  page.openComposer();
+  assert.equal(page.route.name, 'PostComposer');
+  assert.equal(page.anchorCaptures, 1);
+  assert.equal(page.timelineVisible, false);
+  assert.equal(page.pushAnimated, false);
+  await settle();
+  assert.equal(page.postDraftReady, true);
+  for (const invalid of [' ', 'x'.repeat(501)]) {
+    page.postDraft = invalid;
+    await page.savePostDraft(false);
+  }
+  assert.equal(writes, 0);
+  const body = '  草稿第一行\n第二行 🧵  ';
+  page.postDraft = body;
+  const saving = page.savePostDraft(false);
+  page.requestComposerExit();
+  assert.ok(page.route, 'do not leave while a write is in progress');
+  await page.savePostDraft(false);
+  await saving;
+  assert.equal(disk, body, 'save exactly what was typed');
+  assert.equal(writes, 1);
+  assert.match(page.postDraftMessage, /已保存/);
+  page.postDraft = 'unsaved change';
+  page.requestComposerExit();
+  assert.equal(page.draftDecision, DraftDecision.Leave);
+  page.requestComposerExit();
+  assert.equal(page.draftDecision, DraftDecision.None, 'Back while confirming cancels only the confirmation');
+  assert.equal(page.postDraft, 'unsaved change');
+  page.requestComposerExit();
+  page.discardPostEdits();
+  assert.equal(page.timelineVisible, true);
+  assert.equal(page.popAnimated, false);
+  assert.equal(disk, body);
+
+  const restarted = new Composer(store);
+  restarted.openComposer();
+  await settle();
+  assert.equal(restarted.postDraft, body);
+  restarted.postDraft = 'new draft';
+  failWrite = true;
+  await restarted.savePostDraft(false);
+  assert.equal(disk, body);
+  assert.equal(restarted.postDraft, 'new draft');
+  assert.match(restarted.postDraftMessage, /未能写入/);
+  failWrite = false;
+  await restarted.savePostDraft(true);
+  assert.equal(disk, body, 'clear requires confirmation');
+  restarted.draftDecision = DraftDecision.Clear;
+  await restarted.savePostDraft(true);
+  assert.equal(restarted.postDraft, '');
+  assert.equal(disk, '');
+  assert.match(restarted.postDraftMessage, /已清空/);
+  restarted.requestComposerExit();
+  assert.equal(restarted.timelineVisible, true);
+
+  const retry = new Composer(store);
+  failRead = true;
+  retry.openComposer();
+  await settle();
+  assert.equal(retry.postDraftReady, false);
+  assert.match(retry.postDraftMessage, /重新|重试/);
+  failRead = false;
+  await retry.loadPostDraft();
+  assert.equal(retry.postDraft, '', 'cleared draft also stays empty in a fresh page');
+
+  const canceled = new Composer(store);
+  releaseRead = () => {};
+  canceled.openComposer();
+  await settle();
+  canceled.requestComposerExit();
+  assert.equal(canceled.timelineVisible, true);
+  releaseRead();
+  releaseRead = undefined;
+  await settle();
+  assert.equal(canceled.postDraftReady, false, 'ignore a read completed after leaving the editor');
+  canceled.openComposer();
+  await settle();
+  assert.equal(canceled.postDraftReady, true);
+  assert.match(timeline, /不会发布到 Threads/);
 });
 
 test('Stage bundle names agree and signing remains disabled', () => {

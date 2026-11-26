@@ -7,6 +7,16 @@ const WIDE_VIEWPORT = 680;
 const MAX_LIST_WIDTH = 1248;
 const REPLY_LIMIT = 280;
 const POST_DETAIL = 'PostDetail';
+const POST_COMPOSER = 'PostComposer';
+const POST_DRAFT_LIMIT = 500;
+const POST_DRAFT_STORE = 'timeline_post_draft';
+const POST_DRAFT_KEY = 'body';
+
+enum DraftDecision {
+  None,
+  Leave,
+  Clear
+}
 
 interface DemoReply {
   id: string;
@@ -82,6 +92,13 @@ struct Timeline {
   @State private settingsVisible: boolean = false;
   @State private localReplies: DemoReply[] = [];
   @State private replyDraft: string = '';
+  @State private postDraft: string = '';
+  @State private savedPostDraft: string = '';
+  @State private postDraftReady: boolean = false;
+  @State private postDraftBusy: boolean = false;
+  @State private postDraftMessage: string = '';
+  @State private draftDecision: DraftDecision = DraftDecision.None;
+  private postDraftLoadId: number = 0;
   private replySequence: number = 0;
   private readonly detailPaths: NavPathStack = new NavPathStack();
   private readonly timelineScroller: Scroller = new Scroller();
@@ -346,6 +363,115 @@ struct Timeline {
     this.replyDraft = '';
   }
 
+  private async postDraftPreferences(): Promise<preferences.Preferences> {
+    const context = this.getUIContext().getHostContext();
+    if (context === undefined) {
+      throw new Error('Timeline host context unavailable');
+    }
+    return preferences.getPreferences(context, { name: POST_DRAFT_STORE });
+  }
+
+  private openComposer(): void {
+    if (this.detailPaths.size() > 0) {
+      return;
+    }
+    this.rememberReadingPosition();
+    this.timelineVisible = false;
+    this.postDraft = this.savedPostDraft;
+    this.postDraftMessage = '';
+    this.draftDecision = DraftDecision.None;
+    this.detailPaths.pushPath({ name: POST_COMPOSER, onPop: () => {
+      this.postDraftLoadId += 1;
+      this.postDraftBusy = false;
+      this.onPageShow();
+    } }, this.allowsMotionFeedback());
+    if (!this.postDraftReady) {
+      this.loadPostDraft();
+    }
+  }
+
+  private async loadPostDraft(): Promise<void> {
+    if (this.postDraftReady || this.postDraftBusy) {
+      return;
+    }
+    const loadId = ++this.postDraftLoadId;
+    this.postDraftBusy = true;
+    this.postDraftMessage = '';
+    try {
+      const store = await this.postDraftPreferences();
+      const body = await store.get(POST_DRAFT_KEY, '');
+      if (loadId !== this.postDraftLoadId) {
+        return;
+      }
+      if (typeof body !== 'string' || body.length > POST_DRAFT_LIMIT) {
+        throw new Error('Invalid local draft');
+      }
+      this.savedPostDraft = body;
+      this.postDraft = body;
+      this.postDraftReady = true;
+    } catch (_error) {
+      if (loadId === this.postDraftLoadId) {
+        this.postDraftMessage = '草稿暂时无法读取，请重试。';
+      }
+    } finally {
+      if (loadId === this.postDraftLoadId) {
+        this.postDraftBusy = false;
+      }
+    }
+  }
+
+  private canSavePostDraft(): boolean {
+    return this.postDraftReady && !this.postDraftBusy && this.postDraft.trim().length > 0 &&
+      this.postDraft.length <= POST_DRAFT_LIMIT && this.postDraft !== this.savedPostDraft;
+  }
+
+  private leaveComposer(): void {
+    this.detailPaths.pop({ closed: true }, this.allowsMotionFeedback());
+  }
+
+  private requestComposerExit(): void {
+    if (this.postDraftReady && this.postDraftBusy) {
+      return;
+    }
+    if (this.draftDecision !== DraftDecision.None) {
+      this.draftDecision = DraftDecision.None;
+    } else if (this.postDraft !== this.savedPostDraft) {
+      this.draftDecision = DraftDecision.Leave;
+    } else {
+      this.leaveComposer();
+    }
+  }
+
+  private discardPostEdits(): void {
+    if (this.draftDecision === DraftDecision.Leave && !this.postDraftBusy) {
+      this.postDraft = this.savedPostDraft;
+      this.leaveComposer();
+    }
+  }
+
+  private async savePostDraft(clear: boolean): Promise<void> {
+    if (clear ? (!this.postDraftReady || this.postDraftBusy || this.draftDecision !== DraftDecision.Clear)
+      : !this.canSavePostDraft()) {
+      return;
+    }
+    const body = clear ? '' : this.postDraft;
+    this.postDraftBusy = true;
+    this.postDraftMessage = '';
+    this.draftDecision = DraftDecision.None;
+    try {
+      const store = await this.postDraftPreferences();
+      await store.put(POST_DRAFT_KEY, body);
+      await store.flush();
+      this.savedPostDraft = body;
+      this.postDraft = body;
+      this.postDraftMessage = clear ? '本机草稿已清空。' : '草稿已保存到本机。';
+    } catch (_error) {
+      this.postDraftMessage = '未能写入本机，当前文字仍保留。';
+    } finally {
+      this.postDraftBusy = false;
+    }
+  }
+
   @Builder
   SettingsSheet() {
     Column({ space: 18 }) {
@@ -511,14 +637,99 @@ struct Timeline {
   }
 
   @Builder
-  DetailDestination(_name: string, post: MockPost) {
-    NavDestination() {
-      this.DetailContent(post)
-    }.hideTitleBar(true).backgroundColor($r('app.color.timeline_background'))
-      .onBackPressed(() => {
-        this.closePost();
-        return true;
-      })
+  ComposerContent() {
+    Scroll() {
+      Column({ space: 18 }) {
+        Button('返回时间线', { type: ButtonType.Capsule })
+          .constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16 })
+          .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body'))
+          .enabled(!this.postDraftReady || !this.postDraftBusy)
+          .onClick(() => this.requestComposerExit())
+        Column({ space: 6 }) {
+          Text('写帖草稿').fontSize(28).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
+          Text('只保存在这台设备，不会发布到 Threads。').fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
+        }.width('100%').alignItems(HorizontalAlign.Start)
+        if (this.postDraftReady) {
+          Column({ space: 12 }) {
+            TextArea({ text: this.postDraft, placeholder: '此刻，想写点什么？' })
+              .width('100%').constraintSize({ minHeight: 140, maxHeight: 260 }).maxLength(POST_DRAFT_LIMIT)
+              .fontSize(16).fontColor($r('app.color.timeline_text_body')).placeholderColor($r('app.color.timeline_text_muted'))
+              .backgroundColor($r('app.color.timeline_background')).borderRadius(16)
+              .accessibilityText('写帖草稿正文')
+              .enabled(!this.postDraftBusy && this.draftDecision === DraftDecision.None)
+              .onChange((value: string) => { this.postDraft = value; this.postDraftMessage = ''; })
+            Text(`${this.postDraft.length} / ${POST_DRAFT_LIMIT}`).fontSize(12)
+              .fontColor($r('app.color.timeline_text_secondary'))
+            if (this.draftDecision === DraftDecision.None) {
+              Button(this.postDraftBusy ? '正在写入本机…' : '保存到本机', { type: ButtonType.Capsule })
+                .width('100%').constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16, top: 10, bottom: 10 })
+                .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
+                .enabled(this.canSavePostDraft()).onClick(() => { this.savePostDraft(false); })
+              if (this.savedPostDraft.length > 0 && !this.postDraftBusy) {
+                Button('清空本机草稿', { type: ButtonType.Capsule })
+                  .constraintSize({ minHeight: 48 }).buttonStyle(ButtonStyleMode.TEXTUAL)
+                  .fontColor($r('app.color.timeline_text_body'))
+                  .onClick(() => { this.draftDecision = DraftDecision.Clear; })
+              }
+            }
+          }.width('100%').padding(18).alignItems(HorizontalAlign.Start)
+            .backgroundColor($r('app.color.timeline_surface')).borderRadius(22)
+            .border({ width: 1, color: $r('app.color.timeline_border') })
+        } else if (this.postDraftBusy) {
+          Text('正在读取本机草稿…').fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
+        } else {
+          Button('重新读取草稿').constraintSize({ minHeight: 48 }).onClick(() => { this.loadPostDraft(); })
+        }
+        if (this.draftDecision !== DraftDecision.None) {
+          Column({ space: 10 }) {
+            Text(this.draftDecision === DraftDecision.Clear ? '清空已经保存的草稿？' : '放弃未保存的修改？')
+              .fontSize(16).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
+            Text(this.draftDecision === DraftDecision.Clear ? '已保存的内容与当前修改都会清空。' : '之前保存到本机的内容会保留。')
+              .fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
+            Button('继续编辑', { type: ButtonType.Capsule })
+              .width('100%').constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16 })
+              .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
+              .onClick(() => { this.draftDecision = DraftDecision.None; })
+            Button(this.draftDecision === DraftDecision.Clear ? '确认清空' : '放弃修改并返回')
+              .constraintSize({ minHeight: 48 }).buttonStyle(ButtonStyleMode.TEXTUAL)
+              .fontColor($r('app.color.timeline_text_body'))
+              .onClick(() => {
+                if (this.draftDecision === DraftDecision.Clear) {
+                  this.savePostDraft(true);
+                } else {
+                  this.discardPostEdits();
+                }
+              })
+          }.width('100%').alignItems(HorizontalAlign.Start).padding(18)
+            .backgroundColor($r('app.color.timeline_surface')).borderRadius(18)
+        }
+        if (this.postDraftMessage.length > 0) {
+          Text(this.postDraftMessage).fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
+        }
+      }.width('100%').constraintSize({ maxWidth: 600 }).alignItems(HorizontalAlign.Start)
+        .padding({ left: 18, right: 18, top: 16, bottom: 24 })
+    }.width('100%').height('100%').align(Alignment.Top).scrollBar(BarState.Auto)
+  }
+
+  @Builder
+  DetailDestination(name: string, post?: MockPost) {
+    if (name === POST_COMPOSER) {
+      NavDestination() {
+        this.ComposerContent()
+      }.hideTitleBar(true).backgroundColor($r('app.color.timeline_background'))
+        .onBackPressed(() => {
+          this.requestComposerExit();
+          return true;
+        })
+    } else if (post !== undefined) {
+      NavDestination() {
+        this.DetailContent(post)
+      }.hideTitleBar(true).backgroundColor($r('app.color.timeline_background'))
+        .onBackPressed(() => {
+          this.closePost();
+          return true;
+        })
+    }
   }
 
   @Builder
@@ -530,13 +741,17 @@ struct Timeline {
         Text('Threads · 本地演示').fontSize(12).fontColor($r('app.color.timeline_text_secondary'))
       }.alignItems(HorizontalAlign.Start).flexGrow(1)
         .width(this.fontScale >= LARGE_TEXT_SCALE ? '100%' : 'auto')
+      Button('写草稿', { type: ButtonType.Capsule })
+        .constraintSize({ minHeight: 48 }).padding({ left: 14, right: 14, top: 10, bottom: 10 })
+        .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action')).fontSize(13)
+        .onClick(() => this.openComposer())
       Button('设置', { type: ButtonType.Capsule })
         .constraintSize({ minHeight: 44 }).padding({ left: 14, right: 14, top: 10, bottom: 10 })
         .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body')).fontSize(12)
         .accessibilityText('显示与动效设置')
         .onClick(() => { this.settingsVisible = true; })
       Button('打开网页', { type: ButtonType.Capsule }).constraintSize({ minHeight: 48 }).padding({ left: 18, right: 18, top: 10, bottom: 10 })
-        .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action')).fontSize(13).enabled(!this.openingWeb)
+        .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body')).fontSize(13).enabled(!this.openingWeb)
         .onClick(() => { this.openWeb(); })
     }.width('100%').padding({ left: 22, right: 22, top: 18, bottom: 15 })
   }

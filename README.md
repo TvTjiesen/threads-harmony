@@ -1,6 +1,6 @@
 # Threads for HarmonyOS · P0 原型
 
-**手机优先**：首个目标是 Pura X View；先用 Windows 手机模拟器做窄屏 smoke，MatePad Edge 的 PC/平板形态保留为补充。手机候选 `da480b43c92fbf9d364ae84efaf63197d17205c7` 已经在 Windows Beta SDK 隔离工作树通过 ArkTS 编译，61,838 字节 unsigned HAP；模拟器安装/运行仍需用户在 IDE 配置本机调试签名。详见 [手机优先计划](PLAN.md) 与 [测试矩阵](TEST-MATRIX.md)。
+**手机优先**：已有 ArkUI 本地模拟时间线首屏和独立 ArkWeb 网页入口；8 条演示帖子可点赞/关注（仅当前运行态），回复、分享、发帖按钮明确提示尚未接入，不调用 Threads API。E 盘 DevEco 工程已编译、签名并在鸿蒙手机模拟器安装启动；代码回归 14/14 通过。模拟器已验证点赞、关注、网页入口以及返回后保持列表滚动位置；Pura X View 真机和真实网页加载尚未验证。详见 [手机优先计划](PLAN.md) 与 [测试矩阵](TEST-MATRIX.md)。
 
 非官方 ArkTS/ArkUI + ArkWeb 原型，使用官方 Threads 网站，外层提供基础原生导航和错误提示。MatePad 上的独立探针曾编译出未签名 HAP，且单独通过 DevEco 签名安装运行；Threads 页面仍曾白屏。2026-11-24 MatePad 已通过 GitHub MCP 将 15 个无签名的 HarmonyLocalProbe 源文件交接到分支 `matepad/source-handoff-6b5c`（固定 SHA `f0caae1554dfbe691be9b9690bd59e007e4a14e6`）。同日，CodeArts 在 MatePad 独立目录从该提交重建成功（15 个文本文件按 blob SHA 校验，另补两个原有 PNG）；Windows 核验了回执 `7bbe80b0ec74e393d9e690e71671db491c2239cf`。本次 HAP 未签名、未安装、未运行，与下文的完整 ArkWeb 候选是不同版本。
 
@@ -21,7 +21,7 @@ GitHub 仓库已由用户告知转为公开；MatePad 与 Windows DSH 的分工�
 
 1. 当前 Stage 工程 `app/` 已在仓库中，来自固定的已构建 MatePad 脱敏基线；Bundle Name 为 `com.tvtjiesen.threadsharmony`（由用户确认华为后台已有对应 HarmonyOS 应用记录），签名配置为空，图标为自制占位图。Windows 当前本地编译用 Beta SDK，需要临时副本对齐 `compileSdkVersion`；不要把这个差异提交或擅自改 MatePad 固定版本。
 2. 主开发在 Windows DSH 工作区进行：先查华为本地 API 文档，再改 `overlay/entry/src/main/ets/pages/Index.ets`；运行 `node tools/sync-overlay.mjs` 预览并审阅，只有符合脚本保护条件时才 `--apply` 同步 Stage 镜像。运行 Node 回归、检查 `git diff --check` 和安全差异。
-3. Windows DSH 使用 DevEco Studio 自带 Hvigor 在纯 ASCII 的隔离工作树编译 ArkTS。因本机 SDK `26.0.1.120` 为 Beta1，固定 `5e4d5abf` 与手机候选 `56785d268d3f028dbe19d21a2c6736bcbb5990d2` 构建时仅在副本将 `compileSdkVersion` 从 `26.0.0` 对齐到 `26.0.1`；该补丁不进入提交或 MatePad 回执。可重复入口为 `tools/build-windows-arkts.ps1 -SourceSha <40位SHA>`，会检查精确 HEAD、构建 unsigned HAP、输出 SHA256 并清理临时工作树，不签名、不部署。具体限制见 [华为工具验证](HUAWEI-TOOLS.md)。Windows 已有可通过 HDC 访问的本地 HarmonyOS 手机模拟器；当前 phone 候选仍未签名，需在 DevEco Studio 本机完成自动调试签名后才能部署运行。
+3. Windows DSH 使用 DevEco Studio 自带 Hvigor 在纯 ASCII 的隔离工作树编译 ArkTS。因本机 SDK `26.0.1.120` 为 Beta1，固定 `5e4d5abf` 与手机候选 `56785d268d3f028dbe19d21a2c6736bcbb5990d2` 构建时仅在副本将 `compileSdkVersion` 从 `26.0.0` 对齐到 `26.0.1`；该补丁不进入提交或 MatePad 回执。可重复入口为 `tools/build-windows-arkts.ps1 -SourceSha <40位SHA>`，会检查精确 HEAD、构建 unsigned HAP、输出 SHA256 并清理临时工作树，不签名、不部署。具体限制见 [华为工具验证](HUAWEI-TOOLS.md)。上述隔离构建只用于验证。实际安装使用独立的 E 盘 DevEco 工程及本机调试签名；该路径已验证手机模拟器。签名配置和本地 HAP 不进入仓库。
 4. 构建通过后用户在 MatePad DevEco GUI 自行签名、安装、启动；签名材料不可提交或交给 DSH。先不登录，检查代理提示、Threads 首页、公开内容、图片和返回。
 5. Pura X View 连接、签名、安装、登录、发帖/消息和折叠适配均需用户亲自授权并分项验收；按 `TEST-MATRIX.md` 记录，不把构建成功当作实机功能通过。
 

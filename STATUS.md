@@ -2,13 +2,14 @@
 
 ## 当前阶段
 
-**2026-11-25：手机优先。** 工程已在不移除 `tablet` / `2in1` 的前提下加入 `phone`。先用 Windows 手机模拟器检查窄屏和无登录启动，再由 Pura X View 验证折叠与真实网络；MatePad 是补充，不再是首轮门槛。现有 Mate 90 Pro 模拟器缺 Beta1 镜像，启动失败；另已按用户同意接受官方许可并下载 API 26 手机 Release 镜像，创建 `ThreadsHarmonyPhone` 并由 HDC 连通（`127.0.0.1:5555`，7.0.0.107）。原始手机候选 `da480b43c92fbf9d364ae84efaf63197d17205c7`（旧包名）在 Windows 隔离工作树以 `compileSdkVersion=26.0.1` 完成 `CompileArkTS` 和打包，产出 61,838 字节未签名 HAP，12 项 Node 回归通过。用户确认华为后台已有 `com.tvtjiesen.threadsharmony` 应用记录，工程 Bundle Name 已据此修改。新固定 SHA `56785d268d3f028dbe19d21a2c6736bcbb5990d2` 已通过 12 项 Node 回归和 Windows Hvigor clean assembleHap（实际 `CompileArkTS`，35 tasks）；隔离副本临时使用 compileSdkVersion 26.0.1，产出 61,850 字节 unsigned HAP，SHA256 `aa6f33c540b4763fb1ee59ccc76457b12e63f2f1556b423cc58112601b33d74c`。手机模拟器本轮重新启动且 HDC 在线（`127.0.0.1:5555`）。仍未签名、安装/启动应用。下文 `5e4d5abf` 和 MatePad 回执是旧的仅平板/2in1 候选证据，不覆盖新增的手机目标。
+**2026-11-26：原生模拟时间线已通过手机模拟器验收。** ArkUI 首屏使用 8 条本地演示帖子，点赞/关注只影响运行态，回复/分享/发帖仅提示。原 ArkWeb 页面仍可进入，两页均已注册，Stage ArkWeb 与 overlay 字节一致。14 项 Node 回归通过；E 盘工程完成 ArkTS 编译、签名和最新版覆盖安装。设备 UI 树确认首屏、点赞/关注状态变化、网页往返后的滚动位置保持，以及模拟器系统返回键能在没有网页历史时回到时间线。真实网页加载、折叠手势和 Pura X View 真机仍未验证。此前的固定手机候选及 MatePad 构建回执不覆盖本轮原生时间线。
+
 
 P0：Windows DSH 已在隔离 Beta SDK 工作树完成代理修复候选的 ArkTS clean build；MatePad 已对旧独立 `HarmonyLocalProbe` 完成本机构建与 DevEco GUI 签名、安装、启动；Threads 网页曾白屏。固定候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513` 经 WorkBuddy 在 MatePad 三次构建通过（未签装运行）；最新代理状态修复候选 `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 已由 WorkBuddy 在 MatePad 独立目录构建成功：exit 0，未签名 HAP 62,003 字节；Windows 已核验远端回执分支、提交和唯一新增回执文件。新版尚未签名、安装或真机功能验收。详见 [跨端协作记录](AI-WORKFLOW.md)。
 
 ## 工作分工
 
-- **Windows + DSH**：唯一产品/代码主责，维护 Git 真源，负责架构、ArkTS、审查、测试、错误修复和 MatePad 任务单。DevEco CLI 用于本地文档；常规 ArkTS 编译和打包由 Windows DevEco Studio 自带 Hvigor 执行，已对隔离工作树中的代理候选完成首轮实编。Windows phone 模拟器 `ThreadsHarmonyPhone` 本轮重新启动成功，HDC `list targets` 返回 `127.0.0.1:5555`（系统此前读为 7.0.0.107）。模拟器镜像许可已由用户同意；新 SHA `56785d268d3f028dbe19d21a2c6736bcbb5990d2` 已由 Hvigor clean build 通过，HAP 61,850 字节（sha256 `aa6f33c540b4763fb1ee59ccc76457b12e63f2f1556b423cc58112601b33d74c`）；仍 unsigned，未安装/启动。请用户在 DevEco Studio 的 Project Structure > Signing Configs 勾选 Automatically generate signature 与 Support HarmonyOS（若需登录，用户本人在 IDE 登录授权）后，再由 DSH 安装/启动。CLI 的 Not logged in 不代表 IDE 状态。
+- **Windows + DSH**：唯一产品/代码主责，维护 Git 真源，负责架构、ArkTS、审查、测试、错误修复和 MatePad 任务单。DevEco CLI 用于本地文档；常规 ArkTS 编译和打包由 Windows DevEco Studio 自带 Hvigor 执行，已对隔离工作树中的代理候选完成首轮实编。Windows 手机模拟器 `ThreadsHarmonyPhone` 通过 HDC `127.0.0.1:5555` 验证新版。仓库 Stage 工程不保存签名；签名和部署在独立的 E 盘工程执行。此前固定 SHA `56785d268d3f028dbe19d21a2c6736bcbb5990d2` 的未签名构建是历史记录，不是新版安装前置。
 - **MatePad Edge + WorkBuddy**：设备侧作为构建/验收站。WorkBuddy 通过已验证的 MatePad 本机 CLT/Hvigor 能力执行固定 SHA 构建；最新回执记录 Node v24.18.1、Hvigor 7.26.11，构建 62,003 字节未签名 HAP。WorkBuddy 是否通过 DevEco CLI 调用不作为已知事实。低性能 HY4Flash 只承担固定 SHA 的构建、版本/错误行核对和经授权的单项截图，不写业务代码、不决策架构、不改依赖或 SDK。代理修复 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 已构建，回执分支 `matepad/build-proxy-state-5e4d`、提交 `f9603240237d91791f1923a9a035d638997da4ed` 已由 Windows 核验，构建源码 SHA 与回执分支起点有明确区分。定时自动触发未验证。早期独立工程通过 DevEco GUI 签名安装启动，非当前候选的证据。
 - **Pura X View**：HarmonyOS 7.0.0.115 SP10（用户提供；SDK API level 待核实）；主折叠手机验收设备。网页登录 Threads 可用，App 内 ArkWeb 仍未测。
 - **Android**：后续独立 UI/平台目标，尚无工程。
@@ -47,7 +48,7 @@ P0：Windows DSH 已在隔离 Beta SDK 工作树完成代理修复候选的 ArkT
 ## 下一步
 
 - DSH 主开发、本机完成静态检查、Node 回归、Windows Hvigor ArkTS clean build 与错误定位；MatePad WorkBuddy（HY4Flash）仅做固定版本本机验收/窄杂务。当前任务单见 [MatePad 下一项验收](coordination/MATEPAD-NEXT.md)。
-- 当前手机候选 `da480b43c92fbf9d364ae84efaf63197d17205c7` 已在 Windows 实编并通过 ArkTS 编译，下一关是用户在 IDE 完成本机调试签名，然后 DSH 安装/启动 smoke。操作范围与回报项见 [手机 smoke 任务单](coordination/MATEPAD-PHONE-SMOKE.md)。任务单减少长提示词复制；尚无 WorkBuddy 自动唤醒/调度通道。
+- 下一步：在 Pura X View 使用覆盖该设备的调试签名部署，验证折叠、滚动、系统返回，并在同一设备与网络下对比系统浏览器和 ArkWeb 的 Threads 首屏。旧手机 smoke 任务单描述的是先前 ArkWeb 候选，不替代这轮验收。
 
 1. 固定候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513` 已由 MatePad Edge 本机 DevEco Command Line Tools 精确构建并三次复现，详见 [ArkWeb 构建回执](https://github.com/TvTjiesen/threads-harmony/blob/feat/arkweb-build-2d1060/coordination/arkweb-build-receipt.md)。回执提交 `40f34cec5c14da8abd16dbf465d385828fb2b665` 的父提交即固定候选；命令 `hvigorw assembleHap --no-daemon -p product=default`，exit 0、`BUILD SUCCESSFUL`、未签名 HAP 56,075 字节。未签名、未安装、未运行、未上传。新代理修复候选不由此回执覆盖。
 2. 代理修复候选在 `fix/arkweb-proxy-state`，两处 ArkWeb 页面一致。应用/关闭代理同一时刻只发一个请求；等待 20 秒只提示，不解锁、不加载页面、不发反向请求。无效的旧偏好或启动代理报错/超时会尝试清除；启动超时后回调才到达时，须在设置中确认才能继续。手动设置在回调确认后才保存。此处“确认”指 ArkWeb 接收配置，不证明代理可连通。

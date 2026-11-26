@@ -9,8 +9,56 @@ const app = readFileSync(new URL('../app/entry/src/main/ets/pages/Index.ets', im
 const appConfig = JSON.parse(readFileSync(new URL('../app/AppScope/app.json5', import.meta.url), 'utf8'));
 const buildConfig = JSON.parse(readFileSync(new URL('../app/build-profile.json5', import.meta.url), 'utf8'));
 
-test('Stage page is synchronized with reviewed ArkWeb source', () => {
-  assert.equal(app, overlay);
+test('ArkWeb source remains the reviewed proxy implementation and Stage keeps it as a page', () => {
+  assert.match(overlay, /private changeProxy\(/);
+  assert.match(app, /private changeProxy\(/);
+  assert.match(app, /if \(Number\(router\.getLength\(\)\) > 1\) \{\s+Button\('本地首页'/);
+  assert.match(app, /accessibilityText\('返回本地模拟时间线'\)\.onClick\(\(\) => \{ router\.back\(\); \}\)/);
+  const back = app.slice(app.indexOf('  private goBack('), app.indexOf('  @Builder'));
+  assert.match(back, /this\.canNavigate\(\)[\s\S]*?this\.controller\.accessBackward\(\)[\s\S]*?this\.controller\.backward\(\)[\s\S]*?router\.back\(\)/);
+  assert.match(back, /if \(Number\(router\.getLength\(\)\) > 1\) \{\s+router\.back\(\);\s+return true;/);
+  assert.doesNotMatch(app, /router\.pushUrl/);
+  assert.equal(app, overlay, 'Stage ArkWeb page must remain synchronized with overlay source');
+});
+
+test('back closes settings, then prefers web history, then falls back to the timeline', () => {
+  const methods = app.slice(app.indexOf('  private goBack('), app.indexOf('  @Builder'))
+    .replace('private goBack', 'goBack');
+  let stackLength = 2;
+  const calls = [];
+  const Back = vm.runInNewContext(stripTypeScriptTypes(`class Back { ${methods} }; Back`), {
+    router: { getLength: () => String(stackLength), back: () => calls.push('timeline') }
+  });
+  const page = new Back();
+  page.showSettings = true;
+  page.canNavigate = () => true;
+  page.controller = { accessBackward: () => true, backward: () => calls.push('web') };
+  assert.equal(page.onBackPress(), true);
+  assert.equal(page.showSettings, false);
+  assert.deepEqual(calls, []);
+  assert.equal(page.onBackPress(), true);
+  assert.deepEqual(calls, ['web']);
+  page.controller.accessBackward = () => false;
+  assert.equal(page.onBackPress(), true);
+  page.controller.accessBackward = () => { throw new Error('detached'); };
+  assert.equal(page.onBackPress(), true);
+  page.canNavigate = () => false;
+  page.controller.accessBackward = () => { calls.push('unexpected web history access'); return true; };
+  assert.equal(page.onBackPress(), true);
+  stackLength = 1;
+  assert.equal(page.onBackPress(), false);
+  assert.deepEqual(calls, ['web', 'timeline', 'timeline', 'timeline']);
+});
+
+test('native timeline is a separate mock-data page and does not replace the ArkWeb page', () => {
+  const timeline = readFileSync(new URL('../app/entry/src/main/ets/pages/Timeline.ets', import.meta.url), 'utf8');
+  const ability = readFileSync(new URL('../app/entry/src/main/ets/entryability/EntryAbility.ets', import.meta.url), 'utf8');
+  const pages = JSON.parse(readFileSync(new URL('../app/entry/src/main/resources/base/profile/main_pages.json', import.meta.url), 'utf8'));
+  assert.match(timeline, /const POSTS: MockPost\[\]/);
+  assert.match(timeline, /不會连接|不会连接/);
+  assert.match(timeline, /router\.pushUrl\(\{ url: 'pages\/Index' \}\)/);
+  assert.match(ability, /loadContent\('pages\/Timeline'\)/);
+  assert.deepEqual(pages.src, ['pages/Index', 'pages/Timeline']);
 });
 
 test('Stage bundle names agree and signing remains disabled', () => {

@@ -22,6 +22,14 @@
 
 MatePad 已精确构建候选 `2d106031f2fa6d0bd8018b053abaf9e257f40513`，回执 `40f34cec5c14da8abd16dbf465d385828fb2b665` 记录三次未签名 HAP 56,075 字节。新代理修复 SHA `5e4d5abf46247fc5c6c5ee693b0f004d482d9d38` 已由 MatePad 独立构建通过，回执 `f9603240237d91791f1923a9a035d638997da4ed` 记录 unsigned HAP 62,003 字节；尚未签名、安装或运行。旧结果不能代替新版回执。Windows 已通过 DevEco Studio 自带 Hvigor 编译 ArkTS 并打包：在纯 ASCII 工作树从同一 SHA 出发，仅本地覆盖 `compileSdkVersion` 为 `26.0.1`，保留 `compatibleSdkVersion` 和 `targetSdkVersion` 为 `26.0.0`。未签名、未部署；复现步骤见 [工具验证](HUAWEI-TOOLS.md)。Node 测试与实际 ArkTS 编译分别记录。
 
+## 原生时间线首轮验证（2026-11-26）
+
+- `app/entry/src/main/ets/pages/Timeline.ets` 是单独 ArkUI 页面，入口改为该页；ArkWeb 仍留在 `pages/Index`，顶部显示本地首页栈内回退按钮，系统/工具栏返回优先尝试网页历史，无可用历史时才回到模拟时间线。两页均注册在 `main_pages.json`。
+- 时间线内为 8 条本地演示帖；点赞/关注只存组件状态，回复/分享/发帖只显示“未接入”提示。没有账户、网络供数或 Threads API。
+- `node --test tools/arkweb-candidate.test.mjs tools/sync-overlay.test.mjs`：14/14 通过；`git diff --check` 通过；Stage ArkWeb 页与 overlay 字节一致。生产回退方法的回归用例覆盖设置面板优先、网页历史优先，以及无历史或控制器异常时回到时间线。
+- E 盘已签名的独立开发工程执行 `clean assembleHap --no-daemon -p product=default` 成功，实际执行 `CompileArkTS`，35 tasks，产生 signed/unsigned HAP。存在 `getContext`、`router.getLength/back/pushUrl` API 弃用警告；无 ArkTS 编译错误。首次复制采用了模板工程 `$media:icon`，编译报 `The resource reference '$media:icon' is not defined.`，改回 E 盘原有 `$media:layered_image` / `$media:startIcon` 模板资源并保留其 backup ability 后重建成功；失败版本没有覆盖原工程备份。
+- 修正回退逻辑后，E 盘最新版签名 HAP 已在手机模拟器 `127.0.0.1:5555` 覆盖安装并重启成功。`uitest dumpLayout` 确认首屏 `pages/Timeline`、第一帖点赞后显示 `♥` 和 `87`、关注后显示「已关注」。点「网页」进入 `pages/Index`，点「本地首页」回时间线；滚动到后续帖子后重做往返，两条帖子的布局坐标一致。`E:/threadsharmony/smoke-timeline.jpeg` 是较早的同版型首屏截图，最新版交互以设备 UI 树为证。最新版也通过模拟器系统返回键测试：没有网页历史时返回时间线。真实网页连通、触控返回手势与 Pura X View 真机未在本轮验证。
+
 ## 原型同步工具验证
 
 `node tools/sync-overlay.mjs` 默认只预览；`--apply` 需 Stage 配置文件齐全，且目标页面已被 Git 跟踪并没有工作区/暂存改动。脚本只更新 `app/entry/src/main/ets/pages/Index.ets`，不会修改 module 权限。`node --test tools/sync-overlay.test.mjs`：4 项通过，覆盖模板缺失、预览无副作用、未提交与已暂存改动保护、目标范围及重复执行。

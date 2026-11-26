@@ -1,6 +1,7 @@
 import { webview } from '@kit.ArkWeb';
 import { url } from '@kit.ArkTS';
 import { preferences } from '@kit.ArkData';
+import { router } from '@kit.ArkUI';
 
 const HOME_URL: string = 'https://www.threads.com/';
 const TOP_LEVEL_HOSTS: string[] = [
@@ -257,16 +258,19 @@ struct Index {
   }
 
   private goBack(): boolean {
-    if (!this.canNavigate()) {
-      return false;
-    }
-    try {
-      if (this.controller.accessBackward()) {
-        this.controller.backward();
-        return true;
+    if (this.canNavigate()) {
+      try {
+        if (this.controller.accessBackward()) {
+          this.controller.backward();
+          return true;
+        }
+      } catch (_error) {
+        // The web controller may have detached; the app can still go back.
       }
-    } catch (_error) {
-      return false;
+    }
+    if (Number(router.getLength()) > 1) {
+      router.back();
+      return true;
     }
     return false;
   }
@@ -307,6 +311,10 @@ struct Index {
         Button('‹', { type: ButtonType.Normal }).fontSize(24).width(48).height(48)
           .accessibilityText('返回上一页').onClick(() => { this.goBack(); })
         Text('Threads').fontSize(18).fontWeight(FontWeight.Medium).layoutWeight(1)
+        if (Number(router.getLength()) > 1) {
+          Button('本地首页', { type: ButtonType.Normal }).fontSize(12).height(44)
+            .accessibilityText('返回本地模拟时间线').onClick(() => { router.back(); })
+        }
         Button('⚙', { type: ButtonType.Normal }).fontSize(20).width(48).height(48)
           .accessibilityText('网络设置').onClick(() => { this.showSettings = !this.showSettings; })
         Button('↻', { type: ButtonType.Normal }).fontSize(20).width(48).height(48)

@@ -729,10 +729,23 @@ test('post detail uses one stack entry and saves replies only to the local libra
   assert.match(detail, /name === IDENTITY_EDITOR[\s\S]*?IdentityEditor\(\{[\s\S]*?onBack: \(\) => this\.requestIdentityBack\(\)/);
   assert.match(detail, /name === POST_EDITOR[\s\S]*?this\.PostEditorContent\(\)[\s\S]*?\.onBackPressed\(\(\) => \{ this\.requestPostEditorBack\(\); return true;/);
   assert.match(detail, /name === AUTHOR_PROFILE && post !== undefined[\s\S]*?AuthorPane\(\{ author: this\.authorSummary\(post\.id\)/);
-  assert.match(builder(timelineSource, 'DiscussionRoot'), /this\.PostCard\(post, true\)/);
-  assert.match(builder(timelineSource, 'PostCard'), /if \(inDetail\) \{\s*Text\(this\.currentPostBody\(post\)\)/,
+  assert.match(builder(timelineSource, 'DiscussionRoot'), /this\.PostCard\(post, true, false, this\.currentContinuation\(post\)\.length > 0\)/);
+  const original = builder(timelineSource, 'PostCard');
+  assert.match(original, /if \(inDetail && !completeThread\) \{\s*if \(this\.currentPostBody\(post\)\.trim\(\)\.length > 0\) \{\s*Text\(this\.currentPostBody\(post\)\)/,
     'detail renders the current local post rather than its navigation snapshot');
+  assert.match(original, /this\.ThreadPartContent\(this\.makePart\(this\.currentPostBody\(post\), this\.currentPhotoKeys\(post\),\s*this\.currentVideo\(post\)\), 1,/,
+    'the first thread segment reads current content and attachments too');
   assert.match(builder(timelineSource, 'Feed'), /this\.PostCard\(post, false\)/);
+});
+
+test('composer and preview keep primary actions outside scrolling, with shared thread rows and guarded exit', () => {
+  const editor = builder(timelineSource, 'ComposerContent');
+  const preview = builder(timelineSource, 'PostPreviewContent');
+  assert.match(editor, /\.layoutWeight\(1\)\.align\(Alignment\.Top\)\.scrollBar\(BarState\.Auto\)\s+if \(this\.postDraftReady\) \{ this\.ComposerFooter\(\) \}/);
+  assert.match(preview, /\.layoutWeight\(1\)\.align\(Alignment\.Top\)\.scrollBar\(BarState\.Auto\)[\s\S]*'composer-preview-confirm'/);
+  assert.match(preview, /this\.makePart\(this\.previewBody, this\.previewPhotoKeys, this\.previewVideo\)[\s\S]*ForEach\(this\.previewContinuation/);
+  assert.match(builder(timelineSource, 'ComposerFooter'), /this\.draftDecision !== DraftDecision\.None[\s\S]*this\.ComposerDecision\(\)[\s\S]*this\.canSavePostDraft\(\)[\s\S]*this\.canPreviewPostDraft\(\)/);
+  assert.match(builder(timelineSource, 'ComposerHeading'), /this\.requestComposerExit\(\)/);
 });
 
 test('post drafts persist explicitly and preview posts are added once without modifying the saved draft', async () => {

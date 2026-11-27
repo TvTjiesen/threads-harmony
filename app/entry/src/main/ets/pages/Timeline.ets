@@ -1524,7 +1524,7 @@ struct Timeline {
   }
 
   @Builder
-  PostCard(post: MockPost, inDetail: boolean, authorLink: boolean = true) {
+  PostCard(post: MockPost, inDetail: boolean, authorLink: boolean = true, completeThread: boolean = false) {
     Column() {
       Row({ space: 12 }) {
         Text(post.name.substring(0, 1)).width(36).height(36).fontSize('15vp').fontWeight(FontWeight.Medium)
@@ -1546,21 +1546,33 @@ struct Timeline {
             if (!post.local && this.fontScale < LARGE_TEXT_SCALE && this.viewportWidth >= 360) { this.FollowAction(post) }
           }.width('100%')
           if (!post.local && (this.fontScale >= LARGE_TEXT_SCALE || this.viewportWidth < 360)) { this.FollowAction(post) }
-          if (inDetail) {
-            Text(this.currentPostBody(post)).fontSize(16).fontColor($r('app.color.timeline_text_body')).width('100%')
-              .textAlign(TextAlign.Start).copyOption(CopyOptions.InApp)
-          } else {
+          if (inDetail && !completeThread) {
+            if (this.currentPostBody(post).trim().length > 0) {
+              Text(this.currentPostBody(post)).fontSize(16).fontColor($r('app.color.timeline_text_body')).width('100%')
+                .textAlign(TextAlign.Start).copyOption(CopyOptions.InApp)
+            }
+          } else if (!inDetail) {
             Text(post.body.trim() ? post.body : (post.video !== undefined ? '视频帖子' : '图片帖子'))
               .id('body-' + post.id).fontSize(16).fontColor($r('app.color.timeline_text_body')).width('100%')
               .textAlign(TextAlign.Start).accessibilityText('打开原帖：' + (post.body.trim() || (post.video !== undefined ? '视频帖子' : '图片帖子'))).onClick(() => this.openPost(post))
           }
-          if (this.currentPhotoKeys(post).length > 0) {
-            PostGallery({ uris: this.photoUris(this.currentPhotoKeys(post)), motionEnabled: this.allowsMotionFeedback(),
-              onOpen: (index: number) => this.openPhoto(this.currentPhotoKeys(post), index) })
-          }
-          if (this.currentVideo(post) !== undefined) {
-            PostVideo({ posterUri: this.videoUri(this.currentVideo(post)?.key ?? '', true),
-              durationMs: this.currentVideo(post)?.durationMs ?? 0, onOpen: () => this.openVideo(this.currentVideo(post)) })
+          if (completeThread) {
+            Column() {
+              this.ThreadPartContent(this.makePart(this.currentPostBody(post), this.currentPhotoKeys(post),
+                this.currentVideo(post)), 1, this.currentContinuation(post).length + 1, 'thread-reading-part-')
+              ForEach(this.currentContinuation(post), (part: ThreadPart, index: number) => {
+                this.ThreadPartContent(part, index + 2, this.currentContinuation(post).length + 1, 'thread-reading-part-')
+              }, (_part: ThreadPart, index: number) => index.toString())
+            }.id('thread-reading-heading').width('100%').margin({ top: 6 })
+          } else {
+            if (this.currentPhotoKeys(post).length > 0) {
+              PostGallery({ uris: this.photoUris(this.currentPhotoKeys(post)), motionEnabled: this.allowsMotionFeedback(),
+                onOpen: (index: number) => this.openPhoto(this.currentPhotoKeys(post), index) })
+            }
+            if (this.currentVideo(post) !== undefined) {
+              PostVideo({ posterUri: this.videoUri(this.currentVideo(post)?.key ?? '', true),
+                durationMs: this.currentVideo(post)?.durationMs ?? 0, onOpen: () => this.openVideo(this.currentVideo(post)) })
+            }
           }
           if (!inDetail && this.currentContinuation(post).length > 0) {
             Button('阅读全文 · ' + (this.currentContinuation(post).length + 1) + ' 段')
@@ -1581,9 +1593,14 @@ struct Timeline {
 
   @Builder
   ThreadPartContent(part: ThreadPart, number: number, total: number, idPrefix: string) {
-    Column({ space: 10 }) {
-      Text('第 ' + number + ' / ' + total + ' 段').fontSize(12).fontWeight(FontWeight.Medium)
-        .fontColor($r('app.color.timeline_text_secondary')).accessibilityLevel('yes')
+    Column({ space: 8 }) {
+      if (number > 1) {
+        Divider().strokeWidth(0.5).color($r('app.color.timeline_border')).margin({ bottom: 4 })
+      }
+      if (total > 1) {
+        Text('第 ' + number + ' / ' + total + ' 段').fontSize(13).fontWeight(FontWeight.Medium)
+          .fontColor($r('app.color.timeline_text_secondary')).accessibilityLevel('yes')
+      }
       if (part.body.trim().length > 0) {
         Text(part.body).width('100%').fontSize(16).textAlign(TextAlign.Start).wordBreak(WordBreak.BREAK_WORD)
           .fontColor($r('app.color.timeline_text_body')).copyOption(CopyOptions.InApp)
@@ -1596,22 +1613,13 @@ struct Timeline {
           onOpen: () => this.openVideo(part.video) })
       }
     }.id(idPrefix + number).width('100%').alignItems(HorizontalAlign.Start)
-      .padding({ left: 14, top: 10, bottom: 14 })
-      .border({ width: { left: 1 }, color: $r('app.color.timeline_border') })
+      .padding({ top: number > 1 ? 14 : 0, bottom: total > 1 ? 16 : 0 })
   }
 
   @Builder
   DiscussionRoot(post: MockPost) {
     Column({ space: 6 }) {
-      if (this.currentContinuation(post).length > 0) {
-        Text('串帖 · 第 1 / ' + (this.currentContinuation(post).length + 1) + ' 段')
-          .id('thread-reading-heading').fontSize(13).fontWeight(FontWeight.Medium)
-          .fontColor($r('app.color.timeline_text_secondary'))
-      }
-      this.PostCard(post, true)
-      ForEach(this.currentContinuation(post), (part: ThreadPart, index: number) => {
-        this.ThreadPartContent(part, index + 2, this.currentContinuation(post).length + 1, 'thread-reading-part-')
-      }, (_part: ThreadPart, index: number) => index.toString())
+      this.PostCard(post, true, false, this.currentContinuation(post).length > 0)
       if (post.local) {
         if (this.confirmingDelete) {
           Text('删除本机帖子和相关互动？').fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
@@ -1640,49 +1648,53 @@ struct Timeline {
   }
 
   @Builder
+  ComposerHeading(preview: boolean) {
+    Row({ space: 8 }) {
+      Button(preview ? '返回编辑' : '返回').id(preview ? 'composer-preview-back' : 'composer-back')
+        .buttonStyle(ButtonStyleMode.TEXTUAL).constraintSize({ minWidth: 48, minHeight: 48 })
+        .padding({ left: 4, right: 8 }).fontColor($r('app.color.timeline_text_secondary'))
+        .enabled(preview ? !this.libraryBusy : !this.photoPicking && (!this.postDraftReady || !this.postDraftBusy))
+        .onClick(() => this.requestComposerExit())
+      Text(preview ? (this.previewContinuation.length > 0 ? '串帖预览' : '帖子预览') : '写帖草稿')
+        .fontSize(21).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary')).layoutWeight(1)
+        .accessibilityLevel('yes')
+    }.width('100%').padding({ left: 18, right: 18, top: 4, bottom: 4 })
+    Divider().strokeWidth(0.5).color($r('app.color.timeline_border'))
+  }
+
+  @Builder
   PostPreviewContent() {
-    Scroll() {
-      Column({ space: 18 }) {
-        Button('返回编辑', { type: ButtonType.Capsule })
-          .constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16 })
-          .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body'))
-          .enabled(!this.libraryBusy).onClick(() => this.closePostPreview())
-        Column({ space: 6 }) {
-          Text(this.previewContinuation.length > 0 ? '串帖预览' : '帖子预览').fontSize(28).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
-          Text('保存到这台设备，不会发送到 Threads，也不会更改已保存的草稿。')
-            .fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
-        }.width('100%').alignItems(HorizontalAlign.Start)
-        Column({ space: 12 }) {
-          Text(this.identity.name + ' · 本机预览').fontSize(15).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
-          if (this.previewContinuation.length > 0) {
-            Text('第 1 / ' + (this.previewContinuation.length + 1) + ' 段').fontSize(12)
-              .fontColor($r('app.color.timeline_text_secondary'))
-          }
-          if (this.previewBody.trim()) {
-            Text(this.previewBody).width('100%').fontSize(15).textAlign(TextAlign.Start)
-              .fontColor($r('app.color.timeline_text_body')).copyOption(CopyOptions.InApp)
-          }
-          if (this.previewPhotoKeys.length > 0) {
-            PostGallery({ uris: this.photoUris(this.previewPhotoKeys), motionEnabled: this.allowsMotionFeedback(),
-              onOpen: (index: number) => this.openPhoto(this.previewPhotoKeys, index) })
-          } else if (this.previewVideo !== undefined) {
-            PostVideo({ posterUri: this.videoUri(this.previewVideo.key, true), durationMs: this.previewVideo.durationMs,
-              onOpen: () => this.openVideo(this.previewVideo) })
-          }
-        }.width('100%').padding(18).alignItems(HorizontalAlign.Start)
-          .backgroundColor($r('app.color.timeline_surface')).borderRadius(22)
-          .border({ width: 1, color: $r('app.color.timeline_border') })
-        ForEach(this.previewContinuation, (part: ThreadPart, index: number) => {
-          this.ThreadPartContent(part, index + 2, this.previewContinuation.length + 1, 'thread-preview-part-')
-        }, (_part: ThreadPart, index: number) => index.toString())
-        Button(this.libraryBusy ? '正在保存…' : '加入本机时间线', { type: ButtonType.Capsule })
-          .width('100%').constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16, top: 10, bottom: 10 })
+    Column() {
+      this.ComposerHeading(true)
+      Scroll() {
+        Column({ space: 14 }) {
+          Text('只保存在本机，不会发送到 Threads，也不会更改已保存的草稿。')
+            .fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
+          Row({ space: 10 }) {
+            Text(this.identity.name.substring(0, 1)).width(36).height(36).fontSize('15vp')
+              .fontWeight(FontWeight.Medium).textAlign(TextAlign.Center).borderRadius(18)
+              .backgroundColor($r('app.color.timeline_surface_muted')).fontColor($r('app.color.timeline_text_primary'))
+              .accessibilityLevel('no')
+            Text(this.identity.name).fontSize(16).fontWeight(FontWeight.Bold)
+              .fontColor($r('app.color.timeline_text_primary')).layoutWeight(1)
+          }.width('100%')
+          this.ThreadPartContent(this.makePart(this.previewBody, this.previewPhotoKeys, this.previewVideo),
+            1, this.previewContinuation.length + 1, 'thread-preview-part-')
+          ForEach(this.previewContinuation, (part: ThreadPart, index: number) => {
+            this.ThreadPartContent(part, index + 2, this.previewContinuation.length + 1, 'thread-preview-part-')
+          }, (_part: ThreadPart, index: number) => index.toString())
+        }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 18, right: 18, top: 12, bottom: 12 })
+      }.width('100%').layoutWeight(1).align(Alignment.Top).scrollBar(BarState.Auto)
+      Divider().strokeWidth(0.5).color($r('app.color.timeline_border'))
+      Column({ space: 4 }) {
+        this.LibraryStatus()
+        Button(this.libraryBusy ? '正在保存…' : '加入本机时间线')
+          .id('composer-preview-confirm').width('100%').constraintSize({ minHeight: 48 })
+          .padding({ left: 14, right: 14, top: 8, bottom: 8 })
           .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
           .enabled(this.libraryReady && !this.libraryBusy).onClick(() => { this.addPreviewToTimeline(); })
-        this.LibraryStatus()
-      }.width('100%').constraintSize({ maxWidth: 600 }).alignItems(HorizontalAlign.Start)
-        .padding({ left: 18, right: 18, top: 16, bottom: 24 })
-    }.width('100%').height('100%').align(Alignment.Top).scrollBar(BarState.Auto)
+      }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 18, right: 18, top: 8, bottom: 8 })
+    }.width('100%').height('100%').constraintSize({ maxWidth: 640 })
   }
 
   @Builder
@@ -1713,133 +1725,142 @@ struct Timeline {
   }
 
   @Builder
+  ComposerAttachments() {
+    Column({ space: 6 }) {
+      Divider().strokeWidth(0.5).color($r('app.color.timeline_border'))
+      Text('本段附件').fontSize(15).fontWeight(FontWeight.Medium).fontColor($r('app.color.timeline_text_primary'))
+      if (this.draftVideo !== undefined) {
+        PostVideo({ posterUri: this.videoUri(this.draftVideo.key, true), durationMs: this.draftVideo.durationMs, compact: true })
+        Button('移除视频').id('draft-video-remove').buttonStyle(ButtonStyleMode.TEXTUAL)
+          .constraintSize({ minHeight: 48 }).fontColor($r('app.color.timeline_text_body'))
+          .enabled(this.canChangeDraftPhotos()).onClick(() => this.removeDraftVideo())
+      } else {
+        Text(this.draftPhotoKeys.length > 0 ? '图片 ' + this.draftPhotoKeys.length + ' / ' + MAX_POST_PHOTOS :
+          '最多四张图片，或一段本机 MP4（60 秒、64 MiB 以内）。')
+          .id('draft-photo-count').fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
+        Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(6) } }) {
+          Button(this.photoPicking ? '正在导入…' : this.draftPhotoKeys.length > 0 ? '添加图片' : '从相册选图')
+            .id('draft-photo-pick').buttonStyle(ButtonStyleMode.TEXTUAL).constraintSize({ minHeight: 48 })
+            .padding({ left: 4, right: 8 }).fontColor($r('app.color.timeline_text_body'))
+            .enabled(this.libraryReady && this.canChangeDraftPhotos() && this.draftPhotoKeys.length < MAX_POST_PHOTOS)
+            .onClick(() => { this.selectDraftPhotos(); })
+          if (this.draftPhotoKeys.length === 0) {
+            Button('从相册选视频').id('draft-video-pick')
+              .buttonStyle(ButtonStyleMode.TEXTUAL).constraintSize({ minHeight: 48 })
+              .padding({ left: 4, right: 8 }).fontColor($r('app.color.timeline_text_body'))
+              .enabled(this.libraryReady && this.canChangeDraftPhotos()).onClick(() => { this.selectDraftVideo(); })
+            Button('从文件选视频').id('draft-video-file-pick')
+              .buttonStyle(ButtonStyleMode.TEXTUAL).constraintSize({ minHeight: 48 })
+              .padding({ left: 4, right: 8 }).fontColor($r('app.color.timeline_text_body'))
+              .enabled(this.libraryReady && this.canChangeDraftPhotos()).onClick(() => { this.selectDraftVideo(true); })
+          }
+        }.width('100%')
+        ForEach(this.draftPhotoKeys, (key: string) => { this.DraftPhotoRow(key) }, (key: string) => key)
+      }
+    }.width('100%').alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
+  ComposerDecision() {
+    Column({ space: 6 }) {
+      Text(this.draftDecision === DraftDecision.Clear ? '清空已经保存的草稿？' :
+        this.draftDecision === DraftDecision.RemovePart ? '删除这一段？' : '放弃未保存的修改？')
+        .id('composer-decision-title').fontSize(16).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
+      Text(this.draftDecision === DraftDecision.Clear ? '已保存的内容与当前修改都会清空。' :
+        this.draftDecision === DraftDecision.RemovePart ? '仅移除当前草稿的这一段。保存草稿后才覆盖原稿。' :
+          '之前保存到本机的内容会保留。')
+        .fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
+      Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(4) } }) {
+        Button('继续编辑').id('composer-keep').constraintSize({ minHeight: 48 }).padding({ left: 14, right: 14 })
+          .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
+          .onClick(() => { this.draftDecision = DraftDecision.None; })
+        Button(this.draftDecision === DraftDecision.Clear ? '确认清空' :
+          this.draftDecision === DraftDecision.RemovePart ? '确认删除此段' : '放弃修改并返回')
+          .id('composer-discard').constraintSize({ minHeight: 48 }).buttonStyle(ButtonStyleMode.TEXTUAL)
+          .fontColor($r('app.color.timeline_text_body'))
+          .onClick(() => {
+            if (this.draftDecision === DraftDecision.Clear) {
+              this.savePostDraft(true);
+            } else if (this.draftDecision === DraftDecision.RemovePart) {
+              this.removeDraftPart();
+            } else {
+              this.discardPostEdits();
+            }
+          })
+      }.width('100%')
+    }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 18, right: 18, top: 8, bottom: 8 })
+  }
+
+  @Builder
+  ComposerFooter() {
+    Divider().strokeWidth(0.5).color($r('app.color.timeline_border'))
+    if (this.draftDecision !== DraftDecision.None) {
+      Scroll() { this.ComposerDecision() }.width('100%').constraintSize({ maxHeight: '60%' })
+    } else {
+      Column({ space: 4 }) {
+        if (this.postDraftMessage.length > 0) {
+          Text(this.postDraftMessage).fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
+        }
+        Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.End, space: { main: LengthMetrics.vp(10), cross: LengthMetrics.vp(4) } }) {
+          Button(this.postDraftBusy ? '正在写入…' : '保存草稿').id('composer-save')
+            .buttonStyle(ButtonStyleMode.TEXTUAL).constraintSize({ minHeight: 48 }).padding({ left: 12, right: 12 })
+            .fontColor($r('app.color.timeline_text_body'))
+            .enabled(this.canSavePostDraft()).onClick(() => { this.savePostDraft(false); })
+          Button(this.draftParts.length > 1 ? '预览整串' : '预览帖子').id('thread-preview')
+            .constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16, top: 8, bottom: 8 })
+            .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
+            .enabled(this.canPreviewPostDraft()).onClick(() => this.openPostPreview())
+        }.width('100%')
+      }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 18, right: 18, top: 8, bottom: 8 })
+    }
+  }
+
+  @Builder
   ComposerContent() {
-    Scroll() {
-      Column({ space: 18 }) {
-        Button('返回', { type: ButtonType.Capsule })
-          .constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16 })
-          .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body'))
-          .enabled(!this.photoPicking && (!this.postDraftReady || !this.postDraftBusy))
-          .onClick(() => this.requestComposerExit())
-        Column({ space: 6 }) {
-          Text('写帖草稿').fontSize(28).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
-          Text('只保存在这台设备，不会发布到 Threads。').fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
-        }.width('100%').alignItems(HorizontalAlign.Start)
-        if (this.postDraftReady) {
-          ThreadPartPicker({ count: this.draftParts.length, activeIndex: this.activeDraftPart,
-            maxParts: MAX_THREAD_PARTS, editable: this.canChangeDraftPhotos(),
-            onSelect: (index: number) => this.selectDraftPart(index), onAdd: () => this.addDraftPart(),
-            onMove: (direction: number) => this.moveDraftPart(direction),
-            onRemove: () => { if (this.canChangeDraftPhotos() && this.draftParts.length > 1) {
-              this.draftDecision = DraftDecision.RemovePart;
-            } } })
-          Column({ space: 12 }) {
+    Column() {
+      this.ComposerHeading(false)
+      Scroll() {
+        Column({ space: 10 }) {
+          Text('只保存在这台设备，不会发布到 Threads。').fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
+          if (this.postDraftReady) {
+            ThreadPartPicker({ count: this.draftParts.length, activeIndex: this.activeDraftPart,
+              maxParts: MAX_THREAD_PARTS, editable: this.canChangeDraftPhotos(),
+              onSelect: (index: number) => this.selectDraftPart(index), onAdd: () => this.addDraftPart(),
+              onMove: (direction: number) => this.moveDraftPart(direction),
+              onRemove: () => { if (this.canChangeDraftPhotos() && this.draftParts.length > 1) {
+                this.draftDecision = DraftDecision.RemovePart;
+              } } })
             TextArea({ text: this.postDraft, placeholder: '此刻，想写点什么？' }).id('draft-part-body')
-              .width('100%').constraintSize({ minHeight: 140, maxHeight: 260 }).maxLength(POST_DRAFT_LIMIT)
-              .fontSize(16).fontColor($r('app.color.timeline_text_body')).placeholderColor($r('app.color.timeline_text_muted'))
-              .backgroundColor($r('app.color.timeline_background')).borderRadius(16)
+              .width('100%').constraintSize({ minHeight: 132, maxHeight: 260 }).maxLength(POST_DRAFT_LIMIT)
+              .padding({ top: 10, bottom: 10, left: 0, right: 0 }).fontSize(16)
+              .fontColor($r('app.color.timeline_text_body')).placeholderColor($r('app.color.timeline_text_muted'))
+              .backgroundColor(Color.Transparent).borderRadius(0)
               .accessibilityText('写帖草稿正文')
               .enabled(!this.postDraftBusy && !this.photoPicking && this.draftDecision === DraftDecision.None)
               .onChange((value: string) => { this.postDraft = value; this.postDraftMessage = ''; })
             Text(`${this.postDraft.length} / ${POST_DRAFT_LIMIT}`).fontSize(12)
-              .fontColor($r('app.color.timeline_text_secondary'))
-            Text('本段附件 · 最多四张图片或一段视频').fontSize(14).fontWeight(FontWeight.Medium)
-              .fontColor($r('app.color.timeline_text_primary'))
-            if (this.draftVideo !== undefined) {
-              PostVideo({ posterUri: this.videoUri(this.draftVideo.key, true), durationMs: this.draftVideo.durationMs, compact: true })
-              Button('移除视频').id('draft-video-remove').buttonStyle(ButtonStyleMode.TEXTUAL)
-                .constraintSize({ minHeight: 48 }).fontColor($r('app.color.timeline_text_body'))
-                .enabled(this.canChangeDraftPhotos()).onClick(() => this.removeDraftVideo())
-            } else {
-              Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center, justifyContent: FlexAlign.SpaceBetween }) {
-                Text('图片 ' + this.draftPhotoKeys.length + ' / ' + MAX_POST_PHOTOS).id('draft-photo-count').fontSize(14)
+              .width('100%').textAlign(TextAlign.End).fontColor($r('app.color.timeline_text_secondary'))
+            this.ComposerAttachments()
+            if (this.draftParts.length > 1 && !this.canPreviewPostDraft() && this.draftDecision === DraftDecision.None) {
+              Text('未写完也可存草稿；预览前每段需有文字或附件。').fontSize(13)
                 .fontColor($r('app.color.timeline_text_secondary'))
-              Button(this.photoPicking ? '正在导入…' : this.draftPhotoKeys.length > 0 ? '添加图片' : '从相册选图')
-                .id('draft-photo-pick').buttonStyle(ButtonStyleMode.TEXTUAL).constraintSize({ minHeight: 48 })
-                .fontColor($r('app.color.timeline_text_body'))
-                .enabled(this.libraryReady && this.canChangeDraftPhotos() && this.draftPhotoKeys.length < MAX_POST_PHOTOS)
-                .onClick(() => { this.selectDraftPhotos(); })
-            }.width('100%')
-              ForEach(this.draftPhotoKeys, (key: string) => { this.DraftPhotoRow(key) }, (key: string) => key)
-              if (this.draftPhotoKeys.length === 0) {
-                Button(this.photoPicking ? '正在导入…' : '从相册选视频').id('draft-video-pick')
-                  .buttonStyle(ButtonStyleMode.TEXTUAL).constraintSize({ minHeight: 48 })
-                  .fontColor($r('app.color.timeline_text_body'))
-                  .enabled(this.libraryReady && this.canChangeDraftPhotos()).onClick(() => { this.selectDraftVideo(); })
-                Button('从文件选视频').id('draft-video-file-pick')
-                   .buttonStyle(ButtonStyleMode.TEXTUAL).constraintSize({ minHeight: 48 })
-                   .fontColor($r('app.color.timeline_text_body'))
-                   .enabled(this.libraryReady && this.canChangeDraftPhotos()).onClick(() => { this.selectDraftVideo(true); })
-                 Text('支持本机 MP4，最长 60 秒、最大 64 MiB。').fontSize(13)
-                  .fontColor($r('app.color.timeline_text_secondary'))
-              }
             }
-            if (this.draftDecision === DraftDecision.None) {
-              Button(this.postDraftBusy ? '正在写入本机…' : '保存到本机', { type: ButtonType.Capsule })
-                .width('100%').constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16, top: 10, bottom: 10 })
-                .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
-                .enabled(this.canSavePostDraft()).onClick(() => { this.savePostDraft(false); })
-              Button(this.draftParts.length > 1 ? '预览整串' : '预览帖子', { type: ButtonType.Capsule })
-                .id('thread-preview')
-                .width('100%').constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16, top: 10, bottom: 10 })
-                .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body'))
-                .enabled(this.canPreviewPostDraft()).onClick(() => this.openPostPreview())
-              if (this.draftParts.length > 1 && !this.canPreviewPostDraft()) {
-                Text('可以保存未完成的草稿；预览前每段需有文字或附件。').fontSize(13)
-                  .fontColor($r('app.color.timeline_text_secondary'))
-              }
-              if ((this.savedPostDraft.length > 0 || this.savedDraftPhotoKeys.length > 0 ||
-                this.savedDraftVideo !== undefined || this.savedContinuation.length > 0) &&
-                !this.postDraftBusy && !this.photoPicking) {
-                Button('清空本机草稿', { type: ButtonType.Capsule })
-                  .constraintSize({ minHeight: 48 }).buttonStyle(ButtonStyleMode.TEXTUAL)
-                  .fontColor($r('app.color.timeline_text_body'))
-                  .onClick(() => { this.draftDecision = DraftDecision.Clear; })
-              }
+            if (this.savedPostDraft.length > 0 || this.savedDraftPhotoKeys.length > 0 ||
+              this.savedDraftVideo !== undefined || this.savedContinuation.length > 0) {
+              Button('清空本机草稿').id('composer-clear').constraintSize({ minHeight: 48 })
+                .buttonStyle(ButtonStyleMode.TEXTUAL).fontColor($r('app.color.timeline_text_secondary'))
+                .enabled(this.canChangeDraftPhotos()).onClick(() => { this.draftDecision = DraftDecision.Clear; })
             }
-          }.width('100%').padding(18).alignItems(HorizontalAlign.Start)
-            .backgroundColor($r('app.color.timeline_surface')).borderRadius(22)
-            .border({ width: 1, color: $r('app.color.timeline_border') })
-        } else if (this.postDraftBusy) {
-          Text('正在读取本机草稿…').fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
-        } else {
-          Button('重新读取草稿').constraintSize({ minHeight: 48 }).onClick(() => { this.loadPostDraft(); })
-        }
-        if (this.draftDecision !== DraftDecision.None) {
-          Column({ space: 10 }) {
-            Text(this.draftDecision === DraftDecision.Clear ? '清空已经保存的草稿？' :
-              this.draftDecision === DraftDecision.RemovePart ? '删除这一段？' : '放弃未保存的修改？')
-              .fontSize(16).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
-            Text(this.draftDecision === DraftDecision.Clear ? '已保存的内容与当前修改都会清空。' :
-              this.draftDecision === DraftDecision.RemovePart ? '仅移除当前草稿的这一段。保存草稿后才覆盖原稿。' :
-                '之前保存到本机的内容会保留。')
-              .fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
-            Button('继续编辑', { type: ButtonType.Capsule })
-              .width('100%').constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16 })
-              .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
-              .onClick(() => { this.draftDecision = DraftDecision.None; })
-            Button(this.draftDecision === DraftDecision.Clear ? '确认清空' :
-              this.draftDecision === DraftDecision.RemovePart ? '确认删除此段' : '放弃修改并返回')
-              .constraintSize({ minHeight: 48 }).buttonStyle(ButtonStyleMode.TEXTUAL)
-              .fontColor($r('app.color.timeline_text_body'))
-              .onClick(() => {
-                if (this.draftDecision === DraftDecision.Clear) {
-                  this.savePostDraft(true);
-                } else if (this.draftDecision === DraftDecision.RemovePart) {
-                  this.removeDraftPart();
-                } else {
-                  this.discardPostEdits();
-                }
-              })
-          }.width('100%').alignItems(HorizontalAlign.Start).padding(18)
-            .backgroundColor($r('app.color.timeline_surface')).borderRadius(18)
-        }
-        if (this.postDraftMessage.length > 0) {
-          Text(this.postDraftMessage).fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
-        }
-      }.width('100%').constraintSize({ maxWidth: 600 }).alignItems(HorizontalAlign.Start)
-        .padding({ left: 18, right: 18, top: 16, bottom: 24 })
-    }.width('100%').height('100%').align(Alignment.Top).scrollBar(BarState.Auto)
+          } else if (this.postDraftBusy) {
+            Text('正在读取本机草稿…').fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
+          } else {
+            Text(this.postDraftMessage).fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
+            Button('重新读取草稿').constraintSize({ minHeight: 48 }).onClick(() => { this.loadPostDraft(); })
+          }
+        }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 18, right: 18, top: 12, bottom: 16 })
+      }.width('100%').layoutWeight(1).align(Alignment.Top).scrollBar(BarState.Auto)
+      if (this.postDraftReady) { this.ComposerFooter() }
+    }.width('100%').height('100%').constraintSize({ maxWidth: 640 })
   }
 
   @Builder
@@ -1941,12 +1962,14 @@ struct Timeline {
   DetailDestination(name: string, post?: MockPost) {
     if (name === POST_COMPOSER) {
       NavDestination() {
-        if (this.showingPostPreview) {
-          this.PostPreviewContent()
-        } else {
-          this.ComposerContent()
-        }
-      }.hideTitleBar(true).backgroundColor($r('app.color.timeline_background'))
+        Column() {
+          if (this.showingPostPreview) {
+            this.PostPreviewContent()
+          } else {
+            this.ComposerContent()
+          }
+        }.width('100%').height('100%').alignItems(HorizontalAlign.Center)
+      }.hideTitleBar(true).backgroundColor($r('app.color.timeline_surface'))
         .onBackPressed(() => {
           this.requestComposerExit();
           return true;

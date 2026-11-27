@@ -4,6 +4,8 @@
 
 参看[同一手机模拟器的改前／改后首页](docs/screenshots/hds-reading-home-comparison.jpg)。右图底栏使用华为 `HdsTabs` 与独立的写帖辅助栏，首页不再为每条帖子绘制阴影大卡。
 
+点帖子正文从原帖开始读；点首页的回复摘要则直达那条回复。详情把原帖与父子回复放进同一阅读列表，写回复前显示收件人与上下文。已有文字时，点别的回复不会更改收件人；离开前可以继续编辑或放弃。查看[六步操作实拍](docs/screenshots/conversation-reading-sequence.jpg)或[深浅色与特大字号对照](docs/screenshots/conversation-reading-appearance.jpg)。
+
 本机帖子、点赞、关注和收藏可在同一安装重启后恢复；本地回复只保留在当次运行。所有原生操作均不连接 Threads，也不会写入 Threads 账号。
 
 **真实 Threads** 由独立 ArkWeb 页面打开官方站点，网络设置中可以把固定的官方首页链接交给系统处理。本项目不提供原生真实账号时间线、私有 API 或登录信息同步。应用本机状态不能和官方网页操作混为一谈。当前构建、设备与网页实测口径见 [测试矩阵](TEST-MATRIX.md)。

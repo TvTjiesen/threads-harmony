@@ -309,6 +309,14 @@ test('the flat reading rows still expose follow, like, replies and bookmark acti
   assert.doesNotMatch(row, /\.shadow\(/);
   assert.match(row, /this\.FollowAction\(post\)/);
   assert.match(row, /this\.PostActions\(post, inDetail\)/);
+  assert.match(row, /Text\(post\.body\)\.id\('body-' \+ post\.id\)[^{}]*?\.onClick\(\(\) => this\.openPost\(post\)\)/,
+    'the feed body opens the original post, not a selected reply');
+  assert.match(row, /if \(!inDetail\)\s*\{\s*ForEach\(this\.previewRows\(post\.id\),[\s\S]*?this\.SummaryEntry\(post, reply\)[\s\S]*?=> reply\.id\)/,
+    'replace only the summary row and tap handler when the latest reply ID changes');
+  const summary = builder(timelineSource, 'SummaryEntry');
+  assert.match(summary, /Text\(reply\.author \+ '：' \+ reply\.body\)/);
+  assert.match(summary, /\.id\('summary-' \+ post\.id\)[^{}]*?\.onClick\(\(\) => this\.openPost\(post, reply\.id\)\)/,
+    'the summary opens the specific reply shown on that same post');
   const actions = builder(timelineSource, 'PostActions');
   for (const handler of ['toggleLike(post.id)', 'openPost(post)', 'toggleSaved(post)']) {
     assert.ok(actions.includes(`this.${handler}`), `missing post action: ${handler}`);
@@ -557,6 +565,7 @@ test('post detail uses one stack entry and keeps replies local and scoped to the
   assert.equal(page.timelineVisible, false);
   assert.equal(page.replyDraft, '');
   assert.equal(page.replyCount(post), 12);
+  page.expandCurrentReply(post.id);
   for (const draft of [' \n ', 'a'.repeat(281)]) {
     page.replyDraft = draft;
     page.submitReply('p1');
@@ -570,9 +579,13 @@ test('post detail uses one stack entry and keeps replies local and scoped to the
   assert.equal(page.replyCount(other), 7);
   assert.deepEqual(Array.from(page.repliesFor('p1'), (reply) => reply.body), ['第一条本地回复', 'sample']);
   assert.equal(page.repliesFor('p2').length, 0);
+  page.expandCurrentReply(post.id);
   page.replyDraft = '未提交的草稿';
-  page.closePost();
-  page.closePost();
+  page.requestDetailBack();
+  assert.equal(page.replyExitPending, true);
+  assert.equal(stack.length, 1, 'Back must not silently lose a reply draft');
+  page.discardReplyAndClose();
+  page.requestDetailBack();
   assert.equal(page.replyDraft, '');
   assert.equal(page.timelineVisible, true);
   page.motion = true;
@@ -586,9 +599,9 @@ test('post detail uses one stack entry and keeps replies local and scoped to the
   assert.deepEqual(stack.map(({ name }) => name), ['Settings'], 'details cannot open through another destination');
   stack.pop();
   assert.match(timelineSource, /Navigation\(this\.detailPaths\)/);
-  assert.match(timelineSource, /\.onBackPressed\(\(\) => \{\s*this\.closePost\(\)/);
-  assert.match(timelineSource, /this\.PostCard\(post, true\)/);
-  assert.match(timelineSource, /this\.PostCard\(post, false\)/);
+  assert.match(builder(timelineSource, 'DetailDestination'), /this\.DetailContent\(post\)[\s\S]*?\.onBackPressed\(\(\) => \{\s*this\.requestDetailBack\(\);\s*return true;/);
+  assert.match(builder(timelineSource, 'DiscussionRoot'), /this\.PostCard\(post, true\)/);
+  assert.match(builder(timelineSource, 'Feed'), /this\.PostCard\(post, false\)/);
 });
 
 test('post drafts persist explicitly and preview posts are added once without modifying the saved draft', async () => {

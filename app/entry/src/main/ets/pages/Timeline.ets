@@ -4,6 +4,7 @@ import { FrameCallback, LengthMetrics, router, SegmentButtonV2Items, TabSegmentB
 import { decodeLibrary, emptyLibrary, LibraryPost, LIBRARY_POST_LIMIT, LOCAL_POST_BODY_LIMIT, LocalLibrary, matchesPost } from '../model/LocalLibrary';
 import { ActivityEntry, ActivityPane } from '../components/ActivityPane';
 import { ReadingTabs } from '../components/ReadingTabs';
+import { ConversationPane, ConversationReply } from '../components/ConversationPane';
 import { SettingsPane } from '../components/SettingsPane';
 
 const LARGE_TEXT_SCALE = 1.4;
@@ -33,18 +34,13 @@ enum DraftDecision {
   Clear
 }
 
-interface DemoReply {
-  id: string;
-  postId: string;
-  author: string;
-  body: string;
-  local: boolean;
-}
+interface DemoReply extends ConversationReply {}
 
 const SAMPLE_REPLIES: DemoReply[] = [
   { id: 's1', postId: 'p1', author: '周末书架', body: '喜欢这种无目的的散步，回来时连熟悉的街道都不太一样了。', local: false },
   { id: 's2', postId: 'p1', author: '城市观察员', body: '把这段话留给下一个想慢下来的周末。', local: false },
   { id: 's3', postId: 'p2', author: '像素与纸', body: '切换设备时，我最想保留的是刚刚读到的那一句。', local: false },
+  { id: 's5', postId: 'p2', author: '慢慢烘焙', body: '我在厨房里用折叠屏读长帖。展开时能同时看原帖和讨论当然很好，但合上屏幕去看烤箱，再打开时，我希望看到的还是刚刚那句话。读到一半去写回复也是一样：先让我知道我在回谁，收起键盘时别把没写完的话带走。少做一次重新寻找，比多一个动画更重要。', local: false, parentId: 's3', toAuthor: '像素与纸' },
   { id: 's4', postId: 'p3', author: '小岛来信', body: '展开以后多一列，合上以后还能接着读，这就很舒服。', local: false }
 ];
 
@@ -122,6 +118,11 @@ struct Timeline {
   private readonly feedSegments: SegmentButtonV2Items = new SegmentButtonV2Items([{ text: '为你' }, { text: '关注中' }]);
   @State private localReplies: DemoReply[] = [];
   @State private replyDraft: string = '';
+  @State private activeDetailId: string = '';
+  @State private focusedReplyId: string = '';
+  @State private replyTargetId: string = '';
+  @State private replyExpanded: boolean = false;
+  @State private replyExitPending: boolean = false;
   @State private postDraft: string = '';
   @State private savedPostDraft: string = '';
   @State private postDraftReady: boolean = false;
@@ -367,15 +368,25 @@ struct Timeline {
       savedIds: this.savedIds });
   }
 
-  private openPost(post: MockPost): void {
-    if (this.detailPaths.size() > 0) {
+  private openPost(post: MockPost, focusId: string = ''): void {
+    if (this.detailPaths.size() > 0 || !this.timelinePosts.some((item: MockPost) => item.id === post.id)) {
       return;
     }
     this.rememberReadingPosition();
     this.timelineVisible = false;
+    this.activeDetailId = post.id;
+    this.focusedReplyId = this.repliesFor(post.id).some((row: DemoReply) => row.id === focusId) ? focusId : '';
+    this.replyTargetId = this.focusedReplyId;
     this.replyDraft = '';
+    this.replyExpanded = false;
+    this.replyExitPending = false;
     this.confirmingDelete = false;
     this.detailPaths.pushPath({ name: POST_DETAIL, param: post, onPop: () => {
+      this.activeDetailId = '';
+      this.focusedReplyId = '';
+      this.replyTargetId = '';
+      this.replyExpanded = false;
+      this.replyExitPending = false;
       this.replyDraft = '';
       this.confirmingDelete = false;
       this.onPageShow();
@@ -393,23 +404,106 @@ struct Timeline {
   }
 
   private repliesFor(postId: string): DemoReply[] {
-    return [...this.localReplies, ...SAMPLE_REPLIES].filter((reply: DemoReply) => reply.postId === postId);
+    const rows = [...this.localReplies, ...SAMPLE_REPLIES].filter((row: DemoReply) => row.postId === postId);
+    const children = new Map<string, DemoReply[]>();
+    rows.forEach((row: DemoReply) => {
+      const key = row.parentId ?? '';
+      const group = children.get(key);
+      if (group !== undefined) { group.push(row); } else { children.set(key, [row]); }
+    });
+    const pending: DemoReply[] = [...(children.get('') ?? [])].reverse();
+    const ordered: DemoReply[] = [];
+    while (pending.length > 0) {
+      const item = pending.pop();
+      if (item !== undefined) {
+        ordered.push(item);
+        const nested = children.get(item.id);
+        if (nested !== undefined) {
+          for (let i = nested.length - 1; i >= 0; i--) { pending.push(nested[i]); }
+        }
+      }
+    }
+    return ordered;
   }
 
   private replyCount(post: MockPost): number {
     return post.replies + this.localReplies.filter((reply: DemoReply) => reply.postId === post.id).length;
   }
 
-  private submitReply(postId: string): void {
-    const body = this.replyDraft.trim();
-    if (body.length === 0 || body.length > REPLY_LIMIT || !this.timelinePosts.some((post: MockPost) => post.id === postId)) {
+  private previewReply(postId: string): DemoReply | undefined {
+    return this.localReplies.find((row: DemoReply) => row.postId === postId) ??
+      SAMPLE_REPLIES.find((row: DemoReply) => row.postId === postId);
+  }
+
+  private previewRows(postId: string): DemoReply[] {
+    const latest = this.previewReply(postId);
+    return latest === undefined ? [] : [latest];
+  }
+
+  private targetRow(postId: string): DemoReply | undefined {
+    if (!this.replyTargetId) { return undefined; }
+    return this.localReplies.find((row: DemoReply) => row.postId === postId && row.id === this.replyTargetId) ??
+      SAMPLE_REPLIES.find((row: DemoReply) => row.postId === postId && row.id === this.replyTargetId);
+  }
+
+  private replyRecipient(post: MockPost): string {
+    const row = this.targetRow(post.id);
+    if (row === undefined) { return post.handle.startsWith('@') ? post.handle : '@' + post.name; }
+    const author = POSTS.find((item: MockPost) => item.name === row.author);
+    return author?.handle ?? '@' + row.author;
+  }
+
+  private beginReply(postId: string, targetId: string): void {
+    if (this.activeDetailId !== postId || this.replyExitPending || this.confirmingDelete) { return; }
+    if (targetId && !this.repliesFor(postId).some((row: DemoReply) => row.id === targetId)) { return; }
+    if (this.replyDraft.length > 0 && this.replyTargetId !== targetId) {
+      this.inform('先完成当前回复，文字和回复对象都已保留。');
       return;
     }
-    this.replySequence += 1;
-    this.localReplies = [...this.localReplies, {
-      id: `local-${this.replySequence}`, postId: postId, author: '你', body: body, local: true
-    }];
+    this.replyTargetId = targetId;
+    this.replyExpanded = true;
+  }
+
+  private expandCurrentReply(postId: string): void {
+    this.beginReply(postId, this.replyTargetId);
+  }
+
+  private requestDetailBack(): void {
+    if (!this.activeDetailId) { return; }
+    if (this.confirmingDelete) { this.closePost(); return; }
+    if (this.replyExitPending) { this.keepReplyDraft(); return; }
+    if (this.replyDraft.length > 0) { this.replyExitPending = true; return; }
+    if (this.replyExpanded) { this.replyExpanded = false; return; }
+    this.closePost();
+  }
+
+  private keepReplyDraft(): void {
+    this.replyExitPending = false;
+  }
+
+  private discardReplyAndClose(): void {
+    if (!this.replyExitPending || !this.activeDetailId) { return; }
     this.replyDraft = '';
+    this.replyExitPending = false;
+    this.replyExpanded = false;
+    this.closePost();
+  }
+
+  private submitReply(postId: string): void {
+    const post = this.timelinePosts.find((item: MockPost) => item.id === postId);
+    const body = this.replyDraft.trim();
+    if (!this.replyExpanded || this.replyExitPending || postId !== this.activeDetailId || post === undefined ||
+      !body || this.replyDraft.length > REPLY_LIMIT) { return; }
+    const parent = this.targetRow(postId);
+    if (this.replyTargetId && parent === undefined) { return; }
+    this.replySequence += 1;
+    const id = 'local-' + this.replySequence;
+    this.localReplies = [{ id: id, postId: postId, author: '你', body: body, local: true,
+      parentId: parent?.id, toAuthor: parent?.author ?? post.name }, ...this.localReplies];
+    this.replyDraft = '';
+    this.replyExpanded = false;
+    this.focusedReplyId = id;
+    this.replyTargetId = '';
   }
 
   private localPost(post: LibraryPost): MockPost {
@@ -559,7 +653,7 @@ struct Timeline {
   private openActivityPost(entry: ActivityEntry): void {
     const post = this.timelinePosts.find((item: MockPost) => item.id === entry.postId);
     if (post !== undefined) {
-      this.openPost(post);
+      this.openPost(post, entry.kind === 'reply' ? entry.id.substring('reply-'.length) : '');
     }
   }
 
@@ -798,6 +892,25 @@ struct Timeline {
   }
 
   @Builder
+  SummaryEntry(post: MockPost, reply?: DemoReply) {
+    if (reply !== undefined) {
+      Row({ space: 12 }) {
+        Column({ space: 3 }) {
+          Divider().vertical(true).height(8).strokeWidth(1).color($r('app.color.timeline_border'))
+          Text(reply.author.substring(0, 1)).width(22).height(22).fontSize('11vp')
+            .backgroundColor($r('app.color.timeline_surface_muted')).fontColor($r('app.color.timeline_text_secondary'))
+            .borderRadius(11).textAlign(TextAlign.Center).accessibilityLevel('no')
+        }.width(36)
+        Text(reply.author + '：' + reply.body)
+          .fontSize(13).fontColor($r('app.color.timeline_text_secondary')).layoutWeight(1)
+          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+      }.width('100%').constraintSize({ minHeight: 44 }).accessibilityGroup(true)
+        .id('summary-' + post.id).accessibilityText('查看回复：' + reply.author)
+        .onClick(() => this.openPost(post, reply.id))
+    }
+  }
+
+  @Builder
   PostCard(post: MockPost, inDetail: boolean) {
     Column() {
       Row({ space: 12 }) {
@@ -813,100 +926,53 @@ struct Timeline {
             if (!post.local && this.fontScale < LARGE_TEXT_SCALE && this.viewportWidth >= 360) { this.FollowAction(post) }
           }.width('100%')
           if (!post.local && (this.fontScale >= LARGE_TEXT_SCALE || this.viewportWidth < 360)) { this.FollowAction(post) }
-          Text(post.body).fontSize(16).fontColor($r('app.color.timeline_text_body')).width('100%')
-            .textAlign(TextAlign.Start).copyOption(CopyOptions.InApp)
+          if (inDetail) {
+            Text(post.body).fontSize(16).fontColor($r('app.color.timeline_text_body')).width('100%')
+              .textAlign(TextAlign.Start).copyOption(CopyOptions.InApp)
+          } else {
+            Text(post.body).id('body-' + post.id).fontSize(16).fontColor($r('app.color.timeline_text_body')).width('100%')
+              .textAlign(TextAlign.Start).accessibilityText('打开原帖：' + post.body).onClick(() => this.openPost(post))
+          }
           this.PostActions(post, inDetail)
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
       }.width('100%').alignItems(VerticalAlign.Top)
-      if (!inDetail && this.repliesFor(post.id).length > 0) {
-        Row({ space: 12 }) {
-          Column({ space: 3 }) {
-            Divider().vertical(true).height(8).strokeWidth(1).color($r('app.color.timeline_border'))
-            Text(this.repliesFor(post.id)[0].author.substring(0, 1)).width(22).height(22).fontSize('11vp')
-              .backgroundColor($r('app.color.timeline_surface_muted')).fontColor($r('app.color.timeline_text_secondary'))
-              .borderRadius(11).textAlign(TextAlign.Center).accessibilityLevel('no')
-          }.width(36)
-          Text(this.repliesFor(post.id)[0].author + '：' + this.repliesFor(post.id)[0].body)
-            .fontSize(13).fontColor($r('app.color.timeline_text_secondary')).layoutWeight(1)
-            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-        }.width('100%').constraintSize({ minHeight: 44 }).accessibilityGroup(true)
-          .accessibilityText('查看' + post.name + '的回复').onClick(() => this.openPost(post))
+      if (!inDetail) {
+        ForEach(this.previewRows(post.id), (reply: DemoReply) => {
+          this.SummaryEntry(post, reply)
+        }, (reply: DemoReply) => reply.id)
       }
       Divider().strokeWidth(0.5).color($r('app.color.timeline_border')).margin({ top: 6 })
     }.width('100%').constraintSize({ maxWidth: 600 }).padding({ top: 14 })
   }
 
   @Builder
-  ReplyComposer(post: MockPost) {
-    Column({ space: 12 }) {
-      Text('写一条本地回复').fontSize(17).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
-      Text('仅在本次运行中保留，不会发送到 Threads。').fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
-      TextArea({ text: this.replyDraft, placeholder: '写下你的想法' })
-        .width('100%').constraintSize({ minHeight: 100, maxHeight: 180 }).maxLength(REPLY_LIMIT)
-        .fontSize(15).fontColor($r('app.color.timeline_text_body')).placeholderColor($r('app.color.timeline_text_muted'))
-        .backgroundColor($r('app.color.timeline_background')).borderRadius(16)
-        .accessibilityText('本地回复内容')
-        .onChange((value: string) => { this.replyDraft = value; })
-      Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center, justifyContent: FlexAlign.SpaceBetween,
-        space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(8) } }) {
-        Text(`${this.replyDraft.length} / ${REPLY_LIMIT}`).fontSize(12).fontColor($r('app.color.timeline_text_secondary'))
-        Button('添加本地回复', { type: ButtonType.Capsule })
-          .constraintSize({ minHeight: 48 }).padding({ left: 18, right: 18, top: 10, bottom: 10 })
-          .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
-          .enabled(this.replyDraft.trim().length > 0 && this.replyDraft.trim().length <= REPLY_LIMIT)
-          .onClick(() => { this.submitReply(post.id); })
-      }.width('100%')
-    }.width('100%').alignItems(HorizontalAlign.Start).padding(18)
-      .backgroundColor($r('app.color.timeline_surface')).borderRadius(22)
-      .border({ width: 1, color: $r('app.color.timeline_border') })
+  DiscussionRoot(post: MockPost) {
+    Column({ space: 6 }) {
+      this.PostCard(post, true)
+      if (post.local) {
+        if (this.confirmingDelete) {
+          Text('删除本机帖子和相关互动？').fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
+          Button('取消删除').buttonStyle(ButtonStyleMode.TEXTUAL).enabled(!this.libraryBusy)
+            .onClick(() => { this.confirmingDelete = false; })
+          Button('确认删除').buttonStyle(ButtonStyleMode.TEXTUAL).enabled(!this.libraryBusy)
+            .onClick(() => { this.removeLocalPost(post); })
+        } else {
+          Button('删除本机帖子').buttonStyle(ButtonStyleMode.TEXTUAL)
+            .enabled(this.libraryReady && !this.libraryBusy && !this.replyExpanded && !this.replyExitPending)
+            .onClick(() => { this.confirmingDelete = true; })
+        }
+      }
+    }.width('100%').alignItems(HorizontalAlign.Start)
   }
 
   @Builder
   DetailContent(post: MockPost) {
-    Scroll() {
-      Column({ space: 16 }) {
-        Button('返回', { type: ButtonType.Capsule })
-          .constraintSize({ minHeight: 48 }).padding({ left: 14, right: 14, top: 10, bottom: 10 })
-          .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body'))
-          .onClick(() => this.closePost())
-        Column({ space: 4 }) {
-          Text('帖子详情').fontSize(26).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
-          Text('本地演示 · 不访问 Threads').fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
-        }.width('100%').alignItems(HorizontalAlign.Start)
-        this.PostCard(post, true)
-        if (post.local) {
-          if (this.confirmingDelete) {
-            Text('删除这条本机帖子？相关的本机互动也会移除。')
-              .fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
-            Button('取消删除').constraintSize({ minHeight: 48 }).enabled(!this.libraryBusy)
-              .onClick(() => { this.confirmingDelete = false; })
-            Button('确认删除').constraintSize({ minHeight: 48 }).enabled(!this.libraryBusy)
-              .onClick(() => { this.removeLocalPost(post); })
-          } else {
-            Button('删除本机帖子').constraintSize({ minHeight: 48 }).buttonStyle(ButtonStyleMode.TEXTUAL)
-              .enabled(this.libraryReady && !this.libraryBusy).onClick(() => { this.confirmingDelete = true; })
-          }
-        }
-        this.ReplyComposer(post)
-        Text('回复预览').fontSize(18).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
-        Text('此处只展示示例和本次添加的本地回复。').fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
-        if (this.repliesFor(post.id).length === 0) {
-          Text('这条帖子暂没有示例回复。').fontSize(15).fontColor($r('app.color.timeline_text_body'))
-            .width('100%').padding(18).backgroundColor($r('app.color.timeline_surface')).borderRadius(18)
-        }
-        ForEach(this.repliesFor(post.id), (reply: DemoReply) => {
-          Column({ space: 8 }) {
-            Text(reply.local ? `${reply.author} · 本地回复` : reply.author)
-              .fontSize(14).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
-            Text(reply.body).fontSize(15).fontColor($r('app.color.timeline_text_body')).width('100%')
-              .textAlign(TextAlign.Start).copyOption(CopyOptions.InApp)
-          }.width('100%').alignItems(HorizontalAlign.Start).padding(18)
-            .backgroundColor($r('app.color.timeline_surface')).borderRadius(18)
-            .border({ width: 1, color: $r('app.color.timeline_border') })
-        }, (reply: DemoReply) => reply.id)
-      }.width('100%').constraintSize({ maxWidth: 600 }).alignItems(HorizontalAlign.Start)
-        .padding({ left: 18, right: 18, top: 16, bottom: 24 })
-    }.width('100%').height('100%').align(Alignment.Top).scrollBar(BarState.Auto)
+    ConversationPane({ rootPost: () => { this.DiscussionRoot(post) }, rootAuthor: post.name, rows: this.repliesFor(post.id),
+      focusId: this.focusedReplyId, recipient: this.replyRecipient(post), contextLine: this.targetRow(post.id)?.body ?? post.body,
+      expanded: this.replyExpanded, draft: this.replyDraft, confirmLeave: this.replyExitPending, largeText: this.toolbarInList(),
+      onBack: () => this.requestDetailBack(), onEdit: (id: string) => this.beginReply(post.id, id),
+      onExpand: () => this.expandCurrentReply(post.id), onDraft: (value: string) => { this.replyDraft = value; },
+      onSend: () => this.submitReply(post.id), onDiscard: () => this.discardReplyAndClose(), onKeep: () => this.keepReplyDraft() })
   }
 
   @Builder
@@ -1116,9 +1182,9 @@ struct Timeline {
     } else if (post !== undefined) {
       NavDestination() {
         this.DetailContent(post)
-      }.hideTitleBar(true).backgroundColor($r('app.color.timeline_background'))
+      }.hideTitleBar(true).backgroundColor($r('app.color.timeline_surface'))
         .onBackPressed(() => {
-          this.closePost();
+          this.requestDetailBack();
           return true;
         })
     }

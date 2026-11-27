@@ -4,8 +4,11 @@ import { preferences } from '@kit.ArkData';
 import { FrameCallback, LengthMetrics, router, SegmentButtonV2Items, TabSegmentButtonV2 } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { systemShare } from '@kit.ShareKit';
-import { decodeLibrary, emptyLibrary, encodeLibrary, LibraryPost, LibraryReply, LIBRARY_POST_LIMIT, LIBRARY_REPLY_LIMIT,
-  LOCAL_POST_BODY_LIMIT, LOCAL_REPLY_BODY_LIMIT, LocalLibrary, matchesPost, updateLibrary } from '../model/LocalLibrary';
+import { canKeepPost, decodeLibrary, decodePostDraft, emptyLibrary, encodeLibrary, isPostPhotoKey, LibraryPost,
+  LibraryReply, LIBRARY_POST_LIMIT, LIBRARY_REPLY_LIMIT, LOCAL_POST_BODY_LIMIT, LOCAL_REPLY_BODY_LIMIT,
+  LocalLibrary, matchesPost, PostDraft, updateLibrary } from '../model/LocalLibrary';
+import { discardPostPhoto, pickPostPhoto, postPhotoUri } from '../model/PostPhotoStore';
+import { PhotoViewer, PostPhoto } from '../components/PostPhoto';
 import { decodeIdentity, emptyIdentity, LocalIdentity, normalizeIdentity } from '../model/LocalIdentity';
 import { ActivityEntry, ActivityPane } from '../components/ActivityPane';
 import { AuthorPane } from '../components/AuthorPane';
@@ -27,6 +30,7 @@ const POST_SETTINGS = 'Settings';
 const AUTHOR_PROFILE = 'AuthorProfile';
 const IDENTITY_EDITOR = 'IdentityEditor';
 const POST_EDITOR = 'PostEditor';
+const PHOTO_VIEWER = 'PhotoViewer';
 const DISCOVERY_TOPICS: string[] = ['折叠屏', '周末', '阅读', '通勤', '明信片', '歌单'];
 
 enum ShellTab {
@@ -41,6 +45,7 @@ const IDENTITY_STORE = 'timeline_identity';
 const IDENTITY_KEY = 'profile_v1';
 const POST_DRAFT_STORE = 'timeline_post_draft';
 const POST_DRAFT_KEY = 'body';
+const POST_DRAFT_CONTENT_KEY = 'content_v2';
 
 enum DraftDecision {
   None,
@@ -88,6 +93,7 @@ interface MockPost {
   likes: number;
   avatarColor: string;
   local?: boolean;
+  photoKey?: string;
 }
 
 const POSTS: MockPost[] = [
@@ -153,6 +159,11 @@ struct Timeline {
   @State private replyExitPending: boolean = false;
   @State private postDraft: string = '';
   @State private savedPostDraft: string = '';
+  @State private draftPhotoKey: string = '';
+  @State private savedDraftPhotoKey: string = '';
+  @State private previewPhotoKey: string = '';
+  @State private viewerPhotoKey: string = '';
+  @State private photoPicking: boolean = false;
   @State private postDraftReady: boolean = false;
   @State private postDraftBusy: boolean = false;
   @State private postDraftMessage: string = '';
@@ -542,7 +553,7 @@ struct Timeline {
 
   private localPost(post: LibraryPost): MockPost {
     return { id: post.id, name: this.identity.name, handle: '本机帖子', time: '离线', body: post.body,
-      replies: 0, likes: 0, avatarColor: '#4A7B78', local: true };
+      replies: 0, likes: 0, avatarColor: '#4A7B78', local: true, photoKey: post.photoKey };
   }
 
   private async libraryPreferences(): Promise<preferences.Preferences> {
@@ -563,6 +574,7 @@ struct Timeline {
     this.hiddenIds = value.hiddenIds;
     if (value.posts.length !== previousPosts.length - POSTS.length || value.posts.some((post: LibraryPost, index: number) =>
       post.id !== previousPosts[index]?.id || post.body !== previousPosts[index]?.body ||
+      post.photoKey !== previousPosts[index]?.photoKey ||
       this.identity.name !== previousPosts[index]?.name)) {
       const next = [...value.posts.map((post: LibraryPost) => this.localPost(post)), ...POSTS];
       this.animationTriggers = next.map((post: MockPost) => {
@@ -796,6 +808,30 @@ struct Timeline {
     return post.local ? this.timelinePosts.find((item: MockPost) => item.id === post.id)?.body ?? post.body : post.body;
   }
 
+  private currentPhotoKey(post: MockPost): string {
+    return this.timelinePosts.find((item: MockPost) => item.id === post.id)?.photoKey ?? '';
+  }
+
+  private photoUri(key: string): string {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined;
+    return context !== undefined && isPostPhotoKey(key) ? postPhotoUri(context, key) : '';
+  }
+
+  private openPhoto(key: string): void {
+    const paths = this.detailPaths.getAllPathName();
+    if (this.libraryBusy || this.photoPicking || this.viewerPhotoKey || !this.photoUri(key) ||
+      this.replyExpanded || this.replyExitPending || this.confirmingDelete ||
+      (paths.length > 0 && paths[paths.length - 1] !== POST_DETAIL &&
+        paths[paths.length - 1] !== POST_COMPOSER && paths[paths.length - 1] !== AUTHOR_PROFILE)) { return; }
+    this.rememberReadingPosition();
+    this.timelineVisible = false;
+    this.viewerPhotoKey = key;
+    this.detailPaths.pushPath({ name: PHOTO_VIEWER, onPop: () => {
+      this.viewerPhotoKey = '';
+      this.onPageShow();
+    } }, this.allowsMotionFeedback());
+  }
+
   private async copyPost(post: MockPost): Promise<void> {
     try {
       await pasteboard.getSystemPasteboard().setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, this.currentPostBody(post)));
@@ -815,8 +851,10 @@ struct Timeline {
   @Builder
   PostMenu(post: MockPost) {
     Menu() {
-      MenuItem({ content: '复制正文' }).onClick(() => { this.copyPost(post); })
-      MenuItem({ content: '系统分享…' }).onClick(() => { this.sharePost(post); })
+      if (this.currentPostBody(post).trim()) {
+        MenuItem({ content: '复制正文' }).onClick(() => { this.copyPost(post); })
+        MenuItem({ content: '分享正文…' }).onClick(() => { this.sharePost(post); })
+      }
       if (post.local) {
         MenuItem({ content: '编辑本机帖子' }).onClick(() => this.openPostEditor(post))
       } else {
@@ -865,11 +903,15 @@ struct Timeline {
     else { this.leaveComposer(); }
   }
 
+  private canSavePostEdit(): boolean {
+    const stored = this.library.posts.find((post: LibraryPost) => post.id === this.editingPostId);
+    return stored !== undefined && this.editBody !== stored.body && canKeepPost(this.editBody, stored.photoKey ?? '');
+  }
+
   private async savePostEdit(): Promise<void> {
-    if (this.editConfirmLeave || !this.isValidPostBody(this.editBody) ||
-      !this.library.posts.some((post: LibraryPost) => post.id === this.editingPostId)) { return; }
+    if (this.editConfirmLeave || !this.canSavePostEdit()) { return; }
     const posts = this.library.posts.map((post: LibraryPost): LibraryPost =>
-      post.id === this.editingPostId ? { id: post.id, body: this.editBody } : post);
+      post.id === this.editingPostId ? { id: post.id, body: this.editBody, photoKey: post.photoKey } : post);
     if (await this.saveLibrary(updateLibrary(this.library, { posts: posts }))) { this.leaveComposer(); }
     else { this.editMessage = '未能保存，本次输入仍在。'; }
   }
@@ -899,6 +941,7 @@ struct Timeline {
     if (!post.local || !this.confirmingDelete || this.libraryBusy) {
       return;
     }
+    const oldPhoto = this.currentPhotoKey(post);
     const saved = await this.saveLibrary(updateLibrary(this.library, {
       posts: this.library.posts.filter((item: LibraryPost) => item.id !== post.id),
       likedIds: this.likedIds.filter((id: string) => id !== post.id),
@@ -906,6 +949,7 @@ struct Timeline {
       replies: this.library.replies.filter((row: LibraryReply) => row.postId !== post.id)
     }));
     if (saved) {
+      this.releasePostPhoto(oldPhoto);
       this.confirmingDelete = false;
       if (this.readingAnchor.postId === post.id) {
         this.readingAnchor = { postId: '', clipped: 0 };
@@ -930,12 +974,16 @@ struct Timeline {
     this.rememberReadingPosition();
     this.timelineVisible = false;
     this.postDraft = this.savedPostDraft;
+    this.draftPhotoKey = this.savedDraftPhotoKey;
     this.postDraftMessage = '';
     this.draftDecision = DraftDecision.None;
     this.detailPaths.pushPath({ name: POST_COMPOSER, onPop: () => {
+      const oldPhoto = this.draftPhotoKey;
+      this.draftPhotoKey = this.savedDraftPhotoKey;
       this.postDraftLoadId += 1;
       this.postDraftBusy = false;
       this.closePostPreview();
+      this.releasePostPhoto(oldPhoto);
       this.onPageShow();
     } }, this.allowsMotionFeedback());
     if (!this.postDraftReady) {
@@ -952,15 +1000,12 @@ struct Timeline {
     this.postDraftMessage = '';
     try {
       const store = await this.postDraftPreferences();
-      const body = await store.get(POST_DRAFT_KEY, '');
-      if (loadId !== this.postDraftLoadId) {
-        return;
-      }
-      if (typeof body !== 'string' || body.length > POST_DRAFT_LIMIT) {
-        throw new Error('Invalid local draft');
-      }
-      this.savedPostDraft = body;
-      this.postDraft = body;
+      const draft = await this.readStoredDraft(store);
+      if (loadId !== this.postDraftLoadId) { return; }
+      this.savedPostDraft = draft.body;
+      this.postDraft = draft.body;
+      this.savedDraftPhotoKey = draft.photoKey ?? '';
+      this.draftPhotoKey = this.savedDraftPhotoKey;
       this.postDraftReady = true;
     } catch (_error) {
       if (loadId === this.postDraftLoadId) {
@@ -973,18 +1018,77 @@ struct Timeline {
     }
   }
 
-  private isValidPostBody(body: string): boolean {
-    return body.length <= POST_DRAFT_LIMIT && body.trim().length > 0;
+  private async readStoredDraft(store: preferences.Preferences): Promise<PostDraft> {
+    const raw = await store.get(POST_DRAFT_CONTENT_KEY, '');
+    if (typeof raw !== 'string') { throw new Error('Invalid local draft'); }
+    if (raw) { return decodePostDraft(raw); }
+    const body = await store.get(POST_DRAFT_KEY, '');
+    if (typeof body !== 'string' || body.length > POST_DRAFT_LIMIT) { throw new Error('Invalid local draft'); }
+    return { body: body };
+  }
+
+  private async releasePostPhoto(key: string): Promise<void> {
+    if (!isPostPhotoKey(key) || !this.libraryReady) { return; }
+    try {
+      const saved = this.postDraftReady ? this.savedDraftPhotoKey :
+        (await this.readStoredDraft(await this.postDraftPreferences())).photoKey ?? '';
+      if (this.libraryBusy || this.postDraftBusy || key === saved || key === this.savedDraftPhotoKey ||
+        key === this.draftPhotoKey || key === this.previewPhotoKey || key === this.viewerPhotoKey ||
+        this.library.posts.some((post: LibraryPost) => post.photoKey === key)) { return; }
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined;
+      if (context !== undefined) { discardPostPhoto(context, key); }
+    } catch (_error) {
+      // An unknown reference is safer to retain than to delete.
+    }
+  }
+
+  private async selectDraftPhoto(): Promise<void> {
+    if (!this.libraryReady || !this.postDraftReady || this.postDraftBusy || this.photoPicking ||
+      this.draftDecision !== DraftDecision.None || this.showingPostPreview) { return; }
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined;
+    if (context === undefined) { return; }
+    const loadId = this.postDraftLoadId;
+    this.photoPicking = true;
+    this.postDraftMessage = '';
+    try {
+      const key = await pickPostPhoto(context);
+      if (!key) { return; }
+      if (loadId !== this.postDraftLoadId) {
+        this.releasePostPhoto(key);
+        return;
+      }
+      const oldPhoto = this.draftPhotoKey;
+      this.draftPhotoKey = key;
+      this.releasePostPhoto(oldPhoto);
+    } catch (error) {
+      if (loadId === this.postDraftLoadId) {
+        this.postDraftMessage = error instanceof Error ? error.message : '无法添加图片，请重试。';
+      }
+    } finally {
+      this.photoPicking = false;
+    }
+  }
+
+  private removeDraftPhoto(): void {
+    if (!this.postDraftReady || this.postDraftBusy || this.photoPicking || this.draftDecision !== DraftDecision.None) { return; }
+    const key = this.draftPhotoKey;
+    this.draftPhotoKey = '';
+    this.postDraftMessage = '';
+    this.releasePostPhoto(key);
+  }
+
+  private draftChanged(): boolean {
+    return this.postDraft !== this.savedPostDraft || this.draftPhotoKey !== this.savedDraftPhotoKey;
   }
 
   private canSavePostDraft(): boolean {
-    return this.postDraftReady && !this.postDraftBusy && this.isValidPostBody(this.postDraft) &&
-      this.postDraft !== this.savedPostDraft;
+    return this.postDraftReady && !this.postDraftBusy && !this.photoPicking && this.draftDecision === DraftDecision.None &&
+      canKeepPost(this.postDraft, this.draftPhotoKey) && this.draftChanged();
   }
 
   private canPreviewPostDraft(): boolean {
-    return this.postDraftReady && !this.postDraftBusy && this.draftDecision === DraftDecision.None &&
-      !this.showingPostPreview && this.isValidPostBody(this.postDraft);
+    return this.postDraftReady && !this.postDraftBusy && !this.photoPicking && this.draftDecision === DraftDecision.None &&
+      !this.showingPostPreview && canKeepPost(this.postDraft, this.draftPhotoKey);
   }
 
   private openPostPreview(): void {
@@ -992,16 +1096,18 @@ struct Timeline {
       return;
     }
     this.previewBody = this.postDraft;
+    this.previewPhotoKey = this.draftPhotoKey;
     this.showingPostPreview = true;
   }
 
   private closePostPreview(): void {
     this.showingPostPreview = false;
     this.previewBody = '';
+    this.previewPhotoKey = '';
   }
 
   private async addPreviewToTimeline(): Promise<void> {
-    if (!this.showingPostPreview || !this.isValidPostBody(this.previewBody) || this.libraryBusy || !this.libraryReady) {
+    if (!this.showingPostPreview || !canKeepPost(this.previewBody, this.previewPhotoKey) || this.libraryBusy || !this.libraryReady) {
       return;
     }
     if (this.library.posts.length >= LIBRARY_POST_LIMIT) {
@@ -1010,7 +1116,7 @@ struct Timeline {
     }
     const body = this.previewBody;
     this.postSequence = Math.max(this.postSequence + 1, Date.now());
-    const post: LibraryPost = { id: `local-post-${this.postSequence}`, body: body };
+    const post: LibraryPost = { id: `local-post-${this.postSequence}`, body: body, photoKey: this.previewPhotoKey || undefined };
     const saved = await this.saveLibrary(updateLibrary(this.library, { posts: [post, ...this.library.posts] }));
     if (saved) {
       this.selectedTab = ShellTab.Home;
@@ -1028,14 +1134,14 @@ struct Timeline {
   }
 
   private requestComposerExit(): void {
-    if ((this.postDraftReady && this.postDraftBusy) || (this.showingPostPreview && this.libraryBusy)) {
+    if (this.photoPicking || (this.postDraftReady && this.postDraftBusy) || (this.showingPostPreview && this.libraryBusy)) {
       return;
     }
     if (this.showingPostPreview) {
       this.closePostPreview();
     } else if (this.draftDecision !== DraftDecision.None) {
       this.draftDecision = DraftDecision.None;
-    } else if (this.postDraft !== this.savedPostDraft) {
+    } else if (this.draftChanged()) {
       this.draftDecision = DraftDecision.Leave;
     } else {
       this.leaveComposer();
@@ -1043,32 +1149,44 @@ struct Timeline {
   }
 
   private discardPostEdits(): void {
-    if (this.draftDecision === DraftDecision.Leave && !this.postDraftBusy) {
+    if (this.draftDecision === DraftDecision.Leave && !this.postDraftBusy && !this.photoPicking) {
       this.postDraft = this.savedPostDraft;
       this.leaveComposer();
     }
   }
 
   private async savePostDraft(clear: boolean): Promise<void> {
-    if (clear ? (!this.postDraftReady || this.postDraftBusy || this.draftDecision !== DraftDecision.Clear)
+    if (clear ? (!this.postDraftReady || this.postDraftBusy || this.photoPicking || this.draftDecision !== DraftDecision.Clear)
       : !this.canSavePostDraft()) {
       return;
     }
     const body = clear ? '' : this.postDraft;
+    const key = clear ? '' : this.draftPhotoKey;
+    const formerSave = this.savedDraftPhotoKey;
+    const formerEdit = this.draftPhotoKey;
+    let written = false;
     this.postDraftBusy = true;
     this.postDraftMessage = '';
     this.draftDecision = DraftDecision.None;
     try {
       const store = await this.postDraftPreferences();
-      await store.put(POST_DRAFT_KEY, body);
+      const draft: PostDraft = { body: body, photoKey: key || undefined };
+      await store.put(POST_DRAFT_CONTENT_KEY, JSON.stringify(draft));
       await store.flush();
       this.savedPostDraft = body;
       this.postDraft = body;
+      this.savedDraftPhotoKey = key;
+      this.draftPhotoKey = key;
+      written = true;
       this.postDraftMessage = clear ? '本机草稿已清空。' : '草稿已保存到本机。';
     } catch (_error) {
-      this.postDraftMessage = '未能写入本机，当前文字仍保留。';
+      this.postDraftMessage = '未能写入本机，当前内容仍保留。';
     } finally {
       this.postDraftBusy = false;
+    }
+    if (written) {
+      this.releasePostPhoto(formerSave);
+      if (formerEdit !== formerSave) { this.releasePostPhoto(formerEdit); }
     }
   }
 
@@ -1173,8 +1291,11 @@ struct Timeline {
             Text(this.currentPostBody(post)).fontSize(16).fontColor($r('app.color.timeline_text_body')).width('100%')
               .textAlign(TextAlign.Start).copyOption(CopyOptions.InApp)
           } else {
-            Text(post.body).id('body-' + post.id).fontSize(16).fontColor($r('app.color.timeline_text_body')).width('100%')
-              .textAlign(TextAlign.Start).accessibilityText('打开原帖：' + post.body).onClick(() => this.openPost(post))
+            Text(post.body.trim() ? post.body : '图片帖子').id('body-' + post.id).fontSize(16).fontColor($r('app.color.timeline_text_body')).width('100%')
+              .textAlign(TextAlign.Start).accessibilityText('打开原帖：' + (post.body.trim() || '图片帖子')).onClick(() => this.openPost(post))
+          }
+          if (this.currentPhotoKey(post)) {
+            PostPhoto({ uri: this.photoUri(this.currentPhotoKey(post)), onOpen: () => this.openPhoto(this.currentPhotoKey(post)) })
           }
           this.PostActions(post, inDetail)
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
@@ -1234,8 +1355,13 @@ struct Timeline {
         }.width('100%').alignItems(HorizontalAlign.Start)
         Column({ space: 12 }) {
           Text(this.identity.name + ' · 本机预览').fontSize(15).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
-          Text(this.previewBody).width('100%').fontSize(15).textAlign(TextAlign.Start)
-            .fontColor($r('app.color.timeline_text_body')).copyOption(CopyOptions.InApp)
+          if (this.previewBody.trim()) {
+            Text(this.previewBody).width('100%').fontSize(15).textAlign(TextAlign.Start)
+              .fontColor($r('app.color.timeline_text_body')).copyOption(CopyOptions.InApp)
+          }
+          if (this.previewPhotoKey) {
+            PostPhoto({ uri: this.photoUri(this.previewPhotoKey), onOpen: () => this.openPhoto(this.previewPhotoKey) })
+          }
         }.width('100%').padding(18).alignItems(HorizontalAlign.Start)
           .backgroundColor($r('app.color.timeline_surface')).borderRadius(22)
           .border({ width: 1, color: $r('app.color.timeline_border') })
@@ -1256,7 +1382,7 @@ struct Timeline {
         Button('返回', { type: ButtonType.Capsule })
           .constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16 })
           .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body'))
-          .enabled(!this.postDraftReady || !this.postDraftBusy)
+          .enabled(!this.photoPicking && (!this.postDraftReady || !this.postDraftBusy))
           .onClick(() => this.requestComposerExit())
         Column({ space: 6 }) {
           Text('写帖草稿').fontSize(28).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
@@ -1269,11 +1395,26 @@ struct Timeline {
               .fontSize(16).fontColor($r('app.color.timeline_text_body')).placeholderColor($r('app.color.timeline_text_muted'))
               .backgroundColor($r('app.color.timeline_background')).borderRadius(16)
               .accessibilityText('写帖草稿正文')
-              .enabled(!this.postDraftBusy && this.draftDecision === DraftDecision.None)
+              .enabled(!this.postDraftBusy && !this.photoPicking && this.draftDecision === DraftDecision.None)
               .onChange((value: string) => { this.postDraft = value; this.postDraftMessage = ''; })
             Text(`${this.postDraft.length} / ${POST_DRAFT_LIMIT}`).fontSize(12)
               .fontColor($r('app.color.timeline_text_secondary'))
+            if (this.draftPhotoKey) {
+              PostPhoto({ uri: this.photoUri(this.draftPhotoKey), compact: true })
+            }
             if (this.draftDecision === DraftDecision.None) {
+              Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center }) {
+                Button(this.photoPicking ? '正在导入…' : this.draftPhotoKey ? '更换图片' : '从相册选图')
+                  .id('draft-photo-pick').buttonStyle(ButtonStyleMode.TEXTUAL).constraintSize({ minHeight: 48 })
+                  .fontColor($r('app.color.timeline_text_body'))
+                  .enabled(this.libraryReady && !this.postDraftBusy && !this.photoPicking)
+                  .onClick(() => { this.selectDraftPhoto(); })
+                if (this.draftPhotoKey) {
+                  Button('移除图片').id('draft-photo-remove').buttonStyle(ButtonStyleMode.TEXTUAL)
+                    .constraintSize({ minHeight: 48 }).fontColor($r('app.color.timeline_text_secondary'))
+                    .enabled(!this.postDraftBusy && !this.photoPicking).onClick(() => this.removeDraftPhoto())
+                }
+              }.width('100%')
               Button(this.postDraftBusy ? '正在写入本机…' : '保存到本机', { type: ButtonType.Capsule })
                 .width('100%').constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16, top: 10, bottom: 10 })
                 .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
@@ -1282,7 +1423,7 @@ struct Timeline {
                 .width('100%').constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16, top: 10, bottom: 10 })
                 .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body'))
                 .enabled(this.canPreviewPostDraft()).onClick(() => this.openPostPreview())
-              if (this.savedPostDraft.length > 0 && !this.postDraftBusy) {
+              if ((this.savedPostDraft.length > 0 || this.savedDraftPhotoKey) && !this.postDraftBusy && !this.photoPicking) {
                 Button('清空本机草稿', { type: ButtonType.Capsule })
                   .constraintSize({ minHeight: 48 }).buttonStyle(ButtonStyleMode.TEXTUAL)
                   .fontColor($r('app.color.timeline_text_body'))
@@ -1414,7 +1555,7 @@ struct Timeline {
             .fontColor($r('app.color.timeline_text_secondary'))
           Button('保存修改').id('post-editor-save').width('100%').constraintSize({ minHeight: 48 })
             .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
-            .enabled(!this.libraryBusy && this.isValidPostBody(this.editBody)).onClick(() => { this.savePostEdit(); })
+            .enabled(!this.libraryBusy && this.canSavePostEdit()).onClick(() => { this.savePostEdit(); })
           if (this.editMessage) {
             Text(this.editMessage).fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
           }
@@ -1437,6 +1578,11 @@ struct Timeline {
           this.requestComposerExit();
           return true;
         })
+    } else if (name === PHOTO_VIEWER) {
+      NavDestination() {
+        PhotoViewer({ uri: this.photoUri(this.viewerPhotoKey), onClose: () => this.closePost() })
+      }.hideTitleBar(true).backgroundColor($r('app.color.timeline_surface'))
+        .onBackPressed(() => { this.closePost(); return true; })
     } else if (name === POST_SETTINGS) {
       NavDestination() {
         SettingsPane({

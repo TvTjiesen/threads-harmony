@@ -5,7 +5,7 @@ import { test } from 'node:test';
 
 const source = readFileSync(new URL('../app/entry/src/main/ets/model/LocalLibrary.ets', import.meta.url), 'utf8');
 const modelUrl = `data:text/javascript,${encodeURIComponent(stripTypeScriptTypes(source))}`;
-const { decodeLibrary, emptyLibrary, matchesPost } = await import(modelUrl);
+const { canKeepPost, decodeLibrary, decodePostDraft, emptyLibrary, encodeLibrary, isPostPhotoKey, matchesPost } = await import(modelUrl);
 
 const demoIds = ['p1', 'p2'];
 const legacy = { posts: [], likedIds: [], followedIds: [], savedIds: [] };
@@ -116,6 +116,29 @@ test('the 40-post cap counts valid distinct local posts, not input entries', () 
   assert.equal(ids.size, 40);
   assert.deepEqual(new Set(decoded.likedIds), ids);
   assert.deepEqual(new Set(decoded.savedIds), ids);
+});
+
+test('a local photo reference is not a path and a photo-only post survives a library round trip', () => {
+  const photoKey = `photo-${'a'.repeat(32)}.jpg`;
+  const invalid = ['../' + photoKey, 'file://' + photoKey, photoKey + '\n', { length: 42 }, null];
+  assert.equal(isPostPhotoKey(photoKey), true);
+  assert.ok(invalid.every((key) => !isPostPhotoKey(key)));
+  assert.equal(canKeepPost('  ', photoKey), true);
+  assert.equal(canKeepPost('x'.repeat(501), photoKey), false);
+  const post = { id: 'local-post-1', body: '', photoKey };
+  const state = decodeLibrary(persisted({ posts: [post,
+    { id: 'local-post-2', body: '', photoKey: '../image.jpg' },
+    { id: 'local-post-3', body: 'Keep the text', photoKey: 'https://example.test/photo' }] }), demoIds);
+  assert.deepEqual(state.posts, [post, { id: 'local-post-3', body: 'Keep the text' }]);
+  assert.deepEqual(decodeLibrary(encodeLibrary(state), demoIds), state);
+});
+
+test('the draft holds text and one local photo together and never exposes arbitrary URLs', () => {
+  const photoKey = `photo-${'b'.repeat(32)}.jpg`;
+  assert.deepEqual(decodePostDraft(JSON.stringify({ body: '', photoKey })), { body: '', photoKey });
+  assert.deepEqual(decodePostDraft(JSON.stringify({ body: '\n  caption ', photoKey: 'file:///elsewhere' })),
+    { body: '\n  caption ' });
+  assert.throws(() => decodePostDraft(JSON.stringify({ body: 'x'.repeat(501), photoKey })));
 });
 
 test('search is trimmed, case-insensitive, and requires every term across the fields', () => {

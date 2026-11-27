@@ -314,7 +314,7 @@ test('the flat reading rows still expose follow, like, replies and bookmark acti
   assert.doesNotMatch(row, /\.shadow\(/);
   assert.match(row, /this\.FollowAction\(post\)/);
   assert.match(row, /this\.PostActions\(post, inDetail\)/);
-  assert.match(row, /Text\(post\.body\)\.id\('body-' \+ post\.id\)[^{}]*?\.onClick\(\(\) => this\.openPost\(post\)\)/,
+  assert.match(row, /Text\(post\.body\.trim\(\) \? post\.body : '图片帖子'\)\.id\('body-' \+ post\.id\)[^{}]*?\.onClick\(\(\) => this\.openPost\(post\)\)/,
     'the feed body opens the original post, not a selected reply');
   assert.match(row, /if \(!inDetail\)\s*\{\s*ForEach\(this\.previewRows\(post\.id\),[\s\S]*?this\.SummaryEntry\(post, reply\)[\s\S]*?=> reply\.id\)/,
     'replace only the summary row and tap handler when the latest reply ID changes');
@@ -333,7 +333,7 @@ test('post overflow uses an anchored native menu with only local actions', () =>
   assert.match(builder(timelineSource, 'PostActions'), /\.bindMenu\(this\.PostMenu\(post\)\)/);
   const menu = builder(timelineSource, 'PostMenu');
   assert.match(menu, /Menu\(\)\s*\{/);
-  for (const [label, action] of [['复制正文', 'copyPost(post)'], ['系统分享…', 'sharePost(post)'],
+  for (const [label, action] of [['复制正文', 'copyPost(post)'], ['分享正文…', 'sharePost(post)'],
     ['编辑本机帖子', 'openPostEditor(post)'], ['隐藏此示例', 'toggleHidden(post.id)']]) {
     assert.ok(menu.includes(label) && menu.includes(`this.${action}`));
   }
@@ -744,6 +744,7 @@ test('post drafts persist explicitly and preview posts are added once without mo
       postDraft = ''; savedPostDraft = ''; postDraftReady = false; postDraftBusy = false;
       postDraftMessage = ''; draftDecision = DraftDecision.None; postDraftLoadId = 0;
       showingPostPreview = false; previewBody = ''; postSequence = 0;
+      draftPhotoKey = ''; savedDraftPhotoKey = ''; previewPhotoKey = ''; viewerPhotoKey = ''; photoPicking = false;
       library = emptyLibrary(); libraryReady = false; libraryLoading = false; libraryBusy = false; identity = emptyIdentity();
       likedIds = []; followedIds = []; savedIds = [];
       timelinePosts = [...POSTS]; animationTriggers = [0, -1];
@@ -767,10 +768,16 @@ test('post drafts persist explicitly and preview posts are added once without mo
     ({ Composer, DraftDecision, ShellTab });`, { mode: 'transform' }), {
     ...libraryModel, ...identityModel,
     POSTS: [{ id: 'p1' }, { id: 'p2' }], SAMPLE_REPLIES: [],
+    discardPostPhoto: (_context, key) => { discardedPhotos.push(key); },
+    pickPostPhoto: async () => nextPhoto,
     preferences: { getPreferences: async (stores, { name }) => stores[name] }
   });
   const settle = () => new Promise(setImmediate);
+  const discardedPhotos = [];
+  let nextPhoto = '';
   let disk = '';
+  const legacyBody = '  旧草稿第一行\n第二行 🧵  ';
+  const savedBody = () => (disk ? JSON.parse(disk).body : legacyBody);
   let pending = '';
   let failWrite = false;
   let failRead = false;
@@ -778,13 +785,13 @@ test('post drafts persist explicitly and preview posts are added once without mo
   let writes = 0;
   const store = {
     async get(key, fallback) {
-      assert.equal(key, 'body');
+      assert.ok(['body', 'content_v2'].includes(key));
       assert.equal(fallback, '');
       if (failRead) throw new Error('read failed');
       if (releaseRead) await new Promise((resolve) => { releaseRead = resolve; });
-      return disk;
+      return key === 'body' ? legacyBody : disk;
     },
-    async put(key, text) { assert.equal(key, 'body'); pending = text; writes++; },
+    async put(key, text) { assert.equal(key, 'content_v2'); pending = text; writes++; },
     async flush() { if (failWrite) throw new Error('write failed'); disk = pending; }
   };
 
@@ -815,6 +822,7 @@ test('post drafts persist explicitly and preview posts are added once without mo
   assert.equal(page.pushAnimated, false);
   await settle();
   assert.equal(page.postDraftReady, true);
+  assert.equal(page.postDraft, legacyBody, 'old text-only draft loads without a rewrite');
   for (const invalid of [' ', 'x'.repeat(501)]) {
     page.postDraft = invalid;
     await page.savePostDraft(false);
@@ -829,7 +837,8 @@ test('post drafts persist explicitly and preview posts are added once without mo
   assert.ok(page.route, 'do not leave while a write is in progress');
   await page.savePostDraft(false);
   await saving;
-  assert.equal(disk, body, 'save exactly what was typed');
+  assert.equal(savedBody(), body, 'save exactly what was typed');
+  assert.deepEqual(JSON.parse(disk), { body });
   assert.equal(writes, 1);
   assert.match(page.postDraftMessage, /已保存/);
   page.postDraft = 'unsaved change';
@@ -842,7 +851,7 @@ test('post drafts persist explicitly and preview posts are added once without mo
   page.discardPostEdits();
   assert.equal(page.timelineVisible, true);
   assert.equal(page.popAnimated, false);
-  assert.equal(disk, body);
+  assert.equal(savedBody(), body);
 
   // Compose is an action from any tab: opening, previewing and cancelling must not select Home.
   page.selectedTab = ShellTab.Activity;
@@ -863,16 +872,16 @@ test('post drafts persist explicitly and preview posts are added once without mo
   restarted.postDraft = 'new draft';
   failWrite = true;
   await restarted.savePostDraft(false);
-  assert.equal(disk, body);
+  assert.equal(savedBody(), body);
   assert.equal(restarted.postDraft, 'new draft');
   assert.match(restarted.postDraftMessage, /未能写入/);
   failWrite = false;
   await restarted.savePostDraft(true);
-  assert.equal(disk, body, 'clear requires confirmation');
+  assert.equal(savedBody(), body, 'clear requires confirmation');
   restarted.draftDecision = DraftDecision.Clear;
   await restarted.savePostDraft(true);
   assert.equal(restarted.postDraft, '');
-  assert.equal(disk, '');
+  assert.deepEqual(JSON.parse(disk), { body: '' }, 'clearing must not fall back to the old draft');
   assert.match(restarted.postDraftMessage, /已清空/);
   restarted.requestComposerExit();
   assert.equal(restarted.timelineVisible, true);
@@ -955,6 +964,37 @@ test('post drafts persist explicitly and preview posts are added once without mo
   assert.equal(reopened.libraryReady, true);
   assert.deepEqual(Array.from(reopened.timelinePosts, (post) => post.id), [added.id, 'p1', 'p2']);
   assert.equal(reopened.timelinePosts[0].body, preview);
+
+  const photoKey = `photo-${'1'.repeat(32)}.jpg`;
+  page.postDraft = '';
+  nextPhoto = photoKey;
+  await page.selectDraftPhoto();
+  assert.equal(page.draftPhotoKey, photoKey);
+  nextPhoto = '';
+  await page.selectDraftPhoto();
+  assert.equal(page.draftPhotoKey, photoKey, 'cancel keeps the current attachment');
+  await page.savePostDraft(false);
+  assert.deepEqual(JSON.parse(disk), { body: '', photoKey });
+  page.openPostPreview();
+  assert.equal(page.previewPhotoKey, photoKey);
+  await page.addPreviewToTimeline();
+  assert.equal(page.timelinePosts[0].photoKey, photoKey);
+  const photoReopened = new Composer(stores);
+  await photoReopened.loadLibrary();
+  photoReopened.openComposer();
+  await settle();
+  assert.equal(photoReopened.timelinePosts[0].photoKey, photoKey);
+  assert.equal(photoReopened.draftPhotoKey, photoKey);
+  photoReopened.draftDecision = DraftDecision.Clear;
+  await photoReopened.savePostDraft(true);
+  await settle();
+  assert.deepEqual(JSON.parse(disk), { body: '' });
+  assert.deepEqual(discardedPhotos, [], 'clearing the draft cannot delete a posted image');
+  await photoReopened.releasePostPhoto(photoKey);
+  assert.deepEqual(discardedPhotos, []);
+  photoReopened.library = libraryModel.emptyLibrary();
+  await photoReopened.releasePostPhoto(photoKey);
+  assert.deepEqual(discardedPhotos, [photoKey], 'unreferenced images can be cleaned up');
   assert.match(timelineSource, /ForEach\(this\.visibleFeed\(\),/);
 });
 

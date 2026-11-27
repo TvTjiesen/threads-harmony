@@ -18,6 +18,29 @@ export interface ReplyReference {
 export interface LibraryPost {
   id: string;
   body: string;
+  photoKey?: string;
+}
+
+export interface PostDraft {
+  body: string;
+  photoKey?: string;
+}
+
+export function isPostPhotoKey(value: string): boolean {
+  return typeof value === 'string' && value.length === 42 && /^photo-[a-f0-9]{32}\.jpg$/.test(value);
+}
+
+export function canKeepPost(body: string, photoKey: string): boolean {
+  return body.length <= LOCAL_POST_BODY_LIMIT && (body.trim().length > 0 || isPostPhotoKey(photoKey));
+}
+
+export function decodePostDraft(raw: string): PostDraft {
+  if (raw.length > 4000) { throw new Error('Invalid local draft'); }
+  const value = JSON.parse(raw) as PostDraft;
+  if (value === null || typeof value !== 'object' || typeof value.body !== 'string' ||
+    value.body.length > LOCAL_POST_BODY_LIMIT) { throw new Error('Invalid local draft'); }
+  const key = value.photoKey ?? '';
+  return isPostPhotoKey(key) ? { body: value.body, photoKey: key } : { body: value.body };
 }
 
 export interface LocalLibrary {
@@ -118,8 +141,9 @@ export function decodeLibrary(raw: string, demoIds: string[], samples: ReplyRefe
       }
       if (post !== null && typeof post === 'object' && typeof post.id === 'string' &&
         /^local-post-[1-9][0-9]{0,14}$/.test(post.id) && !ids.includes(post.id) &&
-        typeof post.body === 'string' && post.body.length <= LOCAL_POST_BODY_LIMIT && post.body.trim().length > 0) {
-        posts.push({ id: post.id, body: post.body });
+        typeof post.body === 'string' && canKeepPost(post.body, post.photoKey ?? '')) {
+        const key = post.photoKey ?? '';
+        posts.push(isPostPhotoKey(key) ? { id: post.id, body: post.body, photoKey: key } : { id: post.id, body: post.body });
         ids.push(post.id);
       }
     }

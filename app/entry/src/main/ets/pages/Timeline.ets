@@ -4,9 +4,11 @@ import { preferences } from '@kit.ArkData';
 import { FrameCallback, LengthMetrics, router, SegmentButtonV2Items, TabSegmentButtonV2 } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { systemShare } from '@kit.ShareKit';
-import { canKeepPost, decodeLibrary, decodePostDraft, emptyLibrary, encodeLibrary, isPostPhotoKey, LibraryPost, isPostVideoKey,
+import { canPublishThread, decodeLibrary, decodePostDraft, emptyLibrary, encodeLibrary, isPostPhotoKey, LibraryPost, isPostVideoKey,
   LibraryReply, LIBRARY_POST_LIMIT, LIBRARY_REPLY_LIMIT, LOCAL_POST_BODY_LIMIT, LOCAL_REPLY_BODY_LIMIT,
-  LocalLibrary, matchesPost, MAX_POST_PHOTOS, PostDraft, PostVideoAttachment, updateLibrary } from '../model/LocalLibrary';
+  LocalLibrary, matchesPost, MAX_POST_PHOTOS, MAX_THREAD_PARTS, PostDraft, PostVideoAttachment, ThreadPart,
+  updateLibrary } from '../model/LocalLibrary';
+import { ThreadPartPicker } from '../components/ThreadPartPicker';
 import { discardPostPhoto, pickPostPhotos, postPhotoUri } from '../model/PostPhotoStore';
 import { PhotoViewer, PostGallery, PostPhoto } from '../components/PostPhoto';
 import { discardPostVideo, pickPostVideo, postVideoPosterUri, postVideoUri } from '../model/PostVideoStore';
@@ -19,6 +21,7 @@ import { DiscoveryAuthor, DiscoveryPane } from '../components/DiscoveryPane';
 import { IdentityEditor, LibraryHub } from '../components/LibraryHub';
 import { ReadingTabs } from '../components/ReadingTabs';
 import { SettingsPane } from '../components/SettingsPane';
+import { ThreadsPublicPane } from '../components/ThreadsPublicPane';
 
 const LARGE_TEXT_SCALE = 1.4;
 const WIDE_VIEWPORT = 680;
@@ -26,6 +29,7 @@ const SIDE_NAV_WIDTH = 840;
 const MAX_LIST_WIDTH = 1248;
 const REPLY_LIMIT = LOCAL_REPLY_BODY_LIMIT;
 const POST_DETAIL = 'PostDetail';
+const PUBLIC_THREADS = 'PublicThreads';
 const POST_COMPOSER = 'PostComposer';
 const POST_DRAFT_LIMIT = LOCAL_POST_BODY_LIMIT;
 const POST_SETTINGS = 'Settings';
@@ -53,7 +57,8 @@ const POST_DRAFT_CONTENT_KEY = 'content_v2';
 enum DraftDecision {
   None,
   Leave,
-  Clear
+  Clear,
+  RemovePart
 }
 
 interface DemoReply extends ConversationReply {}
@@ -98,6 +103,7 @@ interface MockPost {
   local?: boolean;
   photoKeys?: string[];
   video?: PostVideoAttachment;
+  continuation?: ThreadPart[];
 }
 
 const POSTS: MockPost[] = [
@@ -182,6 +188,10 @@ struct Timeline {
   @State private draftDecision: DraftDecision = DraftDecision.None;
   @State private showingPostPreview: boolean = false;
   @State private previewBody: string = '';
+  @State private draftParts: ThreadPart[] = [{ body: '' }];
+  @State private activeDraftPart: number = 0;
+  @State private savedContinuation: ThreadPart[] = [];
+  @State private previewContinuation: ThreadPart[] = [];
   private library: LocalLibrary = emptyLibrary();
   private postSequence: number = 0;
   private postDraftLoadId: number = 0;
@@ -565,7 +575,8 @@ struct Timeline {
 
   private localPost(post: LibraryPost): MockPost {
     return { id: post.id, name: this.identity.name, handle: '本机帖子', time: '离线', body: post.body,
-      replies: 0, likes: 0, avatarColor: '#4A7B78', local: true, photoKeys: post.photoKeys, video: post.video };
+      replies: 0, likes: 0, avatarColor: '#4A7B78', local: true, photoKeys: post.photoKeys, video: post.video,
+      continuation: post.continuation };
   }
 
   private async libraryPreferences(): Promise<preferences.Preferences> {
@@ -589,6 +600,7 @@ struct Timeline {
       !(this.samePhotoOrder(post.photoKeys ?? [], previousPosts[index]?.photoKeys ?? [])) ||
       post.video?.key !== previousPosts[index]?.video?.key ||
       post.video?.durationMs !== previousPosts[index]?.video?.durationMs ||
+      !this.sameParts(post.continuation ?? [], previousPosts[index]?.continuation ?? []) ||
       this.identity.name !== previousPosts[index]?.name)) {
       const next = [...value.posts.map((post: LibraryPost) => this.localPost(post)), ...POSTS];
       this.animationTriggers = next.map((post: MockPost) => {
@@ -728,7 +740,7 @@ struct Timeline {
 
   private discoveryPosts(): MockPost[] {
     return this.timelinePosts.filter((post: MockPost) => !this.hiddenIds.includes(post.id) &&
-      matchesPost(this.searchQuery, post.name, post.handle, post.body));
+      matchesPost(this.searchQuery, post.name, post.handle, this.threadText(post)));
   }
 
   private authorSummary(id: string): DiscoveryAuthor {
@@ -746,8 +758,17 @@ struct Timeline {
   private profilePosts(): MockPost[] {
     return this.timelinePosts.filter((post: MockPost) => this.libraryMode === 1 ? this.savedIds.includes(post.id) :
       this.libraryMode === 2 ? this.likedIds.includes(post.id) : post.local === true &&
-      (this.profileMediaMode === 1 ? (post.photoKeys?.length ?? 0) > 0 :
-        this.profileMediaMode === 2 ? post.video !== undefined : true));
+      (this.profileMediaMode === 1 ? (post.photoKeys?.length ?? 0) > 0 ||
+        (post.continuation ?? []).some((part: ThreadPart) => (part.photoKeys?.length ?? 0) > 0) :
+        this.profileMediaMode === 2 ? post.video !== undefined ||
+          (post.continuation ?? []).some((part: ThreadPart) => part.video !== undefined) : true));
+  }
+
+  private openPublicThreads(): void {
+    if (this.detailPaths.size() > 0 || this.selectedTab !== ShellTab.Search) { return; }
+    this.rememberReadingPosition();
+    this.timelineVisible = false;
+    this.detailPaths.pushPath({ name: PUBLIC_THREADS, onPop: () => this.onPageShow() }, this.allowsMotionFeedback());
   }
 
   private openAuthor(id: string): void {
@@ -824,6 +845,22 @@ struct Timeline {
     return post.local ? this.timelinePosts.find((item: MockPost) => item.id === post.id)?.body ?? post.body : post.body;
   }
 
+  private currentContinuation(post: MockPost): ThreadPart[] {
+    return post.local ? this.timelinePosts.find((item: MockPost) => item.id === post.id)?.continuation ?? [] :
+      post.continuation ?? [];
+  }
+
+  private threadText(post: MockPost): string {
+    return [this.currentPostBody(post), ...this.currentContinuation(post).map((part: ThreadPart) => part.body)]
+      .filter((body: string) => body.trim().length > 0).join('\n\n');
+  }
+
+  private sameParts(left: ThreadPart[], right: ThreadPart[]): boolean {
+    return left.length === right.length && left.every((part: ThreadPart, index: number) =>
+      part.body === right[index].body && this.samePhotoOrder(part.photoKeys ?? [], right[index].photoKeys ?? []) &&
+      part.video?.key === right[index].video?.key && part.video?.durationMs === right[index].video?.durationMs);
+  }
+
   private samePhotoOrder(left: string[], right: string[]): boolean {
     return left.length === right.length && left.every((key: string, index: number) => key === right[index]);
   }
@@ -893,7 +930,7 @@ struct Timeline {
 
   private async copyPost(post: MockPost): Promise<void> {
     try {
-      await pasteboard.getSystemPasteboard().setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, this.currentPostBody(post)));
+      await pasteboard.getSystemPasteboard().setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, this.threadText(post)));
       this.inform('已复制正文');
     } catch (_error) { this.inform('无法复制，请重试。'); }
   }
@@ -901,7 +938,7 @@ struct Timeline {
   private async sharePost(post: MockPost): Promise<void> {
     try {
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
-      const data = new systemShare.SharedData({ utd: 'general.plain-text', content: this.currentPostBody(post),
+      const data = new systemShare.SharedData({ utd: 'general.plain-text', content: this.threadText(post),
         title: post.local ? '本机帖子' : '示例帖子' });
       await new systemShare.ShareController(data).show(context, { anchor: 'post-menu-' + post.id });
     } catch (_error) { this.inform('系统分享不可用，可以复制正文。'); }
@@ -910,7 +947,7 @@ struct Timeline {
   @Builder
   PostMenu(post: MockPost) {
     Menu() {
-      if (this.currentPostBody(post).trim()) {
+      if (this.threadText(post).trim()) {
         MenuItem({ content: '复制正文' }).onClick(() => { this.copyPost(post); })
         MenuItem({ content: '分享正文…' }).onClick(() => { this.sharePost(post); })
       }
@@ -964,13 +1001,15 @@ struct Timeline {
 
   private canSavePostEdit(): boolean {
     const stored = this.library.posts.find((post: LibraryPost) => post.id === this.editingPostId);
-    return stored !== undefined && this.editBody !== stored.body && canKeepPost(this.editBody, stored.photoKeys ?? [], stored.video);
+    return stored !== undefined && this.editBody !== stored.body &&
+      canPublishThread(this.makePart(this.editBody, stored.photoKeys ?? [], stored.video), stored.continuation ?? []);
   }
 
   private async savePostEdit(): Promise<void> {
     if (this.editConfirmLeave || !this.canSavePostEdit()) { return; }
     const posts = this.library.posts.map((post: LibraryPost): LibraryPost =>
-      post.id === this.editingPostId ? { id: post.id, body: this.editBody, photoKeys: post.photoKeys, video: post.video } : post);
+      post.id === this.editingPostId ? { id: post.id, body: this.editBody, photoKeys: post.photoKeys, video: post.video,
+        continuation: post.continuation } : post);
     if (await this.saveLibrary(updateLibrary(this.library, { posts: posts }))) { this.leaveComposer(); }
     else { this.editMessage = '未能保存，本次输入仍在。'; }
   }
@@ -1000,8 +1039,8 @@ struct Timeline {
     if (!post.local || !this.confirmingDelete || this.libraryBusy) {
       return;
     }
-    const oldPhotos = this.currentPhotoKeys(post).slice();
-    const formerVideoKey = this.currentVideo(post)?.key;
+    const removed = [this.makePart(this.currentPostBody(post), this.currentPhotoKeys(post), this.currentVideo(post)),
+      ...this.currentContinuation(post)];
     const saved = await this.saveLibrary(updateLibrary(this.library, {
       posts: this.library.posts.filter((item: LibraryPost) => item.id !== post.id),
       likedIds: this.likedIds.filter((id: string) => id !== post.id),
@@ -1009,8 +1048,7 @@ struct Timeline {
       replies: this.library.replies.filter((row: LibraryReply) => row.postId !== post.id)
     }));
     if (saved) {
-      this.releasePostPhotos(oldPhotos);
-      if (formerVideoKey !== undefined) { this.releasePostVideo(formerVideoKey); }
+      this.releaseParts(removed);
       this.confirmingDelete = false;
       if (this.readingAnchor.postId === post.id) {
         this.readingAnchor = { postId: '', clipped: 0 };
@@ -1028,27 +1066,96 @@ struct Timeline {
     return preferences.getPreferences(context, { name: POST_DRAFT_STORE });
   }
 
+  private makePart(body: string, keys: string[], video?: PostVideoAttachment): ThreadPart {
+    return { body: body, photoKeys: keys.length > 0 ? keys.slice() : undefined, video: video };
+  }
+
+  private composerParts(): ThreadPart[] {
+    const parts = this.draftParts.slice();
+    parts[this.activeDraftPart] = this.makePart(this.postDraft, this.draftPhotoKeys, this.draftVideo);
+    return parts;
+  }
+
+  private setComposerParts(parts: ThreadPart[], index: number): void {
+    this.draftParts = parts;
+    this.activeDraftPart = index;
+    this.postDraft = parts[index].body;
+    this.draftPhotoKeys = (parts[index].photoKeys ?? []).slice();
+    this.draftVideo = parts[index].video;
+  }
+
+  private restoreSavedParts(): void {
+    this.setComposerParts([this.makePart(this.savedPostDraft, this.savedDraftPhotoKeys, this.savedDraftVideo),
+      ...this.savedContinuation], 0);
+  }
+
+  private selectDraftPart(index: number): void {
+    if (!this.canChangeDraftPhotos() || index === this.activeDraftPart || !Number.isInteger(index) ||
+      index < 0 || index >= this.draftParts.length) { return; }
+    this.setComposerParts(this.composerParts(), index);
+    this.postDraftMessage = '';
+  }
+
+  private addDraftPart(): void {
+    if (!this.canChangeDraftPhotos() || this.draftParts.length >= MAX_THREAD_PARTS) { return; }
+    const parts = this.composerParts();
+    parts.push({ body: '' });
+    this.setComposerParts(parts, parts.length - 1);
+    this.postDraftMessage = '';
+  }
+
+  private moveDraftPart(direction: number): void {
+    const current = this.activeDraftPart;
+    const next = current + direction;
+    if (!this.canChangeDraftPhotos() || (direction !== -1 && direction !== 1) || next < 0 ||
+      next >= this.draftParts.length) { return; }
+    const parts = this.composerParts();
+    const moved = parts[current];
+    parts[current] = parts[next];
+    parts[next] = moved;
+    this.setComposerParts(parts, next);
+    this.postDraftMessage = '';
+  }
+
+  private removeDraftPart(): void {
+    if (this.draftDecision !== DraftDecision.RemovePart || this.postDraftBusy || this.photoPicking ||
+      this.draftParts.length < 2) { return; }
+    const parts = this.composerParts();
+    const removed = parts.splice(this.activeDraftPart, 1);
+    this.setComposerParts(parts, Math.min(this.activeDraftPart, parts.length - 1));
+    this.draftDecision = DraftDecision.None;
+    this.postDraftMessage = '';
+    this.releaseParts(removed);
+  }
+
+  private releaseParts(parts: ThreadPart[]): void {
+    const photos: string[] = [];
+    const videos: string[] = [];
+    parts.forEach((part: ThreadPart) => {
+      (part.photoKeys ?? []).forEach((key: string) => { if (!photos.includes(key)) { photos.push(key); } });
+      const movie = part.video?.key;
+      if (movie !== undefined && !videos.includes(movie)) { videos.push(movie); }
+    });
+    this.releasePostPhotos(photos);
+    videos.forEach((key: string) => { this.releasePostVideo(key); });
+  }
+
   private openComposer(): void {
     if (this.detailPaths.size() > 0) {
       return;
     }
     this.rememberReadingPosition();
     this.timelineVisible = false;
-    this.postDraft = this.savedPostDraft;
-    this.draftPhotoKeys = this.savedDraftPhotoKeys.slice();
-    this.draftVideo = this.savedDraftVideo;
+    this.restoreSavedParts();
     this.postDraftMessage = '';
     this.draftDecision = DraftDecision.None;
     this.detailPaths.pushPath({ name: POST_COMPOSER, onPop: () => {
-      const oldPhotos = this.draftPhotoKeys;
-      const formerVideoKey = this.draftVideo?.key;
-      this.draftPhotoKeys = this.savedDraftPhotoKeys.slice();
-      this.draftVideo = this.savedDraftVideo;
+      const abandoned = this.composerParts();
+      this.restoreSavedParts();
       this.postDraftLoadId += 1;
       this.postDraftBusy = false;
       this.closePostPreview();
-      this.releasePostPhotos(oldPhotos);
-      if (formerVideoKey !== undefined) { this.releasePostVideo(formerVideoKey); }
+      this.releaseParts(abandoned);
       this.onPageShow();
     } }, this.allowsMotionFeedback());
     if (!this.postDraftReady) {
@@ -1068,11 +1175,10 @@ struct Timeline {
       const draft = await this.readStoredDraft(store);
       if (loadId !== this.postDraftLoadId) { return; }
       this.savedPostDraft = draft.body;
-      this.postDraft = draft.body;
       this.savedDraftPhotoKeys = draft.photoKeys ?? [];
-      this.draftPhotoKeys = this.savedDraftPhotoKeys.slice();
       this.savedDraftVideo = draft.video;
-      this.draftVideo = draft.video;
+      this.savedContinuation = draft.continuation ?? [];
+      this.restoreSavedParts();
       this.postDraftReady = true;
     } catch (_error) {
       if (loadId === this.postDraftLoadId) {
@@ -1094,14 +1200,29 @@ struct Timeline {
     return { body: body };
   }
 
+  private savedParts(): ThreadPart[] {
+    return [this.makePart(this.savedPostDraft, this.savedDraftPhotoKeys, this.savedDraftVideo), ...this.savedContinuation];
+  }
+
+  private async storedAttachmentParts(): Promise<ThreadPart[]> {
+    const draft = await this.readStoredDraft(await this.postDraftPreferences());
+    return [draft, ...(draft.continuation ?? [])];
+  }
+
+  private attachmentInUse(key: string, video: boolean, persisted: ThreadPart[]): boolean {
+    const used = (part: ThreadPart): boolean => video ? part.video?.key === key : part.photoKeys?.includes(key) === true;
+    return this.libraryBusy || this.postDraftBusy || persisted.some(used) || this.savedParts().some(used) ||
+      this.composerParts().some(used) || this.previewContinuation.some(used) ||
+      (video ? this.previewVideo?.key === key || this.playerVideo?.key === key :
+        this.previewPhotoKeys.includes(key) || this.viewerPhotoKeys.includes(key)) ||
+      this.library.posts.some((post: LibraryPost) => used(post) || (post.continuation ?? []).some(used));
+  }
+
   private async releasePostPhoto(key: string): Promise<void> {
     if (!isPostPhotoKey(key) || !this.libraryReady) { return; }
     try {
-      const saved = this.postDraftReady ? this.savedDraftPhotoKeys :
-        (await this.readStoredDraft(await this.postDraftPreferences())).photoKeys ?? [];
-      if (this.libraryBusy || this.postDraftBusy || saved.includes(key) || this.savedDraftPhotoKeys.includes(key) ||
-        this.draftPhotoKeys.includes(key) || this.previewPhotoKeys.includes(key) || this.viewerPhotoKeys.includes(key) ||
-        this.library.posts.some((post: LibraryPost) => post.photoKeys?.includes(key) === true)) { return; }
+      const persisted = this.postDraftReady ? this.savedParts() : await this.storedAttachmentParts();
+      if (this.attachmentInUse(key, false, persisted)) { return; }
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined;
       if (context !== undefined) { discardPostPhoto(context, key); }
     } catch (_error) {
@@ -1116,11 +1237,8 @@ struct Timeline {
   private async releasePostVideo(key: string): Promise<void> {
     if (!isPostVideoKey(key) || !this.libraryReady) { return; }
     try {
-      const savedKey = this.postDraftReady ? this.savedDraftVideo?.key :
-        (await this.readStoredDraft(await this.postDraftPreferences())).video?.key;
-      if (this.libraryBusy || this.postDraftBusy || savedKey === key || this.savedDraftVideo?.key === key ||
-        this.draftVideo?.key === key || this.previewVideo?.key === key || this.playerVideo?.key === key ||
-        this.library.posts.some((post: LibraryPost) => post.video?.key === key)) { return; }
+      const persisted = this.postDraftReady ? this.savedParts() : await this.storedAttachmentParts();
+      if (this.attachmentInUse(key, true, persisted)) { return; }
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined;
       if (context !== undefined) { discardPostVideo(context, key); }
     } catch (_error) {
@@ -1211,27 +1329,30 @@ struct Timeline {
   }
 
   private draftChanged(): boolean {
-    return this.postDraft !== this.savedPostDraft || !this.samePhotoOrder(this.draftPhotoKeys, this.savedDraftPhotoKeys) ||
-      this.draftVideo?.key !== this.savedDraftVideo?.key;
+    return !this.sameParts(this.composerParts(), this.savedParts());
   }
 
   private canSavePostDraft(): boolean {
     return this.postDraftReady && !this.postDraftBusy && !this.photoPicking && this.draftDecision === DraftDecision.None &&
-      canKeepPost(this.postDraft, this.draftPhotoKeys, this.draftVideo) && this.draftChanged();
+      this.composerParts().some((part: ThreadPart) => canPublishThread(part, [])) &&
+      this.composerParts().every((part: ThreadPart) => part.body.length <= POST_DRAFT_LIMIT) && this.draftChanged();
   }
 
   private canPreviewPostDraft(): boolean {
-    return this.postDraftReady && !this.postDraftBusy && !this.photoPicking && this.draftDecision === DraftDecision.None &&
-      !this.showingPostPreview && canKeepPost(this.postDraft, this.draftPhotoKeys, this.draftVideo);
+    if (!this.canChangeDraftPhotos()) { return false; }
+    const parts = this.composerParts();
+    return canPublishThread(parts[0], parts.slice(1));
   }
 
   private openPostPreview(): void {
     if (!this.canPreviewPostDraft()) {
       return;
     }
-    this.previewBody = this.postDraft;
-    this.previewPhotoKeys = this.draftPhotoKeys.slice();
-    this.previewVideo = this.draftVideo;
+    const parts = this.composerParts();
+    this.previewBody = parts[0].body;
+    this.previewPhotoKeys = parts[0].photoKeys ?? [];
+    this.previewVideo = parts[0].video;
+    this.previewContinuation = parts.slice(1);
     this.showingPostPreview = true;
   }
 
@@ -1240,11 +1361,12 @@ struct Timeline {
     this.previewBody = '';
     this.previewPhotoKeys = [];
     this.previewVideo = undefined;
+    this.previewContinuation = [];
   }
 
   private async addPreviewToTimeline(): Promise<void> {
-    if (!this.showingPostPreview || !canKeepPost(this.previewBody, this.previewPhotoKeys, this.previewVideo) ||
-      this.libraryBusy || !this.libraryReady) {
+    if (!this.showingPostPreview || !canPublishThread(this.makePart(this.previewBody, this.previewPhotoKeys,
+      this.previewVideo), this.previewContinuation) || this.libraryBusy || !this.libraryReady) {
       return;
     }
     if (this.library.posts.length >= LIBRARY_POST_LIMIT) {
@@ -1254,13 +1376,13 @@ struct Timeline {
     const body = this.previewBody;
     this.postSequence = Math.max(this.postSequence + 1, Date.now());
     const post: LibraryPost = { id: `local-post-${this.postSequence}`, body: body,
-      photoKeys: this.previewPhotoKeys.length > 0 ? this.previewPhotoKeys.slice() : undefined, video: this.previewVideo };
+      photoKeys: this.previewPhotoKeys.length > 0 ? this.previewPhotoKeys.slice() : undefined, video: this.previewVideo,
+      continuation: this.previewContinuation.length > 0 ? this.previewContinuation.slice() : undefined };
     const saved = await this.saveLibrary(updateLibrary(this.library, { posts: [post, ...this.library.posts] }));
     if (saved) {
       this.selectedTab = ShellTab.Home;
       this.followingOnly = false;
       this.closePostPreview();
-      this.postDraft = this.savedPostDraft;
       this.readingAnchor = { postId: '', clipped: 0 };
       this.restorePending = true;
       this.leaveComposer();
@@ -1288,7 +1410,6 @@ struct Timeline {
 
   private discardPostEdits(): void {
     if (this.draftDecision === DraftDecision.Leave && !this.postDraftBusy && !this.photoPicking) {
-      this.postDraft = this.savedPostDraft;
       this.leaveComposer();
     }
   }
@@ -1298,28 +1419,26 @@ struct Timeline {
       : !this.canSavePostDraft()) {
       return;
     }
-    const body = clear ? '' : this.postDraft;
-    const keys = clear ? [] : this.draftPhotoKeys.slice();
-    const video = clear ? undefined : this.draftVideo;
-    const formerSavedVideoKey = this.savedDraftVideo?.key;
-    const formerDraftVideoKey = this.draftVideo?.key;
-    const formerPhotos = this.savedDraftPhotoKeys.concat(this.draftPhotoKeys.filter((key: string) =>
-      !this.savedDraftPhotoKeys.includes(key)));
+    const old = [...this.savedParts(), ...this.composerParts()];
+    const parts: ThreadPart[] = clear ? [{ body: '' }] : this.composerParts();
+    const root = parts[0];
+    const remaining = parts.slice(1);
+    const index = clear ? 0 : this.activeDraftPart;
     let written = false;
     this.postDraftBusy = true;
     this.postDraftMessage = '';
     this.draftDecision = DraftDecision.None;
     try {
       const store = await this.postDraftPreferences();
-      const draft: PostDraft = { body: body, photoKeys: keys.length > 0 ? keys : undefined, video: video };
+      const draft: PostDraft = { body: root.body, photoKeys: root.photoKeys, video: root.video,
+        continuation: remaining.length > 0 ? remaining : undefined };
       await store.put(POST_DRAFT_CONTENT_KEY, JSON.stringify(draft));
       await store.flush();
-      this.savedPostDraft = body;
-      this.postDraft = body;
-      this.savedDraftPhotoKeys = keys;
-      this.draftPhotoKeys = keys.slice();
-      this.savedDraftVideo = video;
-      this.draftVideo = video;
+      this.savedPostDraft = root.body;
+      this.savedDraftPhotoKeys = root.photoKeys ?? [];
+      this.savedDraftVideo = root.video;
+      this.savedContinuation = remaining;
+      this.setComposerParts(parts, index);
       written = true;
       this.postDraftMessage = clear ? '本机草稿已清空。' : '草稿已保存到本机。';
     } catch (_error) {
@@ -1327,13 +1446,7 @@ struct Timeline {
     } finally {
       this.postDraftBusy = false;
     }
-    if (written) {
-      this.releasePostPhotos(formerPhotos);
-      if (formerSavedVideoKey !== undefined) { this.releasePostVideo(formerSavedVideoKey); }
-      if (formerDraftVideoKey !== undefined && formerDraftVideoKey !== formerSavedVideoKey) {
-        this.releasePostVideo(formerDraftVideoKey);
-      }
-    }
+    if (written) { this.releaseParts(old); }
   }
 
   @Builder
@@ -1449,6 +1562,11 @@ struct Timeline {
             PostVideo({ posterUri: this.videoUri(this.currentVideo(post)?.key ?? '', true),
               durationMs: this.currentVideo(post)?.durationMs ?? 0, onOpen: () => this.openVideo(this.currentVideo(post)) })
           }
+          if (!inDetail && this.currentContinuation(post).length > 0) {
+            Button('阅读全文 · ' + (this.currentContinuation(post).length + 1) + ' 段')
+              .id('open-thread-' + post.id).buttonStyle(ButtonStyleMode.TEXTUAL).constraintSize({ minHeight: 44 })
+              .fontColor($r('app.color.timeline_text_primary')).onClick(() => this.openPost(post))
+          }
           this.PostActions(post, inDetail)
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
       }.width('100%').alignItems(VerticalAlign.Top)
@@ -1462,9 +1580,38 @@ struct Timeline {
   }
 
   @Builder
+  ThreadPartContent(part: ThreadPart, number: number, total: number, idPrefix: string) {
+    Column({ space: 10 }) {
+      Text('第 ' + number + ' / ' + total + ' 段').fontSize(12).fontWeight(FontWeight.Medium)
+        .fontColor($r('app.color.timeline_text_secondary')).accessibilityLevel('yes')
+      if (part.body.trim().length > 0) {
+        Text(part.body).width('100%').fontSize(16).textAlign(TextAlign.Start).wordBreak(WordBreak.BREAK_WORD)
+          .fontColor($r('app.color.timeline_text_body')).copyOption(CopyOptions.InApp)
+      }
+      if ((part.photoKeys?.length ?? 0) > 0) {
+        PostGallery({ uris: this.photoUris(part.photoKeys ?? []), motionEnabled: this.allowsMotionFeedback(),
+          onOpen: (index: number) => this.openPhoto(part.photoKeys ?? [], index) })
+      } else if (part.video !== undefined) {
+        PostVideo({ posterUri: this.videoUri(part.video.key, true), durationMs: part.video.durationMs,
+          onOpen: () => this.openVideo(part.video) })
+      }
+    }.id(idPrefix + number).width('100%').alignItems(HorizontalAlign.Start)
+      .padding({ left: 14, top: 10, bottom: 14 })
+      .border({ width: { left: 1 }, color: $r('app.color.timeline_border') })
+  }
+
+  @Builder
   DiscussionRoot(post: MockPost) {
     Column({ space: 6 }) {
+      if (this.currentContinuation(post).length > 0) {
+        Text('串帖 · 第 1 / ' + (this.currentContinuation(post).length + 1) + ' 段')
+          .id('thread-reading-heading').fontSize(13).fontWeight(FontWeight.Medium)
+          .fontColor($r('app.color.timeline_text_secondary'))
+      }
       this.PostCard(post, true)
+      ForEach(this.currentContinuation(post), (part: ThreadPart, index: number) => {
+        this.ThreadPartContent(part, index + 2, this.currentContinuation(post).length + 1, 'thread-reading-part-')
+      }, (_part: ThreadPart, index: number) => index.toString())
       if (post.local) {
         if (this.confirmingDelete) {
           Text('删除本机帖子和相关互动？').fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
@@ -1501,12 +1648,16 @@ struct Timeline {
           .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body'))
           .enabled(!this.libraryBusy).onClick(() => this.closePostPreview())
         Column({ space: 6 }) {
-          Text('帖子预览').fontSize(28).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
+          Text(this.previewContinuation.length > 0 ? '串帖预览' : '帖子预览').fontSize(28).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
           Text('保存到这台设备，不会发送到 Threads，也不会更改已保存的草稿。')
             .fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
         }.width('100%').alignItems(HorizontalAlign.Start)
         Column({ space: 12 }) {
           Text(this.identity.name + ' · 本机预览').fontSize(15).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
+          if (this.previewContinuation.length > 0) {
+            Text('第 1 / ' + (this.previewContinuation.length + 1) + ' 段').fontSize(12)
+              .fontColor($r('app.color.timeline_text_secondary'))
+          }
           if (this.previewBody.trim()) {
             Text(this.previewBody).width('100%').fontSize(15).textAlign(TextAlign.Start)
               .fontColor($r('app.color.timeline_text_body')).copyOption(CopyOptions.InApp)
@@ -1521,6 +1672,9 @@ struct Timeline {
         }.width('100%').padding(18).alignItems(HorizontalAlign.Start)
           .backgroundColor($r('app.color.timeline_surface')).borderRadius(22)
           .border({ width: 1, color: $r('app.color.timeline_border') })
+        ForEach(this.previewContinuation, (part: ThreadPart, index: number) => {
+          this.ThreadPartContent(part, index + 2, this.previewContinuation.length + 1, 'thread-preview-part-')
+        }, (_part: ThreadPart, index: number) => index.toString())
         Button(this.libraryBusy ? '正在保存…' : '加入本机时间线', { type: ButtonType.Capsule })
           .width('100%').constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16, top: 10, bottom: 10 })
           .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
@@ -1572,8 +1726,15 @@ struct Timeline {
           Text('只保存在这台设备，不会发布到 Threads。').fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
         }.width('100%').alignItems(HorizontalAlign.Start)
         if (this.postDraftReady) {
+          ThreadPartPicker({ count: this.draftParts.length, activeIndex: this.activeDraftPart,
+            maxParts: MAX_THREAD_PARTS, editable: this.canChangeDraftPhotos(),
+            onSelect: (index: number) => this.selectDraftPart(index), onAdd: () => this.addDraftPart(),
+            onMove: (direction: number) => this.moveDraftPart(direction),
+            onRemove: () => { if (this.canChangeDraftPhotos() && this.draftParts.length > 1) {
+              this.draftDecision = DraftDecision.RemovePart;
+            } } })
           Column({ space: 12 }) {
-            TextArea({ text: this.postDraft, placeholder: '此刻，想写点什么？' })
+            TextArea({ text: this.postDraft, placeholder: '此刻，想写点什么？' }).id('draft-part-body')
               .width('100%').constraintSize({ minHeight: 140, maxHeight: 260 }).maxLength(POST_DRAFT_LIMIT)
               .fontSize(16).fontColor($r('app.color.timeline_text_body')).placeholderColor($r('app.color.timeline_text_muted'))
               .backgroundColor($r('app.color.timeline_background')).borderRadius(16)
@@ -1582,7 +1743,7 @@ struct Timeline {
               .onChange((value: string) => { this.postDraft = value; this.postDraftMessage = ''; })
             Text(`${this.postDraft.length} / ${POST_DRAFT_LIMIT}`).fontSize(12)
               .fontColor($r('app.color.timeline_text_secondary'))
-            Text('附件 · 最多四张图片或一段视频').fontSize(14).fontWeight(FontWeight.Medium)
+            Text('本段附件 · 最多四张图片或一段视频').fontSize(14).fontWeight(FontWeight.Medium)
               .fontColor($r('app.color.timeline_text_primary'))
             if (this.draftVideo !== undefined) {
               PostVideo({ posterUri: this.videoUri(this.draftVideo.key, true), durationMs: this.draftVideo.durationMs, compact: true })
@@ -1618,12 +1779,18 @@ struct Timeline {
                 .width('100%').constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16, top: 10, bottom: 10 })
                 .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
                 .enabled(this.canSavePostDraft()).onClick(() => { this.savePostDraft(false); })
-              Button('预览帖子', { type: ButtonType.Capsule })
+              Button(this.draftParts.length > 1 ? '预览整串' : '预览帖子', { type: ButtonType.Capsule })
+                .id('thread-preview')
                 .width('100%').constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16, top: 10, bottom: 10 })
                 .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body'))
                 .enabled(this.canPreviewPostDraft()).onClick(() => this.openPostPreview())
+              if (this.draftParts.length > 1 && !this.canPreviewPostDraft()) {
+                Text('可以保存未完成的草稿；预览前每段需有文字或附件。').fontSize(13)
+                  .fontColor($r('app.color.timeline_text_secondary'))
+              }
               if ((this.savedPostDraft.length > 0 || this.savedDraftPhotoKeys.length > 0 ||
-                this.savedDraftVideo !== undefined) && !this.postDraftBusy && !this.photoPicking) {
+                this.savedDraftVideo !== undefined || this.savedContinuation.length > 0) &&
+                !this.postDraftBusy && !this.photoPicking) {
                 Button('清空本机草稿', { type: ButtonType.Capsule })
                   .constraintSize({ minHeight: 48 }).buttonStyle(ButtonStyleMode.TEXTUAL)
                   .fontColor($r('app.color.timeline_text_body'))
@@ -1640,20 +1807,26 @@ struct Timeline {
         }
         if (this.draftDecision !== DraftDecision.None) {
           Column({ space: 10 }) {
-            Text(this.draftDecision === DraftDecision.Clear ? '清空已经保存的草稿？' : '放弃未保存的修改？')
+            Text(this.draftDecision === DraftDecision.Clear ? '清空已经保存的草稿？' :
+              this.draftDecision === DraftDecision.RemovePart ? '删除这一段？' : '放弃未保存的修改？')
               .fontSize(16).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
-            Text(this.draftDecision === DraftDecision.Clear ? '已保存的内容与当前修改都会清空。' : '之前保存到本机的内容会保留。')
+            Text(this.draftDecision === DraftDecision.Clear ? '已保存的内容与当前修改都会清空。' :
+              this.draftDecision === DraftDecision.RemovePart ? '仅移除当前草稿的这一段。保存草稿后才覆盖原稿。' :
+                '之前保存到本机的内容会保留。')
               .fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
             Button('继续编辑', { type: ButtonType.Capsule })
               .width('100%').constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16 })
               .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
               .onClick(() => { this.draftDecision = DraftDecision.None; })
-            Button(this.draftDecision === DraftDecision.Clear ? '确认清空' : '放弃修改并返回')
+            Button(this.draftDecision === DraftDecision.Clear ? '确认清空' :
+              this.draftDecision === DraftDecision.RemovePart ? '确认删除此段' : '放弃修改并返回')
               .constraintSize({ minHeight: 48 }).buttonStyle(ButtonStyleMode.TEXTUAL)
               .fontColor($r('app.color.timeline_text_body'))
               .onClick(() => {
                 if (this.draftDecision === DraftDecision.Clear) {
                   this.savePostDraft(true);
+                } else if (this.draftDecision === DraftDecision.RemovePart) {
+                  this.removeDraftPart();
                 } else {
                   this.discardPostEdits();
                 }
@@ -1741,7 +1914,7 @@ struct Timeline {
         Button('返回').buttonStyle(ButtonStyleMode.TEXTUAL).constraintSize({ minHeight: 48 })
           .fontColor($r('app.color.timeline_text_body')).onClick(() => this.requestPostEditorBack())
         Text('编辑本机帖子').fontSize(26).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
-        Text('只修改这台设备上的正文，原讨论和互动会保留。')
+        Text('只修改首段正文；后续段落、附件、讨论和互动会保留。')
           .fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
         if (this.editConfirmLeave) {
           this.EditorDecision(() => { this.editConfirmLeave = false; }, () => this.leaveComposer())
@@ -1797,6 +1970,11 @@ struct Timeline {
         .onShown(() => { this.videoDestinationVisible = true; })
         .onWillHide(() => { this.videoDestinationVisible = false; })
         .onBackPressed(() => { this.closeVideo(); return true; })
+    } else if (name === PUBLIC_THREADS) {
+      NavDestination() {
+        ThreadsPublicPane({ onClose: () => this.closePost() })
+      }.hideTitleBar(true).backgroundColor($r('app.color.timeline_surface'))
+        .onBackPressed(() => { this.closePost(); return true; })
     } else if (name === POST_SETTINGS) {
       NavDestination() {
         SettingsPane({
@@ -1865,7 +2043,8 @@ struct Timeline {
       onQuery: (value: string) => { this.searchQuery = value; },
       onMode: (value: number) => { this.discoveryMode = value === 1 ? 1 : 0; },
       onAuthor: (id: string) => this.openAuthor(id),
-      onTopic: (topic: string) => { this.searchQuery = topic; this.discoveryMode = 0; } })
+      onTopic: (topic: string) => { this.searchQuery = topic; this.discoveryMode = 0; },
+      onPublicThreads: () => this.openPublicThreads() })
   }
 
   @Builder

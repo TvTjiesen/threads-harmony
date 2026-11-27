@@ -25,6 +25,7 @@ export struct DiscoveryPane {
   onMode: (value: number) => void = (_value: number): void => {};
   onAuthor: (id: string) => void = (_id: string): void => {};
   onTopic: (topic: string) => void = (_topic: string): void => {};
+  onPublicThreads: () => void = () => {};
 
   private readonly segments: SegmentButtonV2Items = new SegmentButtonV2Items([{ text: '帖子' }, { text: '作者' }]);
 
@@ -44,6 +45,9 @@ export struct DiscoveryPane {
       TabSegmentButtonV2({ items: this.segments, selectedIndex: this.mode, itemMaxFontScale: 2,
         itemMinHeight: LengthMetrics.vp(44), $selectedIndex: (value: number) => this.onMode(value) })
         .id('discovery-mode').width('100%').constraintSize({ maxWidth: 280 })
+      Button('Threads 公开内容 · 开发联调').id('discovery-public-threads').buttonStyle(ButtonStyleMode.TEXTUAL)
+        .fontColor($r('app.color.timeline_text_secondary')).constraintSize({ minHeight: 48 })
+        .onClick(() => this.onPublicThreads())
     }.width('100%').alignItems(HorizontalAlign.Start).padding({ top: 10, bottom: 10 })
   }
 

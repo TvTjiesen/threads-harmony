@@ -5,8 +5,9 @@ import { test } from 'node:test';
 
 const source = readFileSync(new URL('../app/entry/src/main/ets/model/LocalLibrary.ets', import.meta.url), 'utf8');
 const modelUrl = `data:text/javascript,${encodeURIComponent(stripTypeScriptTypes(source))}`;
-const { MAX_POST_PHOTOS, canKeepPost, decodeLibrary, decodePostDraft, emptyLibrary, encodeLibrary, isPostPhotoKey,
-  matchesPost } = await import(modelUrl);
+const { LIBRARY_POST_LIMIT, LIBRARY_REPLY_LIMIT, LOCAL_POST_BODY_LIMIT, LOCAL_REPLY_BODY_LIMIT, MAX_POST_PHOTOS,
+  MAX_THREAD_PARTS, canKeepPost, canPublishThread, decodeLibrary, decodePostDraft, emptyLibrary, encodeLibrary,
+  isPostPhotoKey, matchesPost } = await import(modelUrl);
 
 const demoIds = ['p1', 'p2'];
 const legacy = { posts: [], likedIds: [], followedIds: [], savedIds: [] };
@@ -205,6 +206,124 @@ test('video-only posts and drafts retain validated duration without rewriting le
   ] }), demoIds);
   assert.deepEqual(state.posts, posts);
   assert.deepEqual(decodeLibrary(encodeLibrary(state), demoIds), state);
+});
+
+test('legacy single-post encoding stays byte-for-byte version 1', () => {
+  const picture = photo('a');
+  const video = { key: `video-${'f'.repeat(32)}.mp4`, durationMs: 1234 };
+  const state = { ...empty, posts: [
+    { id: 'local-post-1', body: 'Text' },
+    { id: 'local-post-2', body: '', photoKeys: [picture] },
+    { id: 'local-post-3', body: '', video }
+  ] };
+  const expected = JSON.stringify({ version: 1, posts: state.posts, likedIds: [], followedIds: [], savedIds: [],
+    replies: [], hiddenIds: [] });
+  assert.equal(encodeLibrary(state), expected);
+  assert.deepEqual(decodeLibrary(expected, demoIds), state);
+});
+
+test('draft continuations retain blank segments, media and order without changing root sanitization', () => {
+  const a = photo('a');
+  const b = photo('b');
+  const video = { key: `video-${'a'.repeat(32)}.mp4`, durationMs: 60000 };
+  const continuation = [{ body: '  ' }, { body: '', photoKeys: [b, a] }, { body: '' }, { body: '', video },
+    { body: '\n最後の段落\t ' }];
+  const draft = { body: '', photoKeys: [a], continuation };
+  assert.deepEqual(decodePostDraft(JSON.stringify({ ...draft, photoKeys: [a, '../broken', a], video })), draft);
+  assert.deepEqual(decodePostDraft(JSON.stringify(draft)), draft);
+  assert.deepEqual(decodePostDraft('{"body":"","continuation":[]}'), { body: '', continuation: [] });
+  assert.deepEqual(decodePostDraft('{"body":"","continuation":[{"body":""}]}'),
+    { body: '', continuation: [{ body: '' }] });
+});
+
+test('malformed draft continuations throw instead of appearing to be a valid shorter draft', () => {
+  const picture = photo('a');
+  const video = { key: `video-${'f'.repeat(32)}.mp4`, durationMs: 1234 };
+  for (const continuation of [null, {}, '', [null], [1], [[]], [{}], [{ body: 3 }],
+    [{ body: 'x'.repeat(LOCAL_POST_BODY_LIMIT + 1) }], [{ body: '', continuation: [] }],
+    [{ body: '', photoKeys: picture }], [{ body: '', photoKeys: [picture, picture] }],
+    [{ body: '', photoKeys: ['a', 'b', 'c', 'd', 'e'].map(photo) }],
+    [{ body: '', photoKeys: [picture, '../broken'] }], [{ body: '', video: { ...video, durationMs: 0 } }],
+    [{ body: '', photoKeys: [picture], video }], Array.from({ length: MAX_THREAD_PARTS }, () => ({ body: '' }))]) {
+    assert.throws(() => decodePostDraft(JSON.stringify({ body: 'must not overwrite', continuation })),
+      /Invalid local draft/);
+  }
+});
+
+test('publishing requires valid nonempty content in every part and enforces media and segment limits', () => {
+  assert.equal(MAX_THREAD_PARTS, 6);
+  const pictures = ['a', 'b', 'c', 'd', 'e'].map(photo);
+  const video = { key: `video-${'b'.repeat(32)}.mp4`, durationMs: 60000 };
+  const root = { body: 'x'.repeat(LOCAL_POST_BODY_LIMIT) };
+  const continuation = [{ body: 'second' }, { body: '', photoKeys: pictures.slice(0, 4) }, { body: ' ', video },
+    { body: 'fifth' }, { body: 'sixth' }];
+  assert.equal(canPublishThread(root, []), true);
+  assert.equal(canPublishThread(root, continuation), true);
+  assert.equal(canPublishThread(root, [...continuation, root]), false);
+  assert.equal(canPublishThread({ body: ' ' }, continuation), false);
+  for (const part of [null, { body: ' ' }, { body: 'x'.repeat(LOCAL_POST_BODY_LIMIT + 1) },
+    { body: 'text', photoKeys: [pictures[0], null] }, { body: 'text', photoKeys: pictures },
+    { body: 'text', photoKeys: [pictures[0], pictures[0]] }, { body: 'text', photoKeys: [pictures[0]], video },
+    { body: 'text', video: { ...video, durationMs: 60001 } }]) {
+    assert.equal(canPublishThread(part, []), false);
+    assert.equal(canPublishThread(root, [part]), false);
+  }
+  assert.equal(canPublishThread(root, null), false);
+  assert.equal(canPublishThread(root, new Array(1)), false);
+});
+
+test('version 1 round-trips whole threads; encode and decode discard malformed threads atomically', () => {
+  const picture = photo('a');
+  const video = { key: `video-${'c'.repeat(32)}.mp4`, durationMs: 1000 };
+  const thread = { id: 'local-post-1', body: '', video, continuation: [
+    { body: '\t second\n' }, { body: '', photoKeys: [picture] }, { body: 'fourth' }
+  ] };
+  const single = { id: 'local-post-2', body: 'single' };
+  const bad = [
+    { ...thread, continuation: null },
+    { ...thread, continuation: [{ body: 'keep nothing' }, { body: ' ' }] },
+    { ...thread, continuation: [{ body: '', photoKeys: [picture], video }] },
+    { ...thread, continuation: [{ body: 'text', photoKeys: ['../broken'] }] },
+    { ...thread, continuation: [{ body: '', video: { ...video, durationMs: -1 } }] },
+    { ...thread, continuation: [{ body: 'x'.repeat(LOCAL_POST_BODY_LIMIT + 1) }] },
+    { ...thread, continuation: Array.from({ length: MAX_THREAD_PARTS }, () => ({ body: 'too many parts' })) },
+    { ...thread, photoKeys: [picture] },
+    { ...thread, photoKey: picture },
+    { ...thread, video: undefined },
+    { ...thread, body: 'x'.repeat(LOCAL_POST_BODY_LIMIT + 1) }
+  ].map((post, i) => ({ ...post, id: `local-post-${i + 3}` }));
+  const state = { ...empty, posts: [...bad, thread, single] };
+  const retained = { ...empty, posts: [thread, single] };
+  const encoded = encodeLibrary(state);
+  assert.deepEqual(JSON.parse(encoded), { version: 1, ...retained });
+  assert.deepEqual(decodeLibrary(encoded, demoIds), retained);
+  assert.deepEqual(decodeLibrary(persisted(state), demoIds), retained);
+  assert.deepEqual(decodeLibrary(persisted({ ...state, likedIds: [bad[0].id, thread.id] }), demoIds).likedIds,
+    [thread.id]);
+});
+
+test('storage bounds cover 40 six-part posts with worst-case JSON escapes, four keys per part and 80 replies', () => {
+  const maxPart = (n) => ({ body: '\u0001'.repeat(LOCAL_POST_BODY_LIMIT), photoKeys:
+    Array.from({ length: MAX_POST_PHOTOS }, (_, i) => `photo-${(n * MAX_POST_PHOTOS + i).toString(16).padStart(32, '0')}.jpg`) });
+  const maxDraft = (n) => ({ ...maxPart(n * MAX_THREAD_PARTS), continuation:
+    Array.from({ length: MAX_THREAD_PARTS - 1 }, (_, i) => maxPart(n * MAX_THREAD_PARTS + i + 1)) });
+  const draft = maxDraft(0);
+  const raw = JSON.stringify(draft);
+  assert.ok(raw.length > 4000);
+  assert.deepEqual(decodePostDraft(raw), draft);
+  const posts = Array.from({ length: LIBRARY_POST_LIMIT }, (_, i) => ({ id: `local-post-${100000000000000 + i}`,
+    ...maxDraft(i) }));
+  const replies = Array.from({ length: LIBRARY_REPLY_LIMIT }, (_, i) => ({ id: `local-${100000000000000 + i}`,
+    postId: posts[0].id, body: '\u0001'.repeat(LOCAL_REPLY_BODY_LIMIT),
+    parentId: i === 0 ? undefined : `local-${100000000000000 + i - 1}` }));
+  const state = { ...empty, posts, likedIds: [...demoIds, ...posts.map(({ id }) => id)],
+    savedIds: [...demoIds, ...posts.map(({ id }) => id)], followedIds: demoIds, hiddenIds: demoIds, replies };
+  const encoded = encodeLibrary(state);
+  assert.ok(encoded.length > 350000);
+  assert.deepEqual(decodeLibrary(encoded, demoIds), state);
+  const overflow = { id: 'local-post-999999999999999', ...maxDraft(LIBRARY_POST_LIMIT) };
+  const invalid = { id: 'local-post-2', body: 'broken', continuation: [{ body: '' }] };
+  assert.deepEqual(decodeLibrary(persisted({ ...state, posts: [invalid, ...posts, overflow] }), demoIds), state);
 });
 
 test('search is trimmed, case-insensitive, and requires every term across the fields', () => {

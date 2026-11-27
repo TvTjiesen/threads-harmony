@@ -339,8 +339,8 @@ test('post overflow uses an anchored native menu with only local actions', () =>
   }
   assert.match(menu, /if \(post\.local\) \{[\s\S]*?this\.openPostEditor\(post\)[\s\S]*?\} else \{[\s\S]*?this\.toggleHidden\(post\.id\)/);
   const actions = timelineMethods('  private async copyPost(', '  @Builder\n  PostMenu(');
-  assert.match(actions, /setData\(pasteboard\.createData\(pasteboard\.MIMETYPE_TEXT_PLAIN, this\.currentPostBody\(post\)\)\)/);
-  assert.match(actions, /SharedData\(\{ utd: 'general\.plain-text', content: this\.currentPostBody\(post\)/);
+  assert.match(actions, /setData\(pasteboard\.createData\(pasteboard\.MIMETYPE_TEXT_PLAIN, this\.threadText\(post\)\)\)/);
+  assert.match(actions, /SharedData\(\{ utd: 'general\.plain-text', content: this\.threadText\(post\)/);
   assert.doesNotMatch(actions, /https?:|\.openLink\(/);
 });
 
@@ -560,6 +560,7 @@ test('shell tabs and local activity preserve origin and never create duplicate r
     openPost(post, focusId) { this.opened.push([post.id, focusId]); }
     ${lifecycle}
     ${actions}
+    ${timelineMethods('  private currentPostBody(', '  private async copyPost(')}
   }; Shell`), { ShellTab: tabs, POST_SETTINGS: 'Settings', LayoutFrame: class {}, matchesPost: libraryModel.matchesPost });
   const page = new Shell();
   page.selectFeed(true);
@@ -745,6 +746,7 @@ test('post drafts persist explicitly and preview posts are added once without mo
       postDraftMessage = ''; draftDecision = DraftDecision.None; postDraftLoadId = 0;
       showingPostPreview = false; previewBody = ''; postSequence = 0;
       draftPhotoKeys = []; savedDraftPhotoKeys = []; previewPhotoKeys = []; viewerPhotoKeys = []; viewerPhotoIndex = 0;
+      draftParts = [{ body: '' }]; activeDraftPart = 0; savedContinuation = []; previewContinuation = [];
       photoPicking = false;
       library = emptyLibrary(); libraryReady = false; libraryLoading = false; libraryBusy = false; identity = emptyIdentity();
       likedIds = []; followedIds = []; savedIds = [];
@@ -770,7 +772,7 @@ test('post drafts persist explicitly and preview posts are added once without mo
     }
     ({ Composer, DraftDecision, ShellTab });`, { mode: 'transform' }), {
     ...libraryModel, ...identityModel,
-    POSTS: [{ id: 'p1' }, { id: 'p2' }], SAMPLE_REPLIES: [],
+    POSTS: [{ id: 'p1', body: 'First example' }, { id: 'p2', body: 'Second example' }], SAMPLE_REPLIES: [],
     discardPostPhoto: (_context, key) => { discardedPhotos.push(key); },
     discardPostVideo: (_context, key) => { discardedVideos.push(key); },
     pickPostVideo: async (_context, fromFiles) => { videoPicks++; assert.equal(fromFiles, true); return nextVideo; },
@@ -1077,6 +1079,62 @@ test('post drafts persist explicitly and preview posts are added once without mo
   videoReopened.library = libraryModel.emptyLibrary();
   await videoReopened.releasePostVideo(video.key);
   assert.deepEqual(discardedVideos, [video.key]);
+
+  disk = JSON.stringify({ body: 'first segment' });
+  const thread = new Composer(stores);
+  await thread.loadLibrary();
+  thread.openComposer();
+  await settle();
+  thread.addDraftPart();
+  assert.equal(thread.activeDraftPart, 1);
+  assert.equal(thread.canSavePostDraft(), true, 'an unfinished chain can be saved');
+  assert.equal(thread.canPreviewPostDraft(), false, 'blank segments cannot be published');
+  await thread.savePostDraft(false);
+  assert.deepEqual(JSON.parse(disk), { body: 'first segment', continuation: [{ body: '' }] });
+  thread.postDraft = 'second searchable';
+  const secondVideo = { key: `video-${'d'.repeat(32)}.mp4`, durationMs: 5140 };
+  nextVideo = secondVideo;
+  await thread.selectDraftVideo(true);
+  thread.addDraftPart();
+  const thirdPhoto = `photo-${'a'.repeat(32)}.jpg`;
+  nextPhotos = [thirdPhoto];
+  await thread.selectDraftPhotos();
+  thread.moveDraftPart(-1);
+  assert.equal(thread.activeDraftPart, 1);
+  thread.selectDraftPart(2);
+  assert.equal(thread.postDraft, 'second searchable');
+  assert.equal(thread.draftVideo.key, secondVideo.key);
+  thread.addDraftPart();
+  thread.draftDecision = DraftDecision.RemovePart;
+  thread.removeDraftPart();
+  assert.equal(thread.draftParts.length, 3);
+  assert.equal(thread.draftVideo.key, secondVideo.key);
+  await thread.savePostDraft(false);
+  assert.deepEqual(JSON.parse(disk), { body: 'first segment', continuation: [{ body: '', photoKeys: [thirdPhoto] },
+    { body: 'second searchable', video: secondVideo }] });
+  thread.openPostPreview();
+  assert.deepEqual(Array.from(thread.previewContinuation, part => part.body), ['', 'second searchable']);
+  await thread.addPreviewToTimeline();
+  const published = JSON.parse(libraryDisk).posts[0];
+  assert.deepEqual(published.continuation, JSON.parse(disk).continuation);
+  const threadReopened = new Composer(stores);
+  await threadReopened.loadLibrary();
+  threadReopened.openComposer();
+  await settle();
+  assert.equal(threadReopened.draftParts.length, 3);
+  assert.equal(threadReopened.threadText(threadReopened.timelinePosts[0]), 'first segment\n\nsecond searchable');
+  threadReopened.searchQuery = 'searchable';
+  threadReopened.hiddenIds = [];
+  assert.ok(threadReopened.discoveryPosts().some(post => post.id === published.id));
+  threadReopened.libraryMode = 0;
+  for (const mediaMode of [1, 2]) {
+    threadReopened.profileMediaMode = mediaMode;
+    assert.ok(threadReopened.profilePosts().some(post => post.id === published.id), 'any segment matches media filter');
+  }
+  threadReopened.draftDecision = DraftDecision.Clear;
+  await threadReopened.savePostDraft(true);
+  assert.ok(!discardedPhotos.includes(thirdPhoto) && !discardedVideos.includes(secondVideo.key),
+    'clearing a thread draft cannot remove published continuation attachments');
   assert.match(timelineSource, /ForEach\(this\.visibleFeed\(\),/);
 });
 

@@ -1,9 +1,16 @@
 export const LIBRARY_POST_LIMIT = 40;
 export const MAX_POST_PHOTOS = 4;
 export const MAX_POST_VIDEO_DURATION_MS = 60000;
+export const MAX_THREAD_PARTS = 6;
 export const LOCAL_POST_BODY_LIMIT = 500;
 export const LIBRARY_REPLY_LIMIT = 80;
 export const LOCAL_REPLY_BODY_LIMIT = 280;
+
+// Budget six JSON characters per body code unit and 45 per quoted photo key plus delimiter.
+const STORED_PART_BUDGET = LOCAL_POST_BODY_LIMIT * 6 + MAX_POST_PHOTOS * 45 + 64;
+const STORED_DRAFT_LIMIT = MAX_THREAD_PARTS * STORED_PART_BUDGET + 64;
+const STORED_LIBRARY_LIMIT = LIBRARY_POST_LIMIT * STORED_DRAFT_LIMIT +
+  LIBRARY_REPLY_LIMIT * (LOCAL_REPLY_BODY_LIMIT * 6 + 160) + 16384;
 
 export interface LibraryReply {
   id: string;
@@ -22,10 +29,14 @@ export interface PostVideoAttachment {
   durationMs: number;
 }
 
-export interface PostDraft {
+export interface ThreadPart {
   body: string;
   photoKeys?: string[];
   video?: PostVideoAttachment;
+}
+
+export interface PostDraft extends ThreadPart {
+  continuation?: ThreadPart[];
 }
 
 export interface LibraryPost extends PostDraft {
@@ -77,9 +88,26 @@ function validPostVideo(value?: PostVideoAttachment): PostVideoAttachment | unde
   return { key: value.key, durationMs: value.durationMs };
 }
 
-function postWithMedia(id: string, body: string, photoKeys: string[], video?: PostVideoAttachment): LibraryPost {
-  if (photoKeys.length > 0) { return { id: id, body: body, photoKeys: photoKeys }; }
-  return video === undefined ? { id: id, body: body } : { id: id, body: body, video: video };
+function draftWithMedia(body: string, photoKeys: string[], video?: PostVideoAttachment): PostDraft {
+  if (photoKeys.length > 0) { return { body: body, photoKeys: photoKeys }; }
+  return video === undefined ? { body: body } : { body: body, video: video };
+}
+
+function copyContinuation(continuation: ThreadPart[]): ThreadPart[] {
+  return continuation.map((part: ThreadPart): ThreadPart =>
+    draftWithMedia(part.body, part.photoKeys?.slice() ?? [], validPostVideo(part.video)));
+}
+
+function postWithMedia(id: string, body: string, photoKeys: string[], video?: PostVideoAttachment,
+  continuation?: ThreadPart[]): LibraryPost {
+  const post: LibraryPost = { id: id, body: body };
+  if (photoKeys.length > 0) {
+    post.photoKeys = photoKeys;
+  } else if (video !== undefined) {
+    post.video = video;
+  }
+  if (continuation !== undefined) { post.continuation = copyContinuation(continuation); }
+  return post;
 }
 
 export function canKeepPost(body: string, photoKeys: string[], video?: PostVideoAttachment): boolean {
@@ -87,15 +115,42 @@ export function canKeepPost(body: string, photoKeys: string[], video?: PostVideo
     (body.trim().length > 0 || photoKeys.some(isPostPhotoKey) || validPostVideo(video) !== undefined);
 }
 
+function validThreadPart(part: ThreadPart): boolean {
+  if (part === undefined || part === null || typeof part !== 'object' || Array.isArray(part) ||
+    typeof part.body !== 'string' || part.body.length > LOCAL_POST_BODY_LIMIT) { return false; }
+  const keys = part.photoKeys;
+  if (keys !== undefined && (!Array.isArray(keys) || keys.length > MAX_POST_PHOTOS ||
+    validPostPhotoKeys(keys).length !== keys.length)) { return false; }
+  return part.video === undefined || ((keys?.length ?? 0) === 0 && !Array.isArray(part.video) &&
+    validPostVideo(part.video) !== undefined);
+}
+
+function validContinuation(continuation: ThreadPart[], allowBlank: boolean): boolean {
+  if (!Array.isArray(continuation) || continuation.length >= MAX_THREAD_PARTS) { return false; }
+  for (const part of continuation) {
+    if (!validThreadPart(part)) { return false; }
+    const storedPart = part as StoredPostDraft;
+    if (storedPart.continuation !== undefined || storedPart.photoKey !== undefined ||
+      (!allowBlank && !canKeepPost(part.body, part.photoKeys ?? [], part.video))) { return false; }
+  }
+  return true;
+}
+
+export function canPublishThread(part: ThreadPart, continuation: ThreadPart[]): boolean {
+  return validThreadPart(part) && canKeepPost(part.body, part.photoKeys ?? [], part.video) &&
+    validContinuation(continuation, false);
+}
+
 export function decodePostDraft(raw: string): PostDraft {
-  if (raw.length > 4000) { throw new Error('Invalid local draft'); }
+  if (raw.length > STORED_DRAFT_LIMIT) { throw new Error('Invalid local draft'); }
   const value = JSON.parse(raw) as StoredPostDraft;
   if (value === null || typeof value !== 'object' || typeof value.body !== 'string' ||
     value.body.length > LOCAL_POST_BODY_LIMIT) { throw new Error('Invalid local draft'); }
-  const keys = storedPostPhotoKeys(value);
-  if (keys.length > 0) { return { body: value.body, photoKeys: keys }; }
-  const video = validPostVideo(value.video);
-  return video === undefined ? { body: value.body } : { body: value.body, video: video };
+  const continuation = value.continuation;
+  if (continuation !== undefined && !validContinuation(continuation, true)) { throw new Error('Invalid local draft'); }
+  const draft = draftWithMedia(value.body, storedPostPhotoKeys(value), validPostVideo(value.video));
+  if (continuation !== undefined) { draft.continuation = copyContinuation(continuation); }
+  return draft;
 }
 
 interface LibraryState {
@@ -130,9 +185,20 @@ export function updateLibrary(value: LocalLibrary, patch: LibraryPatch): LocalLi
     replies: patch.replies ?? value.replies, hiddenIds: patch.hiddenIds ?? value.hiddenIds };
 }
 
+function canStoreContinuation(post: PostDraft): boolean {
+  const continuation = post.continuation;
+  // Only pre-thread posts may be restored by dropping invalid or conflicting legacy media.
+  return continuation === undefined || ((post as StoredPostDraft).photoKey === undefined &&
+    canPublishThread(post, continuation));
+}
+
 export function encodeLibrary(value: LocalLibrary): string {
-  const posts = value.posts.map((post: LibraryPost) =>
-    postWithMedia(post.id, post.body, validPostPhotoKeys(post.photoKeys), validPostVideo(post.video)));
+  const posts: LibraryPost[] = [];
+  for (const post of value.posts) {
+    if (!canStoreContinuation(post)) { continue; }
+    posts.push(postWithMedia(post.id, post.body, validPostPhotoKeys(post.photoKeys), validPostVideo(post.video),
+      post.continuation));
+  }
   const stored: StoredLibrary<LibraryPost> = { version: 1, posts: posts, likedIds: value.likedIds,
     followedIds: value.followedIds, savedIds: value.savedIds, replies: value.replies, hiddenIds: value.hiddenIds };
   return JSON.stringify(stored);
@@ -185,7 +251,7 @@ function validReplies(values: LibraryReply[], postIds: string[], samples: ReplyR
 }
 
 export function decodeLibrary(raw: string, demoIds: string[], samples: ReplyReference[] = []): LocalLibrary {
-  if (raw.length === 0 || raw.length > 350000) {
+  if (raw.length === 0 || raw.length > STORED_LIBRARY_LIMIT) {
     return emptyLibrary();
   }
   try {
@@ -204,10 +270,11 @@ export function decodeLibrary(raw: string, demoIds: string[], samples: ReplyRefe
         !/^local-post-[1-9][0-9]{0,14}$/.test(post.id) || ids.includes(post.id) || typeof post.body !== 'string') {
         continue;
       }
+      if (!canStoreContinuation(post)) { continue; }
       const keys = storedPostPhotoKeys(post);
       const video = validPostVideo(post.video);
       if (canKeepPost(post.body, keys, video)) {
-        posts.push(postWithMedia(post.id, post.body, keys, video));
+        posts.push(postWithMedia(post.id, post.body, keys, video, post.continuation));
         ids.push(post.id);
       }
     }

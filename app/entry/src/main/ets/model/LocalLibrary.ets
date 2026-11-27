@@ -1,4 +1,5 @@
 export const LIBRARY_POST_LIMIT = 40;
+export const MAX_POST_PHOTOS = 4;
 export const LOCAL_POST_BODY_LIMIT = 500;
 export const LIBRARY_REPLY_LIMIT = 80;
 export const LOCAL_REPLY_BODY_LIMIT = 280;
@@ -15,36 +16,66 @@ export interface ReplyReference {
   postId: string;
 }
 
-export interface LibraryPost {
-  id: string;
+export interface PostDraft {
   body: string;
+  photoKeys?: string[];
+}
+
+export interface LibraryPost extends PostDraft {
+  id: string;
+}
+
+interface StoredPostDraft extends PostDraft {
   photoKey?: string;
 }
 
-export interface PostDraft {
-  body: string;
-  photoKey?: string;
+interface StoredLibraryPost extends StoredPostDraft {
+  id: string;
 }
 
 export function isPostPhotoKey(value: string): boolean {
   return typeof value === 'string' && value.length === 42 && /^photo-[a-f0-9]{32}\.jpg$/.test(value);
 }
 
-export function canKeepPost(body: string, photoKey: string): boolean {
-  return body.length <= LOCAL_POST_BODY_LIMIT && (body.trim().length > 0 || isPostPhotoKey(photoKey));
+function validPostPhotoKeys(values?: string[]): string[] {
+  const keys: string[] = [];
+  if (Array.isArray(values)) {
+    for (const key of values) {
+      if (isPostPhotoKey(key) && !keys.includes(key)) {
+        keys.push(key);
+        if (keys.length === MAX_POST_PHOTOS) { break; }
+      }
+    }
+  }
+  return keys;
+}
+
+function storedPostPhotoKeys(value: StoredPostDraft): string[] {
+  if (Array.isArray(value.photoKeys)) {
+    return validPostPhotoKeys(value.photoKeys);
+  }
+  const legacyKey = value.photoKey ?? '';
+  return isPostPhotoKey(legacyKey) ? [legacyKey] : [];
+}
+
+function postWithPhotos(id: string, body: string, photoKeys: string[]): LibraryPost {
+  return photoKeys.length > 0 ? { id: id, body: body, photoKeys: photoKeys } : { id: id, body: body };
+}
+
+export function canKeepPost(body: string, photoKeys: string[]): boolean {
+  return body.length <= LOCAL_POST_BODY_LIMIT && (body.trim().length > 0 || photoKeys.some(isPostPhotoKey));
 }
 
 export function decodePostDraft(raw: string): PostDraft {
   if (raw.length > 4000) { throw new Error('Invalid local draft'); }
-  const value = JSON.parse(raw) as PostDraft;
+  const value = JSON.parse(raw) as StoredPostDraft;
   if (value === null || typeof value !== 'object' || typeof value.body !== 'string' ||
     value.body.length > LOCAL_POST_BODY_LIMIT) { throw new Error('Invalid local draft'); }
-  const key = value.photoKey ?? '';
-  return isPostPhotoKey(key) ? { body: value.body, photoKey: key } : { body: value.body };
+  const keys = storedPostPhotoKeys(value);
+  return keys.length > 0 ? { body: value.body, photoKeys: keys } : { body: value.body };
 }
 
-export interface LocalLibrary {
-  posts: LibraryPost[];
+interface LibraryState {
   likedIds: string[];
   followedIds: string[];
   savedIds: string[];
@@ -52,8 +83,13 @@ export interface LocalLibrary {
   hiddenIds: string[];
 }
 
-interface StoredLibrary extends LocalLibrary {
+export interface LocalLibrary extends LibraryState {
+  posts: LibraryPost[];
+}
+
+interface StoredLibrary<T> extends LibraryState {
   version: number;
+  posts: T[];
 }
 
 export interface LibraryPatch {
@@ -72,7 +108,8 @@ export function updateLibrary(value: LocalLibrary, patch: LibraryPatch): LocalLi
 }
 
 export function encodeLibrary(value: LocalLibrary): string {
-  const stored: StoredLibrary = { version: 1, posts: value.posts, likedIds: value.likedIds,
+  const posts = value.posts.map((post: LibraryPost) => postWithPhotos(post.id, post.body, validPostPhotoKeys(post.photoKeys)));
+  const stored: StoredLibrary<LibraryPost> = { version: 1, posts: posts, likedIds: value.likedIds,
     followedIds: value.followedIds, savedIds: value.savedIds, replies: value.replies, hiddenIds: value.hiddenIds };
   return JSON.stringify(stored);
 }
@@ -128,7 +165,7 @@ export function decodeLibrary(raw: string, demoIds: string[], samples: ReplyRefe
     return emptyLibrary();
   }
   try {
-    const stored = JSON.parse(raw) as StoredLibrary;
+    const stored = JSON.parse(raw) as StoredLibrary<StoredLibraryPost>;
     if (stored === null || typeof stored !== 'object' || stored.version !== 1 || !Array.isArray(stored.posts) ||
       !Array.isArray(stored.likedIds) || !Array.isArray(stored.followedIds) || !Array.isArray(stored.savedIds)) {
       return emptyLibrary();
@@ -139,11 +176,13 @@ export function decodeLibrary(raw: string, demoIds: string[], samples: ReplyRefe
       if (posts.length >= LIBRARY_POST_LIMIT) {
         break;
       }
-      if (post !== null && typeof post === 'object' && typeof post.id === 'string' &&
-        /^local-post-[1-9][0-9]{0,14}$/.test(post.id) && !ids.includes(post.id) &&
-        typeof post.body === 'string' && canKeepPost(post.body, post.photoKey ?? '')) {
-        const key = post.photoKey ?? '';
-        posts.push(isPostPhotoKey(key) ? { id: post.id, body: post.body, photoKey: key } : { id: post.id, body: post.body });
+      if (post === null || typeof post !== 'object' || typeof post.id !== 'string' ||
+        !/^local-post-[1-9][0-9]{0,14}$/.test(post.id) || ids.includes(post.id) || typeof post.body !== 'string') {
+        continue;
+      }
+      const keys = storedPostPhotoKeys(post);
+      if (canKeepPost(post.body, keys)) {
+        posts.push(postWithPhotos(post.id, post.body, keys));
         ids.push(post.id);
       }
     }

@@ -5,7 +5,8 @@ import { test } from 'node:test';
 
 const source = readFileSync(new URL('../app/entry/src/main/ets/model/LocalLibrary.ets', import.meta.url), 'utf8');
 const modelUrl = `data:text/javascript,${encodeURIComponent(stripTypeScriptTypes(source))}`;
-const { canKeepPost, decodeLibrary, decodePostDraft, emptyLibrary, encodeLibrary, isPostPhotoKey, matchesPost } = await import(modelUrl);
+const { MAX_POST_PHOTOS, canKeepPost, decodeLibrary, decodePostDraft, emptyLibrary, encodeLibrary, isPostPhotoKey,
+  matchesPost } = await import(modelUrl);
 
 const demoIds = ['p1', 'p2'];
 const legacy = { posts: [], likedIds: [], followedIds: [], savedIds: [] };
@@ -118,27 +119,66 @@ test('the 40-post cap counts valid distinct local posts, not input entries', () 
   assert.deepEqual(new Set(decoded.savedIds), ids);
 });
 
-test('a local photo reference is not a path and a photo-only post survives a library round trip', () => {
-  const photoKey = `photo-${'a'.repeat(32)}.jpg`;
-  const invalid = ['../' + photoKey, 'file://' + photoKey, photoKey + '\n', { length: 42 }, null];
-  assert.equal(isPostPhotoKey(photoKey), true);
-  assert.ok(invalid.every((key) => !isPostPhotoKey(key)));
-  assert.equal(canKeepPost('  ', photoKey), true);
-  assert.equal(canKeepPost('x'.repeat(501), photoKey), false);
-  const post = { id: 'local-post-1', body: '', photoKey };
-  const state = decodeLibrary(persisted({ posts: [post,
+const photo = (hex) => `photo-${hex.repeat(32)}.jpg`;
+
+test('only lowercase, basename-only photo keys can keep a photo-only post', () => {
+  const key = photo('a');
+  const invalid = ['../' + key, 'file://' + key, key + '\n', photo('A'), { length: 42 }, null];
+  assert.equal(isPostPhotoKey(key), true);
+  assert.ok(invalid.every((value) => !isPostPhotoKey(value)));
+  assert.equal(canKeepPost('  ', [key]), true);
+  assert.equal(canKeepPost('  ', invalid), false);
+  assert.equal(canKeepPost('  ', []), false);
+  assert.equal(canKeepPost('caption', []), true);
+  assert.equal(canKeepPost('x'.repeat(501), [key]), false);
+});
+
+test('version 1 legacy photos migrate to arrays, plain posts keep their disk shape', () => {
+  const key = photo('a');
+  const posts = [
+    { id: 'local-post-1', body: '', photoKeys: [key] },
+    { id: 'local-post-3', body: 'Keep the text' }
+  ];
+  const state = decodeLibrary(persisted({ posts: [
+    { id: 'local-post-1', body: '', photoKey: key },
     { id: 'local-post-2', body: '', photoKey: '../image.jpg' },
-    { id: 'local-post-3', body: 'Keep the text', photoKey: 'https://example.test/photo' }] }), demoIds);
-  assert.deepEqual(state.posts, [post, { id: 'local-post-3', body: 'Keep the text' }]);
+    { id: 'local-post-3', body: 'Keep the text', photoKey: 'https://example.test/photo' }
+  ] }), demoIds);
+  assert.deepEqual(state.posts, posts);
+  const encoded = encodeLibrary(state);
+  assert.deepEqual(JSON.parse(encoded), { version: 1, ...empty, posts });
+  assert.deepEqual(decodeLibrary(encoded, demoIds), state);
+});
+
+test('canonical library arrays are sanitized in order and never fall back to legacy photos', () => {
+  const [a, b, c, d, e, legacyKey] = ['a', 'b', 'c', 'd', 'e', 'f'].map(photo);
+  assert.equal(MAX_POST_PHOTOS, 4);
+  const state = decodeLibrary(persisted({ posts: [
+    { id: 'local-post-1', body: '', photoKeys: [b, null, b, a, photo('F'), '../foo.jpg', d, c, e], photoKey: legacyKey },
+    { id: 'local-post-2', body: 'Caption', photoKeys: [], photoKey: legacyKey },
+    { id: 'local-post-3', body: ' ', photoKeys: ['https://example.test/photo', false], photoKey: legacyKey },
+    { id: 'local-post-4', body: 'Not an array', photoKeys: a }
+  ], likedIds: ['local-post-1', 'local-post-3'] }), demoIds);
+  assert.deepEqual(state.posts, [
+    { id: 'local-post-1', body: '', photoKeys: [b, a, d, c] },
+    { id: 'local-post-2', body: 'Caption' },
+    { id: 'local-post-4', body: 'Not an array' }
+  ]);
+  assert.deepEqual(state.likedIds, ['local-post-1']);
   assert.deepEqual(decodeLibrary(encodeLibrary(state), demoIds), state);
 });
 
-test('the draft holds text and one local photo together and never exposes arbitrary URLs', () => {
-  const photoKey = `photo-${'b'.repeat(32)}.jpg`;
-  assert.deepEqual(decodePostDraft(JSON.stringify({ body: '', photoKey })), { body: '', photoKey });
-  assert.deepEqual(decodePostDraft(JSON.stringify({ body: '\n  caption ', photoKey: 'file:///elsewhere' })),
-    { body: '\n  caption ' });
-  assert.throws(() => decodePostDraft(JSON.stringify({ body: 'x'.repeat(501), photoKey })));
+test('draft restoration migrates old keys and sanitizes canonical arrays with the same precedence', () => {
+  const [a, b, c, d, e] = ['a', 'b', 'c', 'd', 'e'].map(photo);
+  const decode = (fields) => decodePostDraft(JSON.stringify(fields));
+  const body = '\n  caption ';
+  assert.deepEqual(decode({ body }), { body });
+  assert.deepEqual(decode({ body: '', photoKey: a }), { body: '', photoKeys: [a] });
+  assert.deepEqual(decode({ body, photoKey: 'file:///elsewhere' }), { body });
+  assert.deepEqual(decode({ body, photoKeys: [], photoKey: a }), { body });
+  assert.deepEqual(decode({ body, photoKeys: [42, null, {}], photoKey: a }), { body });
+  assert.deepEqual(decode({ body, photoKeys: [b, null, b, a, c, d, e], photoKey: e }), { body, photoKeys: [b, a, c, d] });
+  assert.throws(() => decode({ body: 'x'.repeat(501), photoKeys: [a] }), /Invalid local draft/);
 });
 
 test('search is trimmed, case-insensitive, and requires every term across the fields', () => {

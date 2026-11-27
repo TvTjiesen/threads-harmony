@@ -4,7 +4,7 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { fileIo, fileUri } from '@kit.CoreFileKit';
 import { image } from '@kit.ImageKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
-import { isPostPhotoKey } from './LocalLibrary';
+import { isPostPhotoKey, MAX_POST_PHOTOS } from './LocalLibrary';
 
 const PHOTO_FOLDER = 'post-photos';
 const MAX_SOURCE_BYTES = 20 * 1024 * 1024;
@@ -43,9 +43,9 @@ function isMissing(path: string): boolean {
   }
 }
 
-async function selectPhoto(): Promise<string> {
+async function selectPhotos(maxCount: number): Promise<string[]> {
   const options = new photoAccessHelper.PhotoSelectOptions();
-  options.maxSelectNumber = 1;
+  options.maxSelectNumber = maxCount;
   options.isPhotoTakingSupported = false;
   options.isEditSupported = false;
   // assetFilter replaces the MIME filter: require an image with bytes already on this device.
@@ -68,13 +68,11 @@ async function selectPhoto(): Promise<string> {
   } catch (_error) {
     throw new Error('无法打开系统相册，请重试。');
   }
-  if (result.photoUris.length === 0) {
-    return '';
+  if (result.photoUris.length > maxCount || result.photoUris.some((uri: string) =>
+    typeof uri !== 'string' || !uri.startsWith('file://media/Photo/'))) {
+    throw new Error(`只能从系统相册选择最多 ${maxCount} 张本机照片。`);
   }
-  if (result.photoUris.length !== 1 || !result.photoUris[0].startsWith('file://media/Photo/')) {
-    throw new Error('只能从系统相册选择一张本机照片。');
-  }
-  return result.photoUris[0];
+  return result.photoUris;
 }
 
 async function readSelectedPhoto(uri: string): Promise<ArrayBuffer> {
@@ -216,13 +214,25 @@ async function savePhoto(context: common.UIAbilityContext, jpeg: ArrayBuffer): P
   }
 }
 
-export async function pickPostPhoto(context: common.UIAbilityContext): Promise<string> {
-  const uri = await selectPhoto();
-  if (uri.length === 0) {
-    return '';
+export async function pickPostPhotos(context: common.UIAbilityContext, maxCount: number): Promise<string[]> {
+  const limit = Math.min(MAX_POST_PHOTOS, Math.floor(maxCount));
+  if (!(limit > 0)) {
+    return [];
   }
-  const jpeg = await normalizePhoto(await readSelectedPhoto(uri));
-  return savePhoto(context, jpeg);
+  const uris = await selectPhotos(limit);
+  const keys: string[] = [];
+  try {
+    for (const uri of uris) {
+      const jpeg = await normalizePhoto(await readSelectedPhoto(uri));
+      keys.push(await savePhoto(context, jpeg));
+    }
+    return keys;
+  } catch (error) {
+    for (const key of keys) {
+      discardPostPhoto(context, key);
+    }
+    throw new Error(error instanceof Error ? error.message : '无法导入所选照片，请重试。');
+  }
 }
 
 export function postPhotoUri(context: common.UIAbilityContext, key: string): string {

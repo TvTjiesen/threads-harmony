@@ -735,7 +735,7 @@ test('post detail uses one stack entry and saves replies only to the local libra
 });
 
 test('post drafts persist explicitly and preview posts are added once without modifying the saved draft', async () => {
-  const constants = timelineSource.slice(timelineSource.indexOf('const POST_COMPOSER'), timelineSource.indexOf('interface DemoReply'));
+  const constants = timelineSource.slice(timelineSource.indexOf('const POST_DETAIL'), timelineSource.indexOf('interface DemoReply'));
   const methods = [timelineMethods('  private localPost(', '  @Builder\n  PostMenu('),
     timelineMethods('  private async postDraftPreferences(', '  @Builder')].join('\n');
   const { Composer, DraftDecision, ShellTab } = vm.runInNewContext(stripTypeScriptTypes(`
@@ -744,16 +744,19 @@ test('post drafts persist explicitly and preview posts are added once without mo
       postDraft = ''; savedPostDraft = ''; postDraftReady = false; postDraftBusy = false;
       postDraftMessage = ''; draftDecision = DraftDecision.None; postDraftLoadId = 0;
       showingPostPreview = false; previewBody = ''; postSequence = 0;
-      draftPhotoKey = ''; savedDraftPhotoKey = ''; previewPhotoKey = ''; viewerPhotoKey = ''; photoPicking = false;
+      draftPhotoKeys = []; savedDraftPhotoKeys = []; previewPhotoKeys = []; viewerPhotoKeys = []; viewerPhotoIndex = 0;
+      photoPicking = false;
       library = emptyLibrary(); libraryReady = false; libraryLoading = false; libraryBusy = false; identity = emptyIdentity();
       likedIds = []; followedIds = []; savedIds = [];
       timelinePosts = [...POSTS]; animationTriggers = [0, -1];
       timelineVisible = true; anchorCaptures = 0; selectedTab = ShellTab.Home; followingOnly = false;
       constructor(stores) {
+        const paths = [];
         this.detailPaths = {
-          size: () => this.route ? 1 : 0,
-          pushPath: (entry, animated) => { this.route = entry; this.pushAnimated = animated; },
-          pop: (_result, animated) => { const entry = this.route; this.route = undefined; this.popAnimated = animated; entry.onPop(); }
+          size: () => paths.length,
+          getAllPathName: () => paths.map((entry) => entry.name),
+          pushPath: (entry, animated) => { paths.push(entry); this.route = entry; this.pushAnimated = animated; },
+          pop: (_result, animated) => { const entry = paths.pop(); this.route = paths.at(-1); this.popAnimated = animated; entry.onPop(); }
         };
         this.stores = stores;
       }
@@ -769,12 +772,14 @@ test('post drafts persist explicitly and preview posts are added once without mo
     ...libraryModel, ...identityModel,
     POSTS: [{ id: 'p1' }, { id: 'p2' }], SAMPLE_REPLIES: [],
     discardPostPhoto: (_context, key) => { discardedPhotos.push(key); },
-    pickPostPhoto: async () => nextPhoto,
+    pickPostPhotos: async (_context, remaining) => { receivedRemaining.push(remaining); return nextPhotos; },
+    postPhotoUri: (_context, key) => 'file:///test/' + key,
     preferences: { getPreferences: async (stores, { name }) => stores[name] }
   });
   const settle = () => new Promise(setImmediate);
   const discardedPhotos = [];
-  let nextPhoto = '';
+  const receivedRemaining = [];
+  let nextPhotos = [];
   let disk = '';
   const legacyBody = '  旧草稿第一行\n第二行 🧵  ';
   const savedBody = () => (disk ? JSON.parse(disk).body : legacyBody);
@@ -965,36 +970,65 @@ test('post drafts persist explicitly and preview posts are added once without mo
   assert.deepEqual(Array.from(reopened.timelinePosts, (post) => post.id), [added.id, 'p1', 'p2']);
   assert.equal(reopened.timelinePosts[0].body, preview);
 
-  const photoKey = `photo-${'1'.repeat(32)}.jpg`;
-  page.postDraft = '';
-  nextPhoto = photoKey;
-  await page.selectDraftPhoto();
-  assert.equal(page.draftPhotoKey, photoKey);
-  nextPhoto = '';
-  await page.selectDraftPhoto();
-  assert.equal(page.draftPhotoKey, photoKey, 'cancel keeps the current attachment');
-  await page.savePostDraft(false);
-  assert.deepEqual(JSON.parse(disk), { body: '', photoKey });
-  page.openPostPreview();
-  assert.equal(page.previewPhotoKey, photoKey);
-  await page.addPreviewToTimeline();
-  assert.equal(page.timelinePosts[0].photoKey, photoKey);
+  const [a, b, c, d, e] = ['1', '2', '3', '4', '5'].map((digit) => `photo-${digit.repeat(32)}.jpg`);
+  disk = JSON.stringify({ body: '', photoKey: a });
+  const upgrade = new Composer(stores);
+  await upgrade.loadLibrary();
+  upgrade.openComposer();
+  await settle();
+  assert.deepEqual(Array.from(upgrade.draftPhotoKeys), [a], 'the old singular draft is readable without a rewrite');
+  assert.deepEqual(JSON.parse(disk), { body: '', photoKey: a });
+  nextPhotos = [b, c, d];
+  await upgrade.selectDraftPhotos();
+  assert.deepEqual(Array.from(upgrade.draftPhotoKeys), [a, b, c, d]);
+  nextPhotos = [e];
+  await upgrade.selectDraftPhotos();
+  assert.deepEqual(receivedRemaining, [3], 'a full draft does not reopen the picker');
+  upgrade.removeDraftPhoto(d);
+  assert.deepEqual(discardedPhotos.splice(0), [d], 'an unsaved, unreferenced attachment is released');
+  nextPhotos = [];
+  await upgrade.selectDraftPhotos();
+  assert.deepEqual(receivedRemaining, [3, 1]);
+  assert.deepEqual(Array.from(upgrade.draftPhotoKeys), [a, b, c], 'cancel keeps attachments and order');
+  upgrade.moveDraftPhoto(c, -1);
+  upgrade.moveDraftPhoto(c, -1);
+  upgrade.moveDraftPhoto(c, -1);
+  upgrade.moveDraftPhoto(a, 3);
+  assert.deepEqual(Array.from(upgrade.draftPhotoKeys), [c, a, b], 'only adjacent, in-bounds moves apply');
+  await upgrade.savePostDraft(false);
+  assert.deepEqual(JSON.parse(disk), { body: '', photoKeys: [c, a, b] });
+  upgrade.moveDraftPhoto(a, 1);
+  assert.equal(upgrade.draftChanged(), true, 'a change to order alone marks the draft as unsaved');
+  upgrade.openPostPreview();
+  upgrade.removeDraftPhoto(b);
+  assert.deepEqual(Array.from(upgrade.previewPhotoKeys), [c, b, a]);
+  upgrade.openPhoto(upgrade.previewPhotoKeys, -1);
+  assert.equal(upgrade.route.name, 'PostComposer');
+  upgrade.openPhoto(upgrade.previewPhotoKeys, 1);
+  assert.equal(upgrade.route.name, 'PhotoViewer');
+  assert.equal(upgrade.viewerPhotoIndex, 1);
+  assert.deepEqual(Array.from(upgrade.viewerPhotoKeys), [c, b, a]);
+  upgrade.detailPaths.pop({ closed: true });
+  assert.equal(upgrade.route.name, 'PostComposer');
+  assert.equal(upgrade.viewerPhotoKeys.length, 0);
+  assert.equal(upgrade.showingPostPreview, true);
+  await upgrade.addPreviewToTimeline();
+  assert.deepEqual(Array.from(upgrade.timelinePosts[0].photoKeys), [c, b, a]);
+  assert.deepEqual(JSON.parse(disk), { body: '', photoKeys: [c, a, b] }, 'adding a post does not rewrite saved order');
   const photoReopened = new Composer(stores);
   await photoReopened.loadLibrary();
   photoReopened.openComposer();
   await settle();
-  assert.equal(photoReopened.timelinePosts[0].photoKey, photoKey);
-  assert.equal(photoReopened.draftPhotoKey, photoKey);
+  assert.deepEqual(Array.from(photoReopened.timelinePosts[0].photoKeys), [c, b, a]);
+  assert.deepEqual(Array.from(photoReopened.draftPhotoKeys), [c, a, b]);
   photoReopened.draftDecision = DraftDecision.Clear;
   await photoReopened.savePostDraft(true);
   await settle();
   assert.deepEqual(JSON.parse(disk), { body: '' });
-  assert.deepEqual(discardedPhotos, [], 'clearing the draft cannot delete a posted image');
-  await photoReopened.releasePostPhoto(photoKey);
-  assert.deepEqual(discardedPhotos, []);
+  assert.deepEqual(discardedPhotos, [], 'clearing the draft cannot delete posted images');
   photoReopened.library = libraryModel.emptyLibrary();
-  await photoReopened.releasePostPhoto(photoKey);
-  assert.deepEqual(discardedPhotos, [photoKey], 'unreferenced images can be cleaned up');
+  await photoReopened.releasePostPhoto(b);
+  assert.deepEqual(discardedPhotos, [b], 'an unreferenced image can be released');
   assert.match(timelineSource, /ForEach\(this\.visibleFeed\(\),/);
 });
 

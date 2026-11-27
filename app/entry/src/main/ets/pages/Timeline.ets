@@ -2,16 +2,25 @@ import { accessibility } from '@kit.AccessibilityKit';
 import { preferences } from '@kit.ArkData';
 import { FrameCallback, LengthMetrics, router } from '@kit.ArkUI';
 import { decodeLibrary, emptyLibrary, LibraryPost, LIBRARY_POST_LIMIT, LOCAL_POST_BODY_LIMIT, LocalLibrary, matchesPost } from '../model/LocalLibrary';
+import { ActivityEntry, ActivityPane } from '../components/ActivityPane';
+import { SettingsPane } from '../components/SettingsPane';
 
 const LARGE_TEXT_SCALE = 1.4;
 const WIDE_VIEWPORT = 680;
+const SIDE_NAV_WIDTH = 840;
 const MAX_LIST_WIDTH = 1248;
 const REPLY_LIMIT = 280;
 const POST_DETAIL = 'PostDetail';
 const POST_COMPOSER = 'PostComposer';
 const POST_DRAFT_LIMIT = LOCAL_POST_BODY_LIMIT;
-const POST_SEARCH = 'LocalSearch';
-const POST_LIBRARY = 'LocalLibrary';
+const POST_SETTINGS = 'Settings';
+
+enum ShellTab {
+  Home,
+  Search,
+  Activity,
+  Profile
+}
 const LIBRARY_STORE = 'timeline_local_library';
 const LIBRARY_KEY = 'content_v1';
 const POST_DRAFT_STORE = 'timeline_post_draft';
@@ -92,11 +101,16 @@ struct Timeline {
   @State private libraryLoading: boolean = false;
   @State private libraryBusy: boolean = false;
   @State private libraryMessage: string = '';
+  @State private selectedTab: ShellTab = ShellTab.Home;
   @State private searchQuery: string = '';
-  @State private libraryShowsSaved: boolean = true;
+  @State private libraryShowsSaved: boolean = false;
+  @State private followingOnly: boolean = false;
+  private homeTabAnchor: ReadingAnchor = { postId: '', clipped: 0 };
+  private followingTabAnchor: ReadingAnchor = { postId: '', clipped: 0 };
   @State private confirmingDelete: boolean = false;
   @State private openingWeb: boolean = false;
   @State private viewportWidth: number = 0;
+  @State private contentWidth: number = 0;
   @StorageProp('timelineFontScale') @Watch('onReadingLayoutChange') private fontScale: number = 1;
   @State private animationTriggers: number[] = POSTS.map((_post: MockPost) => -1);
   @State private reduceMotion: boolean = false;
@@ -158,7 +172,7 @@ struct Timeline {
   }
 
   onPageShow(): void {
-    this.timelineVisible = this.detailPaths.size() === 0;
+    this.timelineVisible = this.detailPaths.size() === 0 && this.selectedTab === ShellTab.Home;
     if (this.restorePending) {
       this.scheduleReadingRestore();
     }
@@ -168,12 +182,20 @@ struct Timeline {
     this.timelineVisible = false;
   }
 
+  onBackPress(): boolean {
+    if (this.detailPaths.size() === 0 && this.selectedTab !== ShellTab.Home) {
+      this.selectTab(ShellTab.Home);
+      return true;
+    }
+    return false;
+  }
+
   private toolbarInList(): boolean {
     return this.fontScale >= LARGE_TEXT_SCALE;
   }
 
   private readingLaneCount(): number {
-    return this.viewportWidth >= WIDE_VIEWPORT && !this.toolbarInList() ? 2 : 1;
+    return (this.contentWidth || this.viewportWidth) >= WIDE_VIEWPORT && !this.toolbarInList() ? 2 : 1;
   }
 
   private rememberReadingPosition(): void {
@@ -186,7 +208,7 @@ struct Timeline {
       if (offset === undefined || index < 0) {
         return;
       }
-      const post = this.timelinePosts[index - (this.toolbarInList() ? 1 : 0)];
+      const post = this.visibleFeed()[index - (this.toolbarInList() ? 1 : 0)];
       if (offset.yOffset <= 1 || (index === 0 && post === undefined)) {
         this.readingAnchor = { postId: '', clipped: 0 };
       } else if (post !== undefined) {
@@ -228,7 +250,7 @@ struct Timeline {
         }
         return;
       }
-      const postIndex = this.timelinePosts.findIndex((post: MockPost) => post.id === anchor.postId);
+      const postIndex = this.visibleFeed().findIndex((post: MockPost) => post.id === anchor.postId);
       if (postIndex < 0) {
         return;
       }
@@ -345,8 +367,7 @@ struct Timeline {
   }
 
   private openPost(post: MockPost): void {
-    const routes = this.detailPaths.getAllPathName();
-    if (routes.length > 1 || (routes.length === 1 && routes[0] !== POST_SEARCH && routes[0] !== POST_LIBRARY)) {
+    if (this.detailPaths.size() > 0) {
       return;
     }
     this.rememberReadingPosition();
@@ -477,15 +498,68 @@ struct Timeline {
       savedIds: next });
   }
 
-  private openLocalView(name: string): void {
-    if (this.detailPaths.size() !== 0) {
+  private selectTab(tab: ShellTab): void {
+    if (tab === this.selectedTab || this.detailPaths.size() > 0) {
+      return;
+    }
+    this.rememberReadingPosition();
+    this.selectedTab = tab;
+    this.onPageShow();
+  }
+
+  private openSettings(): void {
+    if (this.detailPaths.size() > 0) {
       return;
     }
     this.rememberReadingPosition();
     this.timelineVisible = false;
-    this.searchQuery = '';
-    this.libraryShowsSaved = true;
-    this.detailPaths.pushPath({ name: name, onPop: () => this.onPageShow() }, this.allowsMotionFeedback());
+    this.detailPaths.pushPath({ name: POST_SETTINGS, onPop: () => this.onPageShow() }, this.allowsMotionFeedback());
+  }
+
+  private visibleFeed(): MockPost[] {
+    return this.followingOnly ? this.timelinePosts.filter((post: MockPost) => this.followedIds.includes(post.id))
+      : this.timelinePosts;
+  }
+
+  private selectFeed(following: boolean): void {
+    if (following === this.followingOnly) {
+      return;
+    }
+    this.rememberReadingPosition();
+    if (this.followingOnly) {
+      this.followingTabAnchor = this.readingAnchor;
+    } else {
+      this.homeTabAnchor = this.readingAnchor;
+    }
+    this.followingOnly = following;
+    this.readingAnchor = following ? this.followingTabAnchor : this.homeTabAnchor;
+    this.onReadingLayoutChange();
+  }
+
+  private activityEntries(): ActivityEntry[] {
+    const entries: ActivityEntry[] = [];
+    this.timelinePosts.forEach((post: MockPost) => {
+      if (this.likedIds.includes(post.id)) {
+        entries.push({ id: `like-${post.id}`, postId: post.id, author: post.name, body: post.body, kind: 'like' });
+      }
+      if (this.savedIds.includes(post.id)) {
+        entries.push({ id: `save-${post.id}`, postId: post.id, author: post.name, body: post.body, kind: 'save' });
+      }
+    });
+    this.localReplies.forEach((reply: DemoReply) => {
+      const post = this.timelinePosts.find((item: MockPost) => item.id === reply.postId);
+      if (post !== undefined) {
+        entries.push({ id: `reply-${reply.id}`, postId: post.id, author: post.name, body: reply.body, kind: 'reply' });
+      }
+    });
+    return entries;
+  }
+
+  private openActivityPost(entry: ActivityEntry): void {
+    const post = this.timelinePosts.find((item: MockPost) => item.id === entry.postId);
+    if (post !== undefined) {
+      this.openPost(post);
+    }
   }
 
   private listedPosts(search: boolean): MockPost[] {
@@ -614,6 +688,8 @@ struct Timeline {
     const saved = await this.saveLibrary({ posts: [post, ...this.library.posts], likedIds: this.likedIds,
       followedIds: this.followedIds, savedIds: this.savedIds });
     if (saved) {
+      this.selectedTab = ShellTab.Home;
+      this.followingOnly = false;
       this.closePostPreview();
       this.postDraft = this.savedPostDraft;
       this.readingAnchor = { postId: '', clipped: 0 };
@@ -806,7 +882,7 @@ struct Timeline {
   DetailContent(post: MockPost) {
     Scroll() {
       Column({ space: 16 }) {
-        Button('返回时间线', { type: ButtonType.Capsule })
+        Button('返回', { type: ButtonType.Capsule })
           .constraintSize({ minHeight: 48 }).padding({ left: 14, right: 14, top: 10, bottom: 10 })
           .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body'))
           .onClick(() => this.closePost())
@@ -884,7 +960,7 @@ struct Timeline {
   ComposerContent() {
     Scroll() {
       Column({ space: 18 }) {
-        Button('返回时间线', { type: ButtonType.Capsule })
+        Button('返回', { type: ButtonType.Capsule })
           .constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16 })
           .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body'))
           .enabled(!this.postDraftReady || !this.postDraftBusy)
@@ -976,9 +1052,26 @@ struct Timeline {
     List({ space: 12 }) {
       ListItem() {
         Column({ space: 12 }) {
-          Button('返回时间线').constraintSize({ minHeight: 48 }).buttonStyle(ButtonStyleMode.TEXTUAL)
-            .fontColor($r('app.color.timeline_text_body')).onClick(() => this.closePost())
-          Text(search ? '搜索' : '我的').fontSize(28).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
+          if (search) {
+            Text('搜索').fontSize(28).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
+          } else {
+            Row({ space: 12 }) {
+              Text('你').fontSize('21vp').fontWeight(FontWeight.Bold).width(54).height(54)
+                .textAlign(TextAlign.Center).borderRadius(27).backgroundColor($r('app.color.timeline_action'))
+                .fontColor($r('app.color.timeline_on_action')).accessibilityLevel('no')
+              Column({ space: 2 }) {
+                Text('个人主页').fontSize(26).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
+                Text('本机资料').fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
+              }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+            }.width('100%')
+            Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(8) } }) {
+              Button('设置').constraintSize({ minHeight: 48 }).onClick(() => this.openSettings())
+                .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body'))
+              Button('打开 Threads 网页').constraintSize({ minHeight: 48 }).enabled(!this.openingWeb)
+                .onClick(() => { this.openWeb(); })
+                .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body'))
+            }.width('100%')
+          }
           Text(search ? '搜索本机帖子和演示内容，不查找 Threads 用户。' : '仅保存在这台设备，不是你的 Threads 账号。')
             .fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
           if (search) {
@@ -1026,9 +1119,15 @@ struct Timeline {
           this.requestComposerExit();
           return true;
         })
-    } else if (name === POST_SEARCH || name === POST_LIBRARY) {
+    } else if (name === POST_SETTINGS) {
       NavDestination() {
-        Column() { this.LocalCollection(name === POST_SEARCH) }.width('100%').height('100%')
+        SettingsPane({
+          reduceMotion: this.reduceMotion, systemReducesMotion: this.systemReducesMotion,
+          motionPreferenceReady: this.motionPreferenceReady, motionPreferenceSaving: this.motionPreferenceSaving,
+          motionPreferenceWarning: this.motionPreferenceWarning, openingWeb: this.openingWeb,
+          onClose: () => this.closePost(), onMotionChange: (enabled: boolean) => { this.updateMotionPreference(enabled); },
+          onWeb: () => { this.openWeb(); }
+        })
       }.hideTitleBar(true).backgroundColor($r('app.color.timeline_background'))
         .onBackPressed(() => { this.closePost(); return true; })
     } else if (post !== undefined) {
@@ -1044,66 +1143,129 @@ struct Timeline {
 
   @Builder
   Toolbar() {
-    Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center,
-      space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(8) } }) {
-      Column({ space: 3 }) {
-        Text('此刻').fontSize(30).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
-        Text('Threads · 本地演示').fontSize(12).fontColor($r('app.color.timeline_text_secondary'))
-      }.alignItems(HorizontalAlign.Start).flexGrow(1)
-        .width(this.fontScale >= LARGE_TEXT_SCALE ? '100%' : 'auto')
-      Button('写草稿', { type: ButtonType.Capsule })
-        .constraintSize({ minHeight: 48 }).padding({ left: 14, right: 14, top: 10, bottom: 10 })
-        .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action')).fontSize(13)
-        .onClick(() => this.openComposer())
-      Button('设置', { type: ButtonType.Capsule })
-        .constraintSize({ minHeight: 44 }).padding({ left: 14, right: 14, top: 10, bottom: 10 })
-        .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body')).fontSize(12)
-        .accessibilityText('显示与动效设置')
-        .onClick(() => { this.settingsVisible = true; })
-      Button('搜索', { type: ButtonType.Capsule }).constraintSize({ minHeight: 48 })
-        .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body')).fontSize(13)
-        .onClick(() => this.openLocalView(POST_SEARCH))
-      Button('我的', { type: ButtonType.Capsule }).constraintSize({ minHeight: 48 })
-        .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body')).fontSize(13)
-        .onClick(() => this.openLocalView(POST_LIBRARY))
-      Button('打开网页', { type: ButtonType.Capsule }).constraintSize({ minHeight: 48 }).padding({ left: 18, right: 18, top: 10, bottom: 10 })
-        .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body')).fontSize(13).enabled(!this.openingWeb)
-        .onClick(() => { this.openWeb(); })
-    }.width('100%').padding({ left: 22, right: 22, top: 18, bottom: 15 })
+    Column({ space: 10 }) {
+      Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center,
+        space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(4) } }) {
+        Column({ space: 2 }) {
+          Text('Threads').fontSize(26).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
+          Text('本机预览').fontSize(12).fontColor($r('app.color.timeline_text_secondary'))
+        }.alignItems(HorizontalAlign.Start).flexGrow(1)
+          .width(this.fontScale >= LARGE_TEXT_SCALE ? '100%' : 'auto')
+        Button('显示与动效').constraintSize({ minHeight: 48 }).buttonStyle(ButtonStyleMode.TEXTUAL)
+          .fontSize(13).fontColor($r('app.color.timeline_text_body')).onClick(() => { this.settingsVisible = true; })
+        Button('打开网页').constraintSize({ minHeight: 48 }).fontSize(13)
+          .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body'))
+          .enabled(!this.openingWeb).onClick(() => { this.openWeb(); })
+      }.width('100%')
+      Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(6) } }) {
+        this.FeedFilter('为你', false)
+        this.FeedFilter('关注中', true)
+      }.width('100%')
+      Text('本机操作不会连接 Threads；使用真实账号请打开网页。').fontSize(12)
+        .fontColor($r('app.color.timeline_text_secondary'))
+      this.LibraryStatus()
+    }.width('100%').constraintSize({ maxWidth: MAX_LIST_WIDTH }).alignItems(HorizontalAlign.Start)
+      .padding({ left: 18, right: 18, top: 8, bottom: 8 })
+  }
+
+  @Builder
+  FeedFilter(label: string, following: boolean) {
+    Button(label, { type: ButtonType.Capsule }).id(following ? 'feed-following' : 'feed-for-you')
+      .constraintSize({ minHeight: 48 }).accessibilitySelected(this.followingOnly === following)
+      .backgroundColor(this.followingOnly === following ? $r('app.color.timeline_action') : $r('app.color.timeline_toolbar_button'))
+      .fontColor(this.followingOnly === following ? $r('app.color.timeline_on_action') : $r('app.color.timeline_text_body'))
+      .onClick(() => this.selectFeed(following))
+  }
+
+  @Builder
+  ShellItem(id: string, label: string, icon: Resource, tab: ShellTab, compose: boolean, onTap: () => void) {
+    Button({ type: ButtonType.Normal }) {
+      Column({ space: 2 }) {
+        SymbolGlyph(icon).fontSize('21vp')
+          .fontColor([compose ? $r('app.color.timeline_on_action') : $r('app.color.timeline_text_primary')])
+          .accessibilityLevel('no')
+        Text(label).fontSize('12vp').fontWeight((!compose && this.selectedTab === tab) ? FontWeight.Bold : FontWeight.Medium)
+          .fontColor(compose ? $r('app.color.timeline_on_action') : $r('app.color.timeline_text_primary'))
+      }.width('100%')
+    }.id(id).constraintSize({ minHeight: 56 }).borderRadius(18)
+      .width(this.viewportWidth >= SIDE_NAV_WIDTH ? '100%' : 'auto')
+      .layoutWeight(this.viewportWidth >= SIDE_NAV_WIDTH ? 0 : 1)
+      .backgroundColor(compose ? $r('app.color.timeline_action') : (!compose && this.selectedTab === tab) ? $r('app.color.timeline_surface_muted') : Color.Transparent)
+      .accessibilityText(label).accessibilitySelected((!compose && this.selectedTab === tab)).onClick(onTap)
+  }
+
+  @Builder
+  NavItems() {
+    this.ShellItem('nav-home', '首页', $r('sys.symbol.house'), ShellTab.Home, false,
+      () => this.selectTab(ShellTab.Home))
+    this.ShellItem('nav-search', '搜索', $r('sys.symbol.magnifyingglass'), ShellTab.Search, false,
+      () => this.selectTab(ShellTab.Search))
+    this.ShellItem('nav-compose', '发帖', $r('sys.symbol.plus'), ShellTab.Home, true, () => this.openComposer())
+    this.ShellItem('nav-activity', '动态', $r('sys.symbol.heart'), ShellTab.Activity, false,
+      () => this.selectTab(ShellTab.Activity))
+    this.ShellItem('nav-profile', '我的', $r('sys.symbol.person'), ShellTab.Profile, false,
+      () => this.selectTab(ShellTab.Profile))
+  }
+
+  @Builder
+  Shell() {
+    Flex({ direction: this.viewportWidth >= SIDE_NAV_WIDTH ? FlexDirection.RowReverse : FlexDirection.Column }) {
+      Stack({ alignContent: Alignment.Top }) {
+        Column() { this.Feed() }.width('100%').height('100%')
+          .visibility(this.selectedTab === ShellTab.Home ? Visibility.Visible : Visibility.Hidden)
+          .accessibilityLevel(this.selectedTab === ShellTab.Home ? 'auto' : 'no-hide-descendants')
+        if (this.selectedTab === ShellTab.Search) {
+          Column() { this.LocalCollection(true) }.width('100%').height('100%')
+        } else if (this.selectedTab === ShellTab.Profile) {
+          Column() { this.LocalCollection(false) }.width('100%').height('100%')
+        } else if (this.selectedTab === ShellTab.Activity) {
+          ActivityPane({ entries: this.activityEntries(), onOpen: (entry: ActivityEntry) => this.openActivityPost(entry) })
+        }
+      }.layoutWeight(1)
+      Flex({ direction: this.viewportWidth >= SIDE_NAV_WIDTH ? FlexDirection.Column : FlexDirection.Row,
+        space: { main: LengthMetrics.vp(4) } }) {
+        this.NavItems()
+      }.id(this.viewportWidth >= SIDE_NAV_WIDTH ? 'side-navigation' : 'bottom-navigation')
+        .width(this.viewportWidth >= SIDE_NAV_WIDTH ? 104 : 'calc(100% - 16vp)')
+        .padding({ left: 8, right: 8, top: 8, bottom: 8 })
+        .backgroundColor($r('app.color.timeline_surface'))
+        .borderRadius(20)
+        .margin({ left: 8, right: 8, bottom: 8, top: 4 })
+    }.width('100%').height('100%').backgroundColor($r('app.color.timeline_background'))
+      .onAreaChange((_oldArea: Area, newArea: Area) => {
+        const width = Number(newArea.width);
+        if (Number.isFinite(width) && width > 0 && width !== this.viewportWidth) {
+          this.viewportWidth = width;
+        }
+      })
   }
 
   @Builder
   Feed() {
     Column() {
       if (!this.toolbarInList()) {
-        Column() { this.Toolbar() }.width('100%')
-          .backgroundEffect({ radius: 24, saturation: 1.16, brightness: 1.02, color: $r('app.color.timeline_header_overlay') })
-        Column({ space: 6 }) {
-          Text('本机内容不会连接 Threads；真实账号请打开网页。').fontSize(12)
-            .fontColor($r('app.color.timeline_text_secondary'))
-          this.LibraryStatus()
-        }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 22, right: 22, bottom: 14 })
+        this.Toolbar()
       }
-
-      List({ space: 12, scroller: this.timelineScroller }) {
+      List({ space: 10, scroller: this.timelineScroller }) {
         if (this.toolbarInList()) {
+          ListItem() { this.Toolbar() }
+        }
+        ForEach(this.visibleFeed(), (post: MockPost) => {
+          ListItem() { this.PostCard(post, false) }
+        }, (post: MockPost) => post.id)
+        if (this.followingOnly && this.visibleFeed().length === 0) {
           ListItem() {
-            Column() {
-              this.Toolbar()
-              Column({ space: 6 }) {
-                Text('本机内容不会连接 Threads；真实账号请打开网页。').fontSize(12)
-                  .fontColor($r('app.color.timeline_text_secondary'))
-                this.LibraryStatus()
-              }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 22, right: 22, bottom: 14 })
-            }.width('100%').constraintSize({ maxWidth: 600 })
+            Column({ space: 8 }) {
+              Text('还没有关注内容').fontSize(18).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
+              Text('在「为你」中关注示例帖子后，可以在这里查看。')
+                .fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
+              Button('浏览为你').constraintSize({ minHeight: 48 }).onClick(() => this.selectFeed(false))
+            }.width('100%').constraintSize({ maxWidth: 600 }).padding(18).alignItems(HorizontalAlign.Start)
+              .backgroundColor($r('app.color.timeline_surface')).borderRadius(18)
           }
         }
-        ForEach(this.timelinePosts, (post: MockPost) => {
-          ListItem() {
-            this.PostCard(post, false)
-          }
-        }, (post: MockPost) => post.id)
       }
+      .id('home-feed')
       .lanes(this.readingLaneCount(), 12)
       .alignListItem(ListItemAlign.Center)
       .cachedCount(2)
@@ -1112,32 +1274,29 @@ struct Timeline {
       .constraintSize({ maxWidth: MAX_LIST_WIDTH })
       .padding({ left: 18, right: 18, bottom: 12 })
       .scrollBar(BarState.Auto)
-      .onScrollIndex((start: number) => {
-        this.firstVisibleIndex = start;
-      })
+      .onScrollIndex((start: number) => { this.firstVisibleIndex = start; })
       .onDidScroll((_offset: number, state: ScrollState) => {
         if (state !== ScrollState.Idle) {
           this.rememberReadingPosition();
         }
       })
       .onScrollStop(() => this.rememberReadingPosition())
-    }
-    .width('100%').height('100%').backgroundColor($r('app.color.timeline_background'))
-    .onAreaChange((_oldArea: Area, newArea: Area) => {
-      const width = Number(newArea.width);
-      if (Number.isFinite(width) && width > 0 && width !== this.viewportWidth) {
-        const previousWidth = this.viewportWidth;
-        this.viewportWidth = width;
-        if (previousWidth > 0 && Math.min(previousWidth, MAX_LIST_WIDTH) !== Math.min(width, MAX_LIST_WIDTH)) {
-          this.onReadingLayoutChange();
+    }.width('100%').height('100%')
+      .onAreaChange((_oldArea: Area, newArea: Area) => {
+        const width = Number(newArea.width);
+        if (Number.isFinite(width) && width > 0 && width !== this.contentWidth) {
+          const previousWidth = this.contentWidth;
+          this.contentWidth = width;
+          if (previousWidth > 0 && Math.min(previousWidth, MAX_LIST_WIDTH) !== Math.min(width, MAX_LIST_WIDTH)) {
+            this.onReadingLayoutChange();
+          }
         }
-      }
-    })
+      })
   }
 
   build() {
     Navigation(this.detailPaths) {
-      this.Feed()
+      this.Shell()
     }
     .width('100%').height('100%').mode(NavigationMode.Stack).hideTitleBar(true)
     .navDestination(this.DetailDestination)

@@ -274,7 +274,7 @@ test('Stage follows system font scale and timeline reflows when text grows', () 
   assert.match(ability, /this\.onConfigurationUpdate\(this\.context\.config\);\s+windowStage\.loadContent\('pages\/Timeline'\)/);
   assert.match(timeline, /@StorageProp\('timelineFontScale'\)/);
   assert.match(timeline, /\.lanes\(this\.readingLaneCount\(\), 12\)/);
-  assert.match(timeline, /this\.viewportWidth >= WIDE_VIEWPORT && !this\.toolbarInList\(\) \? 2 : 1/);
+  assert.match(timeline, /\(this\.contentWidth \|\| this\.viewportWidth\) >= WIDE_VIEWPORT && !this\.toolbarInList\(\) \? 2 : 1/);
   assert.doesNotMatch(timeline, /Text\(post\.body\)[^\n]*(?:lineHeight|maxLines)/);
 });
 
@@ -289,11 +289,13 @@ test('reading reflow keeps a post ID, adjusts for the large-text toolbar and def
   const Timeline = vm.runInNewContext(stripTypeScriptTypes(`class Timeline {
     timelineVisible = true; restorePending = false; restoreScheduled = false;
     viewportWidth = 400; fontScale = 1; firstVisibleIndex = 1; timelinePosts = POSTS;
+    selectedTab = ShellTab.Home; followingOnly = false; followedIds = ['p2'];
     detailPaths = { size: () => 0 };
+    ${timelineMethods('  private visibleFeed(', '  private selectFeed(')}
     getUIContext() { return { postFrameCallback: (frame) => frames.push(frame) }; }
     ${methods}
   }; Timeline`), {
-    POSTS: [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }], LARGE_TEXT_SCALE: 1.4, WIDE_VIEWPORT: 680,
+    POSTS: [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }], LARGE_TEXT_SCALE: 1.4, WIDE_VIEWPORT: 680, ShellTab: { Home: 0 },
     LayoutFrame: class { constructor(task) { this.task = task; } }, frames,
     ScrollAlign: { START: 'start' }, LengthMetrics: { vp: (n) => n }
   });
@@ -356,6 +358,59 @@ test('reading reflow keeps a post ID, adjusts for the large-text toolbar and def
   assert.deepEqual(calls.shift().slice(0, 3), [3, false, 'start']);
 });
 
+test('shell tabs and local activity preserve origin and never create duplicate routes', () => {
+  const lifecycle = timelineMethods('  onPageShow(', '  private async displayPreferences(');
+  const actions = timelineMethods('  private selectTab(', '  private listedPosts(');
+  const tabs = { Home: 0, Search: 1, Activity: 2, Profile: 3 };
+  const Shell = vm.runInNewContext(stripTypeScriptTypes(`class Shell {
+    selectedTab = ShellTab.Home; timelineVisible = true;
+    timelinePosts = [{id:'p1',name:'first',body:'hello'},{id:'p2',name:'second',body:'world'}];
+    likedIds = ['p1','missing']; savedIds = ['p1']; followedIds = ['p2'];
+    localReplies = [{id:'r1',postId:'p2',body:'reply'},{id:'r2',postId:'missing',body:'ignore'}];
+    stack = []; motion = false; opened = [];
+    detailPaths = { size: () => this.stack.length, pushPath: (entry) => this.stack.push(entry) };
+    readingAnchor = { postId:'p1',clipped:15 }; homeTabAnchor = {postId:'',clipped:0};
+    followingTabAnchor = {postId:'',clipped:0}; followingOnly = false;
+    allowsMotionFeedback() { return this.motion; }
+    getUIContext() { return { postFrameCallback() {} }; }
+    openPost(post) { this.opened.push(post.id); }
+    ${lifecycle}
+    ${actions}
+  }; Shell`), { ShellTab: tabs, POST_SETTINGS: 'Settings', LayoutFrame: class {} });
+  const page = new Shell();
+  page.selectFeed(true);
+  assert.deepEqual(Array.from(page.visibleFeed(), (post) => post.id), ['p2']);
+  assert.equal(page.readingAnchor.postId, '');
+  page.selectFeed(false);
+  assert.equal(page.readingAnchor.postId, 'p1');
+  page.searchQuery = 'kept query';
+  page.selectTab(tabs.Search);
+  assert.equal(page.searchQuery, 'kept query');
+  assert.equal(page.timelineVisible, false);
+  assert.equal(page.onBackPress(), true);
+  assert.equal(page.selectedTab, tabs.Home);
+  page.selectTab(tabs.Profile);
+  page.openSettings();
+  page.openSettings();
+  page.selectTab(tabs.Search);
+  assert.equal(page.stack.length, 1);
+  assert.equal(page.selectedTab, tabs.Profile);
+  assert.equal(page.onBackPress(), false, 'the destination owns Back while on the stack');
+  page.stack.pop().onPop();
+  assert.equal(page.selectedTab, tabs.Profile);
+  assert.equal(page.onBackPress(), true);
+  assert.equal(page.timelineVisible, true);
+  assert.equal(page.onBackPress(), false);
+  const entries = page.activityEntries();
+  assert.deepEqual(Array.from(entries, ({ id }) => id), ['like-p1', 'save-p1', 'reply-r1']);
+  page.openActivityPost(entries[2]);
+  page.openActivityPost({ postId: 'missing' });
+  assert.deepEqual(Array.from(page.opened), ['p2']);
+  for (const id of ['nav-home', 'nav-search', 'nav-compose', 'nav-activity', 'nav-profile']) {
+    assert.ok(timelineSource.includes(id));
+  }
+});
+
 test('post detail uses one stack entry and keeps replies local and scoped to their post', () => {
   const methods = timelineMethods('  private openPost(', '  private localPost(');
   const post = { id: 'p1', replies: 12 };
@@ -368,7 +423,7 @@ test('post detail uses one stack entry and keeps replies local and scoped to the
     onPageShow() { this.timelineVisible = this.detailPaths.size() === 0; }
     ${methods}
   }; Timeline`), {
-    POSTS: [post, other], POST_DETAIL: 'PostDetail', POST_SEARCH: 'LocalSearch', POST_LIBRARY: 'LocalLibrary',
+    POSTS: [post, other], POST_DETAIL: 'PostDetail',
     REPLY_LIMIT: 280,
     SAMPLE_REPLIES: [{ id: 's1', postId: 'p1', body: 'sample' }]
   });
@@ -413,17 +468,10 @@ test('post detail uses one stack entry and keeps replies local and scoped to the
   assert.deepEqual(transitions, [false, false, true, true]);
   assert.equal(page.replyCount(post), 13);
   assert.equal(new Timeline().replyCount(post), 12, 'local replies do not survive a fresh page');
-  for (const source of ['LocalSearch', 'LocalLibrary']) {
-    stack.push({ name: source });
-    page.openPost(post);
-    page.openPost(other);
-    assert.deepEqual(stack.map(({ name }) => name), [source, 'PostDetail']);
-    assert.equal(stack[1].param.id, post.id);
-    page.closePost();
-    assert.equal(page.timelineVisible, false);
-    assert.deepEqual(stack.map(({ name }) => name), [source]);
-    stack.pop();
-  }
+  stack.push({ name: 'Settings' });
+  page.openPost(post);
+  assert.deepEqual(stack.map(({ name }) => name), ['Settings'], 'details cannot open through another destination');
+  stack.pop();
   assert.match(timelineSource, /Navigation\(this\.detailPaths\)/);
   assert.match(timelineSource, /\.onBackPressed\(\(\) => \{\s*this\.closePost\(\)/);
   assert.match(timelineSource, /this\.PostCard\(post, true\)/);
@@ -633,7 +681,7 @@ test('post drafts persist explicitly and preview posts are added once without mo
   assert.equal(reopened.libraryReady, true);
   assert.deepEqual(Array.from(reopened.timelinePosts, (post) => post.id), [added.id, 'p1', 'p2']);
   assert.equal(reopened.timelinePosts[0].body, preview);
-  assert.match(timelineSource, /ForEach\(this\.timelinePosts,/);
+  assert.match(timelineSource, /ForEach\(this\.visibleFeed\(\),/);
 });
 
 test('Stage bundle names agree and signing remains disabled', () => {

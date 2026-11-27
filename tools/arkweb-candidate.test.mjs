@@ -7,6 +7,8 @@ import { test } from 'node:test';
 const overlay = readFileSync(new URL('../overlay/entry/src/main/ets/pages/Index.ets', import.meta.url), 'utf8');
 const app = readFileSync(new URL('../app/entry/src/main/ets/pages/Index.ets', import.meta.url), 'utf8');
 const timelineSource = readFileSync(new URL('../app/entry/src/main/ets/pages/Timeline.ets', import.meta.url), 'utf8');
+const settingsSource = readFileSync(new URL('../app/entry/src/main/ets/components/SettingsPane.ets', import.meta.url), 'utf8');
+const tabsSource = readFileSync(new URL('../app/entry/src/main/ets/components/ReadingTabs.ets', import.meta.url), 'utf8');
 const librarySource = readFileSync(new URL('../app/entry/src/main/ets/model/LocalLibrary.ets', import.meta.url), 'utf8');
 const libraryModel = await import(`data:text/javascript,${encodeURIComponent(stripTypeScriptTypes(librarySource))}`);
 
@@ -15,6 +17,13 @@ function timelineMethods(start, end) {
   const last = timelineSource.indexOf(end, first + start.length);
   assert.ok(first >= 0 && last > first, `cannot extract Timeline methods between ${start} and ${end}`);
   return timelineSource.slice(first, last).replace(/^  private (?:readonly )?/gm, '  ');
+}
+
+// Scope source-level wiring checks to the ArkUI builder that renders the control.
+function builder(source, name) {
+  const match = source.match(new RegExp(`^  ${name}\\([^\\n]*\\) \\{(?:[^\\n]*\\}$|[\\s\\S]*?^  \\})`, 'm'));
+  assert.ok(match, `missing ArkUI builder: ${name}`);
+  return match[0];
 }
 
 const nextSelection = timelineMethods('  private nextSelection(', '  private async toggleSaved(');
@@ -80,7 +89,8 @@ test('native timeline is a separate mock-data page and does not replace the ArkW
   const ability = readFileSync(new URL('../app/entry/src/main/ets/entryability/EntryAbility.ets', import.meta.url), 'utf8');
   const pages = JSON.parse(readFileSync(new URL('../app/entry/src/main/resources/base/profile/main_pages.json', import.meta.url), 'utf8'));
   assert.match(timeline, /const POSTS: MockPost\[\]/);
-  assert.match(timeline, /不會连接|不会连接/);
+  assert.ok([timeline, settingsSource].some(source => source.includes('本机操作不会连接 Threads；使用真实账号请打开网页。')),
+    'the app must explicitly distinguish local actions from real Threads accounts');
   assert.match(timeline, /router\.pushUrl\(\{ url: 'pages\/Index' \}\)/);
   assert.match(ability, /loadContent\('pages\/Timeline'\)/);
   assert.deepEqual(pages.src, ['pages/Index', 'pages/Timeline']);
@@ -134,9 +144,6 @@ test('like counters and per-post animation triggers follow interaction state', a
   assert.equal(page.animationTriggerFor('p1'), 0, 'liking another post must not change this trigger');
 
   assert.match(timelineSource, /\.symbolEffect\(new BounceSymbolEffect\(EffectScope\.WHOLE\), this\.animationTriggerFor\(post\.id\)\)/);
-  assert.match(timelineSource, /Toggle\(\{ type: ToggleType\.Switch, isOn: this\.reduceMotion \}\)/);
-  assert.match(timelineSource, /\.onChange\(\(enabled: boolean\) => \{ this\.updateMotionPreference\(enabled\); \}\)/);
-  assert.match(timelineSource, /\.bindSheet\(\$\$this\.settingsVisible, this\.SettingsSheet\(\), \{/);
   assert.doesNotMatch(timelineSource, /animatedPostId|@State private notice: string/);
 });
 
@@ -228,14 +235,19 @@ test('motion preference is loaded before animation, serialized to disk and indep
   assert.match(timelineSource, /if \(this\.allowsMotionFeedback\(\)\) \{\s+SymbolGlyph[\s\S]*?\.symbolEffect\([\s\S]*?\} else \{\s+SymbolGlyph[^}]*\}/);
 });
 
-test('settings sheet has one explicit close control and synchronized dismiss state', () => {
-  const timeline = readFileSync(new URL('../app/entry/src/main/ets/pages/Timeline.ets', import.meta.url), 'utf8');
-  const settings = timeline.slice(timeline.indexOf('  SettingsSheet()'), timeline.indexOf('  PostCard('));
-  assert.match(settings, /Button\('完成',/);
-  assert.match(settings, /this\.settingsVisible = false/);
-  assert.match(timeline, /\.bindSheet\(\$\$this\.settingsVisible, this\.SettingsSheet\(\), \{/);
-  assert.match(timeline, /showClose: false/);
-  assert.doesNotMatch(timeline, /showClose: true/);
+test('the settings destination wires its switch to persisted preferences and still offers Back and web access', () => {
+  const destination = builder(timelineSource, 'DetailDestination');
+  assert.match(destination, /name === POST_SETTINGS[\s\S]*?NavDestination\(\)\s*\{\s*SettingsPane\(\{/);
+  for (const prop of ['reduceMotion', 'systemReducesMotion', 'motionPreferenceReady', 'motionPreferenceSaving', 'motionPreferenceWarning']) {
+    assert.ok(destination.includes(`${prop}: this.${prop}`), `settings must observe ${prop}`);
+  }
+  assert.match(destination, /onMotionChange:[^\n]*this\.updateMotionPreference\(enabled\)/);
+  assert.match(destination, /onClose:[^\n]*this\.closePost\(\)/);
+  assert.match(destination, /onWeb:[^\n]*this\.openWeb\(\)/);
+  assert.match(settingsSource, /Toggle\(\{ type: ToggleType\.Switch, isOn: this\.reduceMotion \}\)[\s\S]*?\.enabled\(this\.motionPreferenceReady && !this\.motionPreferenceSaving\)[\s\S]*?\.onChange\([^\n]*this\.onMotionChange\(enabled\)/);
+  assert.match(settingsSource, /\.onClick\([^\n]*this\.onClose\(\)/);
+  assert.match(settingsSource, /\.onClick\([^\n]*this\.onWeb\(\)/);
+  assert.doesNotMatch(timelineSource, /Toggle\(\{[^}]*isOn:\s*this\.reduceMotion/, 'do not maintain a second preference UI');
 });
 
 test('timeline color resources exist in both modes and readable pairings meet 4.5:1', () => {
@@ -265,6 +277,45 @@ test('timeline color resources exist in both modes and readable pairings meet 4.
   }
 });
 
+test('the home toolbar renders a two-way native feed filter without settings or web shortcuts', () => {
+  const toolbar = builder(timelineSource, 'Toolbar');
+  assert.match(toolbar, /Text\(['"]本机预览['"]\)/);
+  assert.doesNotMatch(toolbar, /openSettings|openWeb|settingsVisible|router\./);
+  assert.match(builder(timelineSource, 'LocalCollection'), /\.onClick\([^\n]*this\.openSettings\(\)/,
+    'settings must remain accessible from the profile');
+
+  const options = toolbar.match(/\bTabSegmentButtonV2\((\{[\s\S]*?\})\)/)?.[1];
+  assert.ok(options, 'instantiate the system segment; custom buttons with the same labels are not a substitute');
+  const segments = timelineSource.match(/(\w+)\s*:\s*SegmentButtonV2Items\s*=\s*new SegmentButtonV2Items\((\[[\s\S]*?\])\)/);
+  assert.ok(segments, 'missing segment items');
+  const makeOptions = vm.runInNewContext(stripTypeScriptTypes(`(function() {
+    this.${segments[1]} = ${segments[2]}; return (${options});
+  })`));
+  const selected = [];
+  const page = { followingOnly: false, selectFeed: following => selected.push(following) };
+  const config = makeOptions.call(page);
+  assert.deepEqual(Array.from(config.items, item => item.text), ['为你', '关注中']);
+  assert.equal(config.selectedIndex, 0);
+  page.followingOnly = true;
+  assert.equal(makeOptions.call(page).selectedIndex, 1);
+  config.$selectedIndex(1);
+  config.$selectedIndex(0);
+  assert.deepEqual(selected, [true, false]);
+});
+
+test('the flat reading rows still expose follow, like, replies and bookmark actions', () => {
+  const row = builder(timelineSource, 'PostCard');
+  assert.match(row, /Divider\(\)/);
+  assert.doesNotMatch(row, /\.shadow\(/);
+  assert.match(row, /this\.FollowAction\(post\)/);
+  assert.match(row, /this\.PostActions\(post, inDetail\)/);
+  const actions = builder(timelineSource, 'PostActions');
+  for (const handler of ['toggleLike(post.id)', 'openPost(post)', 'toggleSaved(post)']) {
+    assert.ok(actions.includes(`this.${handler}`), `missing post action: ${handler}`);
+  }
+  assert.match(builder(timelineSource, 'FollowAction'), /\.onClick\([^\n]*this\.toggleFollow\(post\.id\)/);
+});
+
 test('Stage follows system font scale and timeline reflows when text grows', () => {
   const timeline = readFileSync(new URL('../app/entry/src/main/ets/pages/Timeline.ets', import.meta.url), 'utf8');
   assert.equal(appConfig.app.configuration, '$profile:configuration');
@@ -273,8 +324,10 @@ test('Stage follows system font scale and timeline reflows when text grows', () 
   assert.match(ability, /onConfigurationUpdate\(config: Configuration\)[\s\S]*AppStorage\.setOrCreate\('timelineFontScale', config\.fontSizeScale/);
   assert.match(ability, /this\.onConfigurationUpdate\(this\.context\.config\);\s+windowStage\.loadContent\('pages\/Timeline'\)/);
   assert.match(timeline, /@StorageProp\('timelineFontScale'\)/);
-  assert.match(timeline, /\.lanes\(this\.readingLaneCount\(\), 12\)/);
-  assert.match(timeline, /\(this\.contentWidth \|\| this\.viewportWidth\) >= WIDE_VIEWPORT && !this\.toolbarInList\(\) \? 2 : 1/);
+  const feed = builder(timeline, 'Feed');
+  assert.match(feed, /\.lanes\(this\.readingLaneCount\(\)/);
+  assert.match(feed, /if \(!this\.toolbarInList\(\)\)\s*\{\s*this\.Toolbar\(\)/);
+  assert.match(feed, /if \(this\.toolbarInList\(\)\)\s*\{\s*ListItem\(\)\s*\{\s*this\.Toolbar\(\)/);
   assert.doesNotMatch(timeline, /Text\(post\.body\)[^\n]*(?:lineHeight|maxLines)/);
 });
 
@@ -290,8 +343,9 @@ test('reading reflow keeps a post ID, adjusts for the large-text toolbar and def
     timelineVisible = true; restorePending = false; restoreScheduled = false;
     viewportWidth = 400; fontScale = 1; firstVisibleIndex = 1; timelinePosts = POSTS;
     selectedTab = ShellTab.Home; followingOnly = false; followedIds = ['p2'];
+    followingTabAnchor = { postId: '', clipped: 0 };
     detailPaths = { size: () => 0 };
-    ${timelineMethods('  private visibleFeed(', '  private selectFeed(')}
+    ${timelineMethods('  private visibleFeed(', '  private activityEntries(')}
     getUIContext() { return { postFrameCallback: (frame) => frames.push(frame) }; }
     ${methods}
   }; Timeline`), {
@@ -310,6 +364,9 @@ test('reading reflow keeps a post ID, adjusts for the large-text toolbar and def
   assert.equal(page.readingAnchor.clipped, 28);
   page.viewportWidth = 820;
   assert.equal(page.readingLaneCount(), 2);
+  page.contentWidth = 400;
+  assert.equal(page.readingLaneCount(), 1, 'a narrow content pane on a wide window must still use one lane');
+  page.contentWidth = 820;
   page.onReadingLayoutChange();
   page.onReadingLayoutChange();
   assert.equal(frames.length, 1, 'coalesce several layout changes into one frame');
@@ -356,6 +413,65 @@ test('reading reflow keeps a post ID, adjusts for the large-text toolbar and def
   rect = { height: 0, y: 0 };
   frames.shift().task();
   assert.deepEqual(calls.shift().slice(0, 3), [3, false, 'start']);
+
+  // Each filter remembers its own post and clipped offset, even with a scrolling large-text header.
+  rect = { height: 120, y: -28 };
+  page.firstVisibleIndex = 3;
+  page.selectFeed(true);
+  frames.shift().task();
+  assert.deepEqual(calls.shift(), [0, false, 'start']);
+  assert.deepEqual(Array.from(page.visibleFeed(), post => post.id), ['p2']);
+  page.firstVisibleIndex = 1;
+  rect = { height: 120, y: -9 };
+  page.selectFeed(false);
+  frames.shift().task();
+  const restoredHome = calls.shift();
+  assert.deepEqual([restoredHome[0], restoredHome[3].extraOffset], [3, 28]);
+  page.firstVisibleIndex = 3;
+  rect = { height: 120, y: -28 };
+  page.selectFeed(true);
+  frames.shift().task();
+  const restoredFollowing = calls.shift();
+  assert.deepEqual([restoredFollowing[0], restoredFollowing[3].extraOffset], [1, 9]);
+});
+
+test('UIDesignKit HdsTabs hosts four native tab bars; compose is an action, not a fifth destination', () => {
+  assert.match(tabsSource, /import\s*\{[^}]*\bHdsTabs\b[^}]*\}\s*from\s*['"]@kit\.UIDesignKit['"]/);
+  const build = builder(tabsSource, 'build');
+  const children = build.match(/^(\s*)HdsTabs\(\{\s*index:\s*this\.activeIndex\s*\}\)\s*\{([\s\S]*?)^\1\}/m)?.[2];
+  assert.ok(children, 'instantiate HdsTabs controlled by the parent tab index');
+  const pages = [...children.matchAll(/TabContent\(\)\s*\{([\s\S]*?)\}\.tabBar\((\w+)\(/g)];
+  assert.equal(children.match(/\bTabContent\(/g)?.length, 4);
+  assert.deepEqual(pages.map(([, content]) => content.match(/this\.(home|search|activity|profile)\(\)/)?.[1]),
+    ['home', 'search', 'activity', 'profile']);
+  for (const factory of new Set(pages.map(([, , name]) => name))) {
+    assert.match(tabsSource, new RegExp(`function ${factory}\\([^}]+\\{[\\s\\S]*?return BottomTabBarStyle\\.of\\(`));
+  }
+  assert.doesNotMatch(children, /this\.(?:onCompose|ComposeAction)\(/);
+  assert.match(build, /\.onChange\([\s\S]*?this\.onSelectTab\(index\)/);
+  assert.match(build.replace(children, ''), /this\.ComposeAction\(\)/);
+  assert.match(builder(tabsSource, 'ComposeAction'), /Button\([\s\S]*?\.onClick\([^\n]*this\.onCompose\(\)/);
+});
+
+test('the parent wires the four reading pages and the independent composer to the real tab shell', () => {
+  const options = builder(timelineSource, 'Shell').match(/\bReadingTabs\((\{[\s\S]*?\})\)/)?.[1];
+  assert.ok(options, 'the timeline must instantiate ReadingTabs, not just import it');
+  const visits = [];
+  const shell = vm.runInNewContext(stripTypeScriptTypes(`class Shell {
+    selectedTab = 2; viewportWidth = 400; activityEntries() { return ['activity']; }
+    Feed() { visits.push('home'); } LocalCollection(search) { visits.push(search ? 'search' : 'profile'); }
+    selectTab(index) { visits.push(index); } openComposer() { visits.push('compose'); }
+    ${builder(timelineSource, 'SearchRoot')}
+    ${builder(timelineSource, 'ActivityRoot')}
+    ${builder(timelineSource, 'ProfileRoot')}
+    options() { return (${options}); }
+  }; new Shell()`), { visits, SIDE_NAV_WIDTH: 840, ActivityPane: ({ entries }) => visits.push(...entries) });
+  const config = shell.options();
+  assert.equal(config.activeIndex, shell.selectedTab);
+  for (const slot of ['home', 'search', 'activity', 'profile']) config[slot]();
+  config.onSelectTab(3);
+  config.onCompose();
+  assert.deepEqual(visits, ['home', 'search', 'activity', 'profile', 3, 'compose']);
 });
 
 test('shell tabs and local activity preserve origin and never create duplicate routes', () => {
@@ -406,9 +522,6 @@ test('shell tabs and local activity preserve origin and never create duplicate r
   page.openActivityPost(entries[2]);
   page.openActivityPost({ postId: 'missing' });
   assert.deepEqual(Array.from(page.opened), ['p2']);
-  for (const id of ['nav-home', 'nav-search', 'nav-compose', 'nav-activity', 'nav-profile']) {
-    assert.ok(timelineSource.includes(id));
-  }
 });
 
 test('post detail uses one stack entry and keeps replies local and scoped to their post', () => {
@@ -480,8 +593,8 @@ test('post detail uses one stack entry and keeps replies local and scoped to the
 
 test('post drafts persist explicitly and preview posts are added once without modifying the saved draft', async () => {
   const constants = timelineSource.slice(timelineSource.indexOf('const POST_COMPOSER'), timelineSource.indexOf('interface DemoReply'));
-  const methods = timelineMethods('  private localPost(', '  @Builder\n  SettingsSheet()');
-  const { Composer, DraftDecision } = vm.runInNewContext(stripTypeScriptTypes(`
+  const methods = timelineMethods('  private localPost(', '  @Builder');
+  const { Composer, DraftDecision, ShellTab } = vm.runInNewContext(stripTypeScriptTypes(`
     ${constants}
     class Composer {
       postDraft = ''; savedPostDraft = ''; postDraftReady = false; postDraftBusy = false;
@@ -490,7 +603,7 @@ test('post drafts persist explicitly and preview posts are added once without mo
       library = emptyLibrary(); libraryReady = false; libraryLoading = false; libraryBusy = false;
       likedIds = []; followedIds = []; savedIds = [];
       timelinePosts = [...POSTS]; animationTriggers = [0, -1];
-      timelineVisible = true; anchorCaptures = 0;
+      timelineVisible = true; anchorCaptures = 0; selectedTab = ShellTab.Home; followingOnly = false;
       constructor(stores) {
         this.detailPaths = {
           size: () => this.route ? 1 : 0,
@@ -501,12 +614,13 @@ test('post drafts persist explicitly and preview posts are added once without mo
       }
       getUIContext() { return { getHostContext: () => this.stores }; }
       rememberReadingPosition() { this.anchorCaptures++; }
-      onPageShow() { this.timelineVisible = true; }
+      ${timelineMethods('  onPageShow(', '  onPageHide(')}
+      scheduleReadingRestore() {}
       allowsMotionFeedback() { return false; }
       inform() {}
       ${methods}
     }
-    ({ Composer, DraftDecision });`, { mode: 'transform' }), {
+    ({ Composer, DraftDecision, ShellTab });`, { mode: 'transform' }), {
     ...libraryModel,
     POSTS: [{ id: 'p1' }, { id: 'p2' }],
     preferences: { getPreferences: async (stores, { name }) => stores[name] }
@@ -586,6 +700,18 @@ test('post drafts persist explicitly and preview posts are added once without mo
   assert.equal(page.popAnimated, false);
   assert.equal(disk, body);
 
+  // Compose is an action from any tab: opening, previewing and cancelling must not select Home.
+  page.selectedTab = ShellTab.Activity;
+  page.timelineVisible = false;
+  page.openComposer();
+  page.openPostPreview();
+  assert.equal(page.selectedTab, ShellTab.Activity);
+  page.requestComposerExit();
+  page.requestComposerExit();
+  assert.equal(page.route, undefined);
+  assert.equal(page.selectedTab, ShellTab.Activity);
+  assert.equal(page.timelineVisible, false);
+
   const restarted = new Composer(stores);
   restarted.openComposer();
   await settle();
@@ -633,6 +759,7 @@ test('post drafts persist explicitly and preview posts are added once without mo
   assert.match(timelineSource, /不会发布到 Threads/);
 
   page.openComposer();
+  page.followingOnly = true;
   const preview = '  新版本\n保留换行 🧵  ';
   page.postDraft = preview;
   page.openPostPreview();
@@ -649,6 +776,7 @@ test('post drafts persist explicitly and preview posts are added once without mo
   assert.equal(libraryDisk, '', 'failed flush does not publish the post');
   assert.equal(page.timelinePosts.length, 2);
   assert.equal(page.route.name, 'PostComposer');
+  assert.equal(page.selectedTab, ShellTab.Activity, 'failed add does not leave the originating tab');
   assert.equal(page.previewBody, preview, 'failed save preserves the preview for retry');
   assert.match(page.libraryMessage, /未能保存/);
 
@@ -660,6 +788,8 @@ test('post drafts persist explicitly and preview posts are added once without mo
   await add;
   assert.equal(libraryWrites, libraryWritesBeforeRetry + 1, 'a concurrent add cannot write twice');
   assert.equal(page.timelineVisible, true);
+  assert.equal(page.selectedTab, ShellTab.Home, 'only successful add returns to Home');
+  assert.equal(page.followingOnly, false, 'the new local post is visible in For you');
   assert.equal(page.showingPostPreview, false);
   assert.equal(page.previewBody, '');
   const added = page.timelinePosts[0];

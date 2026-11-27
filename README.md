@@ -1,6 +1,8 @@
 # Threads for HarmonyOS · 原生界面候选
 
-这是非官方、手机优先的 HarmonyOS 工程。ArkUI 主界面包含**首页、搜索、发帖、动态、我的**：窄窗用底栏，宽窗设计为侧栏。「发帖」打开独立草稿流程；首页的「为你／关注中」各记阅读位置；「动态」按赞、收藏、回复展示本机互动；「我的」管理收藏和本机帖子，并可进入设置。参考 [HarmonyX 公开更新日志](https://github.com/haohaoai0/HarmonyX/blob/main/CHANGELOG.md) 中的导航与阅读体验，使用本项目的 ArkUI 实现和系统图标。
+这是非官方、手机优先的 HarmonyOS 工程。四个阅读栏目是**首页、搜索、动态、我的**；写帖是独立操作，不占栏目。首页采用连续的帖子与回复排版，用系统分段控件切换「为你／关注中」，两条流分别记住读位。网页与减少动效在「我的」下。设计参考 [HarmonyX 公开更新日志](https://github.com/haohaoai0/HarmonyX/blob/main/CHANGELOG.md) 中分离导航与操作的做法，未使用其源码或素材。
+
+参看[同一手机模拟器的改前／改后首页](docs/screenshots/hds-reading-home-comparison.jpg)。右图底栏使用华为 `HdsTabs` 与独立的写帖辅助栏，首页不再为每条帖子绘制阴影大卡。
 
 本机帖子、点赞、关注和收藏可在同一安装重启后恢复；本地回复只保留在当次运行。所有原生操作均不连接 Threads，也不会写入 Threads 账号。
 

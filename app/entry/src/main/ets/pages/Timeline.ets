@@ -1,8 +1,9 @@
 import { accessibility } from '@kit.AccessibilityKit';
 import { preferences } from '@kit.ArkData';
-import { FrameCallback, LengthMetrics, router } from '@kit.ArkUI';
+import { FrameCallback, LengthMetrics, router, SegmentButtonV2Items, TabSegmentButtonV2 } from '@kit.ArkUI';
 import { decodeLibrary, emptyLibrary, LibraryPost, LIBRARY_POST_LIMIT, LOCAL_POST_BODY_LIMIT, LocalLibrary, matchesPost } from '../model/LocalLibrary';
 import { ActivityEntry, ActivityPane } from '../components/ActivityPane';
+import { ReadingTabs } from '../components/ReadingTabs';
 import { SettingsPane } from '../components/SettingsPane';
 
 const LARGE_TEXT_SCALE = 1.4;
@@ -118,7 +119,7 @@ struct Timeline {
   @State private motionPreferenceReady: boolean = false;
   @State private motionPreferenceSaving: boolean = false;
   @State private motionPreferenceWarning: string = '';
-  @State private settingsVisible: boolean = false;
+  private readonly feedSegments: SegmentButtonV2Items = new SegmentButtonV2Items([{ text: '为你' }, { text: '关注中' }]);
   @State private localReplies: DemoReply[] = [];
   @State private replyDraft: string = '';
   @State private postDraft: string = '';
@@ -748,109 +749,91 @@ struct Timeline {
   }
 
   @Builder
-  SettingsSheet() {
-    Column({ space: 18 }) {
-      Column({ space: 12 }) {
-        Column({ space: 4 }) {
-          Text('显示与动效').fontSize(22).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
-          Text('按你的阅读习惯调整界面').fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
-        }.alignItems(HorizontalAlign.Start).width('100%')
-        Button('完成', { type: ButtonType.Capsule })
-          .width('100%').constraintSize({ minHeight: 44 }).padding({ left: 16, right: 16, top: 10, bottom: 10 }).backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
-          .onClick(() => { this.settingsVisible = false; })
-      }.width('100%')
-
-      Row({ space: 16 }) {
-        Column({ space: 4 }) {
-          Text('减少动效').fontSize(15).fontWeight(FontWeight.Medium).fontColor($r('app.color.timeline_text_primary'))
-          Text(this.systemReducesMotion ? '系统已减少动效；不播放点赞弹跳和详情转场。' : '影响点赞弹跳和详情转场；偏好保存在本机。')
-            .fontSize(12).fontColor($r('app.color.timeline_text_muted'))
-        }.alignItems(HorizontalAlign.Start).layoutWeight(1)
-        Toggle({ type: ToggleType.Switch, isOn: this.reduceMotion })
-          .accessibilityText('减少动效')
-          .enabled(this.motionPreferenceReady && !this.motionPreferenceSaving)
-          .onChange((enabled: boolean) => { this.updateMotionPreference(enabled); })
-      }.width('100%').padding(16).backgroundColor($r('app.color.timeline_background')).borderRadius(18)
-      if (this.motionPreferenceWarning.length > 0) {
-        Text(this.motionPreferenceWarning).fontSize(12).fontColor($r('app.color.timeline_text_secondary')).width('100%')
-      }
-    }
-    .width('100%').padding({ left: 22, right: 22, top: 20, bottom: 28 })
-    .backgroundColor($r('app.color.timeline_surface'))
+  FollowAction(post: MockPost) {
+    Button(this.followedIds.includes(post.id) ? '已关注' : '关注')
+      .id('follow-' + post.id).buttonStyle(ButtonStyleMode.TEXTUAL)
+      .constraintSize({ minWidth: 48, minHeight: 44 }).padding({ left: 6, right: 6 })
+      .fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
+      .accessibilitySelected(this.followedIds.includes(post.id))
+      .enabled(this.libraryReady && !this.libraryBusy).onClick(() => { this.toggleFollow(post.id); })
   }
 
   @Builder
-  FollowAction(post: MockPost) {
-    Button(this.followedIds.includes(post.id) ? '已关注' : '关注')
-      .constraintSize({ minHeight: 48 }).padding({ left: 15, right: 15, top: 10, bottom: 10 }).fontSize(12).fontWeight(FontWeight.Medium).borderRadius(18)
-      .backgroundColor(this.followedIds.includes(post.id) ? $r('app.color.timeline_surface_muted') : $r('app.color.timeline_action'))
-      .fontColor(this.followedIds.includes(post.id) ? $r('app.color.timeline_action_muted') : $r('app.color.timeline_on_action'))
-      .accessibilitySelected(this.followedIds.includes(post.id))
-      .enabled(this.libraryReady && !this.libraryBusy)
-      .onClick(() => { this.toggleFollow(post.id); })
+  PostActions(post: MockPost, inDetail: boolean) {
+    Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center }) {
+      Button({ type: ButtonType.Capsule }) {
+        Row({ space: 5 }) {
+          if (this.allowsMotionFeedback()) {
+            SymbolGlyph(this.likedIds.includes(post.id) ? $r('sys.symbol.heart_fill') : $r('sys.symbol.heart'))
+              .fontSize(17).fontColor([this.likedIds.includes(post.id) ? $r('app.color.timeline_like') : $r('app.color.timeline_text_secondary')])
+              .symbolEffect(new BounceSymbolEffect(EffectScope.WHOLE), this.animationTriggerFor(post.id))
+          } else {
+            SymbolGlyph(this.likedIds.includes(post.id) ? $r('sys.symbol.heart_fill') : $r('sys.symbol.heart'))
+              .fontSize(17).fontColor([this.likedIds.includes(post.id) ? $r('app.color.timeline_like') : $r('app.color.timeline_text_secondary')])
+          }
+          Text(String(post.likes + (this.likedIds.includes(post.id) ? 1 : 0))).fontSize(12).fontColor($r('app.color.timeline_text_secondary'))
+        }
+      }.id('like-' + post.id).buttonStyle(ButtonStyleMode.TEXTUAL).constraintSize({ minHeight: 44, minWidth: 48 })
+        .padding({ left: 0, right: 10 }).accessibilityText(this.likedIds.includes(post.id) ? '取消点赞' : '点赞')
+        .accessibilitySelected(this.likedIds.includes(post.id)).enabled(this.libraryReady && !this.libraryBusy)
+        .onClick(() => { this.toggleLike(post.id); })
+      if (!inDetail) {
+        Button({ type: ButtonType.Capsule }) {
+          Row({ space: 5 }) {
+            SymbolGlyph($r('sys.symbol.message')).fontSize(17).fontColor([$r('app.color.timeline_text_secondary')])
+            Text(String(this.replyCount(post))).fontSize(12).fontColor($r('app.color.timeline_text_secondary'))
+          }
+        }.id('replies-' + post.id).constraintSize({ minWidth: 48, minHeight: 44 }).buttonStyle(ButtonStyleMode.TEXTUAL)
+          .padding({ left: 8, right: 10 }).accessibilityText('查看' + post.name + '的帖子详情，' + this.replyCount(post) + ' 条回复')
+          .onClick(() => this.openPost(post))
+      }
+      Blank().layoutWeight(1)
+      Button({ type: ButtonType.Circle }) {
+        SymbolGlyph(this.savedIds.includes(post.id) ? $r('sys.symbol.bookmark_fill') : $r('sys.symbol.bookmark'))
+          .fontSize(17).fontColor([$r('app.color.timeline_text_secondary')])
+      }.id('save-' + post.id).width(44).height(44).buttonStyle(ButtonStyleMode.TEXTUAL)
+        .accessibilityText(this.savedIds.includes(post.id) ? '已收藏' : '收藏').accessibilitySelected(this.savedIds.includes(post.id))
+        .enabled(this.libraryReady && !this.libraryBusy).onClick(() => { this.toggleSaved(post); })
+    }.width('100%')
   }
 
   @Builder
   PostCard(post: MockPost, inDetail: boolean) {
-    Column({ space: 16 }) {
+    Column() {
       Row({ space: 12 }) {
-        Text(post.name.substring(0, 1)).width(46).height(46).fontSize('18vp').fontWeight(FontWeight.Medium)
-          .fontColor($r('app.color.timeline_on_avatar')).textAlign(TextAlign.Center).backgroundColor(post.avatarColor).borderRadius(23)
-          .accessibilityLevel('no')
+        Text(post.name.substring(0, 1)).width(36).height(36).fontSize('15vp').fontWeight(FontWeight.Medium)
+          .fontColor($r('app.color.timeline_on_avatar')).textAlign(TextAlign.Center).backgroundColor(post.avatarColor)
+          .borderRadius(18).accessibilityLevel('no')
         Column({ space: 4 }) {
-          Text(post.name).fontSize(15).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
-          Text(`${post.handle}  ·  ${post.time}`).fontSize(12).fontColor($r('app.color.timeline_text_secondary'))
-        }.alignItems(HorizontalAlign.Start).layoutWeight(1)
-        if (!post.local && this.fontScale < LARGE_TEXT_SCALE && this.viewportWidth >= 360) {
-          this.FollowAction(post)
-        }
-      }.width('100%')
-      if (!post.local && (this.fontScale >= LARGE_TEXT_SCALE || this.viewportWidth < 360)) {
-        Row() { this.FollowAction(post) }.width('100%').justifyContent(FlexAlign.End)
+          Row({ space: 4 }) {
+            Column({ space: 2 }) {
+              Text(post.name).fontSize(16).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
+              Text(post.handle + ' · ' + post.time).fontSize(12).fontColor($r('app.color.timeline_text_secondary'))
+            }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+            if (!post.local && this.fontScale < LARGE_TEXT_SCALE && this.viewportWidth >= 360) { this.FollowAction(post) }
+          }.width('100%')
+          if (!post.local && (this.fontScale >= LARGE_TEXT_SCALE || this.viewportWidth < 360)) { this.FollowAction(post) }
+          Text(post.body).fontSize(16).fontColor($r('app.color.timeline_text_body')).width('100%')
+            .textAlign(TextAlign.Start).copyOption(CopyOptions.InApp)
+          this.PostActions(post, inDetail)
+        }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+      }.width('100%').alignItems(VerticalAlign.Top)
+      if (!inDetail && this.repliesFor(post.id).length > 0) {
+        Row({ space: 12 }) {
+          Column({ space: 3 }) {
+            Divider().vertical(true).height(8).strokeWidth(1).color($r('app.color.timeline_border'))
+            Text(this.repliesFor(post.id)[0].author.substring(0, 1)).width(22).height(22).fontSize('11vp')
+              .backgroundColor($r('app.color.timeline_surface_muted')).fontColor($r('app.color.timeline_text_secondary'))
+              .borderRadius(11).textAlign(TextAlign.Center).accessibilityLevel('no')
+          }.width(36)
+          Text(this.repliesFor(post.id)[0].author + '：' + this.repliesFor(post.id)[0].body)
+            .fontSize(13).fontColor($r('app.color.timeline_text_secondary')).layoutWeight(1)
+            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        }.width('100%').constraintSize({ minHeight: 44 }).accessibilityGroup(true)
+          .accessibilityText('查看' + post.name + '的回复').onClick(() => this.openPost(post))
       }
-
-      Text(post.body).fontSize(15).fontColor($r('app.color.timeline_text_body')).width('100%')
-        .textAlign(TextAlign.Start).copyOption(CopyOptions.InApp)
-
-      Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center, justifyContent: FlexAlign.SpaceBetween,
-        space: { cross: LengthMetrics.vp(6) } }) {
-        Row({ space: 4 }) {
-          Button({ type: ButtonType.Circle, stateEffect: false }) {
-            if (this.allowsMotionFeedback()) {
-              SymbolGlyph(this.likedIds.includes(post.id) ? $r('sys.symbol.heart_fill') : $r('sys.symbol.heart'))
-                .fontSize(21).fontColor([this.likedIds.includes(post.id) ? $r('app.color.timeline_like') : $r('app.color.timeline_text_secondary')])
-                .symbolEffect(new BounceSymbolEffect(EffectScope.WHOLE), this.animationTriggerFor(post.id))
-            } else {
-              SymbolGlyph(this.likedIds.includes(post.id) ? $r('sys.symbol.heart_fill') : $r('sys.symbol.heart'))
-                .fontSize(21).fontColor([this.likedIds.includes(post.id) ? $r('app.color.timeline_like') : $r('app.color.timeline_text_secondary')])
-            }
-          }.width(48).height(48).buttonStyle(ButtonStyleMode.TEXTUAL)
-            .accessibilityText(this.likedIds.includes(post.id) ? '取消点赞' : '点赞')
-            .accessibilitySelected(this.likedIds.includes(post.id))
-            .enabled(this.libraryReady && !this.libraryBusy)
-            .onClick(() => { this.toggleLike(post.id); })
-          Text(`${post.likes + (this.likedIds.includes(post.id) ? 1 : 0)}`).fontSize(12).fontColor($r('app.color.timeline_text_secondary'))
-        }
-        if (!inDetail) {
-          Button({ type: ButtonType.Capsule }) {
-            Row({ space: 6 }) {
-              SymbolGlyph($r('sys.symbol.message')).fontSize(20).fontColor([$r('app.color.timeline_text_secondary')])
-              Text(`${this.replyCount(post)}`).fontSize(12).fontColor($r('app.color.timeline_text_muted'))
-            }.padding({ left: 10, right: 10, top: 8, bottom: 8 })
-          }.constraintSize({ minWidth: 48, minHeight: 48 }).buttonStyle(ButtonStyleMode.TEXTUAL)
-            .accessibilityText(`查看${post.name}的帖子详情，${this.replyCount(post)} 条回复`)
-            .onClick(() => this.openPost(post))
-        }
-        Button(this.savedIds.includes(post.id) ? '已收藏' : '收藏')
-          .constraintSize({ minWidth: 48, minHeight: 48 }).buttonStyle(ButtonStyleMode.TEXTUAL)
-          .fontSize(13).fontColor($r('app.color.timeline_text_secondary')).accessibilitySelected(this.savedIds.includes(post.id))
-          .enabled(this.libraryReady && !this.libraryBusy).onClick(() => { this.toggleSaved(post); })
-      }.width('100%')
-    }
-    .width('100%').padding(18).backgroundColor($r('app.color.timeline_surface')).borderRadius(22)
-    .border({ width: 1, color: $r('app.color.timeline_border') })
-    .shadow({ radius: 12, color: $r('app.color.timeline_shadow'), offsetX: 0, offsetY: 3 })
-    .constraintSize({ maxWidth: 600 })
+      Divider().strokeWidth(0.5).color($r('app.color.timeline_border')).margin({ top: 6 })
+    }.width('100%').constraintSize({ maxWidth: 600 }).padding({ top: 14 })
   }
 
   @Builder
@@ -1143,100 +1126,41 @@ struct Timeline {
 
   @Builder
   Toolbar() {
-    Column({ space: 10 }) {
-      Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center,
+    Column({ space: 7 }) {
+      Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center, justifyContent: FlexAlign.SpaceBetween,
         space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(4) } }) {
-        Column({ space: 2 }) {
-          Text('Threads').fontSize(26).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
-          Text('本机预览').fontSize(12).fontColor($r('app.color.timeline_text_secondary'))
-        }.alignItems(HorizontalAlign.Start).flexGrow(1)
-          .width(this.fontScale >= LARGE_TEXT_SCALE ? '100%' : 'auto')
-        Button('显示与动效').constraintSize({ minHeight: 48 }).buttonStyle(ButtonStyleMode.TEXTUAL)
-          .fontSize(13).fontColor($r('app.color.timeline_text_body')).onClick(() => { this.settingsVisible = true; })
-        Button('打开网页').constraintSize({ minHeight: 48 }).fontSize(13)
-          .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body'))
-          .enabled(!this.openingWeb).onClick(() => { this.openWeb(); })
+        Text('Threads').fontSize(28).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
+        Text('本机预览').fontSize(12).fontColor($r('app.color.timeline_text_secondary'))
       }.width('100%')
-      Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(6) } }) {
-        this.FeedFilter('为你', false)
-        this.FeedFilter('关注中', true)
-      }.width('100%')
-      Text('本机操作不会连接 Threads；使用真实账号请打开网页。').fontSize(12)
-        .fontColor($r('app.color.timeline_text_secondary'))
+      TabSegmentButtonV2({ items: this.feedSegments, itemMaxFontScale: 2, selectedIndex: this.followingOnly ? 1 : 0,
+        $selectedIndex: (index: number) => this.selectFeed(index === 1) })
+        .id('feed-segment').width(this.fontScale >= LARGE_TEXT_SCALE ? '100%' : 176)
       this.LibraryStatus()
     }.width('100%').constraintSize({ maxWidth: MAX_LIST_WIDTH }).alignItems(HorizontalAlign.Start)
-      .padding({ left: 18, right: 18, top: 8, bottom: 8 })
+      .padding({ left: 18, right: 18, top: 10, bottom: 8 })
   }
 
   @Builder
-  FeedFilter(label: string, following: boolean) {
-    Button(label, { type: ButtonType.Capsule }).id(following ? 'feed-following' : 'feed-for-you')
-      .constraintSize({ minHeight: 48 }).accessibilitySelected(this.followingOnly === following)
-      .backgroundColor(this.followingOnly === following ? $r('app.color.timeline_action') : $r('app.color.timeline_toolbar_button'))
-      .fontColor(this.followingOnly === following ? $r('app.color.timeline_on_action') : $r('app.color.timeline_text_body'))
-      .onClick(() => this.selectFeed(following))
-  }
+  SearchRoot() { this.LocalCollection(true) }
 
   @Builder
-  ShellItem(id: string, label: string, icon: Resource, tab: ShellTab, compose: boolean, onTap: () => void) {
-    Button({ type: ButtonType.Normal }) {
-      Column({ space: 2 }) {
-        SymbolGlyph(icon).fontSize('21vp')
-          .fontColor([compose ? $r('app.color.timeline_on_action') : $r('app.color.timeline_text_primary')])
-          .accessibilityLevel('no')
-        Text(label).fontSize('12vp').fontWeight((!compose && this.selectedTab === tab) ? FontWeight.Bold : FontWeight.Medium)
-          .fontColor(compose ? $r('app.color.timeline_on_action') : $r('app.color.timeline_text_primary'))
-      }.width('100%')
-    }.id(id).constraintSize({ minHeight: 56 }).borderRadius(18)
-      .width(this.viewportWidth >= SIDE_NAV_WIDTH ? '100%' : 'auto')
-      .layoutWeight(this.viewportWidth >= SIDE_NAV_WIDTH ? 0 : 1)
-      .backgroundColor(compose ? $r('app.color.timeline_action') : (!compose && this.selectedTab === tab) ? $r('app.color.timeline_surface_muted') : Color.Transparent)
-      .accessibilityText(label).accessibilitySelected((!compose && this.selectedTab === tab)).onClick(onTap)
-  }
+  ProfileRoot() { this.LocalCollection(false) }
 
   @Builder
-  NavItems() {
-    this.ShellItem('nav-home', '首页', $r('sys.symbol.house'), ShellTab.Home, false,
-      () => this.selectTab(ShellTab.Home))
-    this.ShellItem('nav-search', '搜索', $r('sys.symbol.magnifyingglass'), ShellTab.Search, false,
-      () => this.selectTab(ShellTab.Search))
-    this.ShellItem('nav-compose', '发帖', $r('sys.symbol.plus'), ShellTab.Home, true, () => this.openComposer())
-    this.ShellItem('nav-activity', '动态', $r('sys.symbol.heart'), ShellTab.Activity, false,
-      () => this.selectTab(ShellTab.Activity))
-    this.ShellItem('nav-profile', '我的', $r('sys.symbol.person'), ShellTab.Profile, false,
-      () => this.selectTab(ShellTab.Profile))
+  ActivityRoot() {
+    ActivityPane({ entries: this.activityEntries(), onOpen: (entry: ActivityEntry) => this.openActivityPost(entry) })
   }
 
   @Builder
   Shell() {
-    Flex({ direction: this.viewportWidth >= SIDE_NAV_WIDTH ? FlexDirection.RowReverse : FlexDirection.Column }) {
-      Stack({ alignContent: Alignment.Top }) {
-        Column() { this.Feed() }.width('100%').height('100%')
-          .visibility(this.selectedTab === ShellTab.Home ? Visibility.Visible : Visibility.Hidden)
-          .accessibilityLevel(this.selectedTab === ShellTab.Home ? 'auto' : 'no-hide-descendants')
-        if (this.selectedTab === ShellTab.Search) {
-          Column() { this.LocalCollection(true) }.width('100%').height('100%')
-        } else if (this.selectedTab === ShellTab.Profile) {
-          Column() { this.LocalCollection(false) }.width('100%').height('100%')
-        } else if (this.selectedTab === ShellTab.Activity) {
-          ActivityPane({ entries: this.activityEntries(), onOpen: (entry: ActivityEntry) => this.openActivityPost(entry) })
-        }
-      }.layoutWeight(1)
-      Flex({ direction: this.viewportWidth >= SIDE_NAV_WIDTH ? FlexDirection.Column : FlexDirection.Row,
-        space: { main: LengthMetrics.vp(4) } }) {
-        this.NavItems()
-      }.id(this.viewportWidth >= SIDE_NAV_WIDTH ? 'side-navigation' : 'bottom-navigation')
-        .width(this.viewportWidth >= SIDE_NAV_WIDTH ? 104 : 'calc(100% - 16vp)')
-        .padding({ left: 8, right: 8, top: 8, bottom: 8 })
-        .backgroundColor($r('app.color.timeline_surface'))
-        .borderRadius(20)
-        .margin({ left: 8, right: 8, bottom: 8, top: 4 })
-    }.width('100%').height('100%').backgroundColor($r('app.color.timeline_background'))
+    ReadingTabs({ activeIndex: this.selectedTab, wide: this.viewportWidth >= SIDE_NAV_WIDTH,
+      home: () => { this.Feed() }, search: () => { this.SearchRoot() },
+      activity: () => { this.ActivityRoot() }, profile: () => { this.ProfileRoot() },
+      onSelectTab: (index: number) => this.selectTab(index as ShellTab), onCompose: () => this.openComposer() })
+      .width('100%').height('100%').backgroundColor($r('app.color.timeline_surface'))
       .onAreaChange((_oldArea: Area, newArea: Area) => {
         const width = Number(newArea.width);
-        if (Number.isFinite(width) && width > 0 && width !== this.viewportWidth) {
-          this.viewportWidth = width;
-        }
+        if (Number.isFinite(width) && width > 0 && width !== this.viewportWidth) { this.viewportWidth = width; }
       })
   }
 
@@ -1246,7 +1170,7 @@ struct Timeline {
       if (!this.toolbarInList()) {
         this.Toolbar()
       }
-      List({ space: 10, scroller: this.timelineScroller }) {
+      List({ scroller: this.timelineScroller }) {
         if (this.toolbarInList()) {
           ListItem() { this.Toolbar() }
         }
@@ -1300,12 +1224,5 @@ struct Timeline {
     }
     .width('100%').height('100%').mode(NavigationMode.Stack).hideTitleBar(true)
     .navDestination(this.DetailDestination)
-    .bindSheet($$this.settingsVisible, this.SettingsSheet(), {
-      height: SheetSize.FIT_CONTENT,
-      dragBar: true,
-      blurStyle: BlurStyle.Thin,
-      showClose: false,
-      preferType: this.viewportWidth >= 680 ? SheetType.CENTER : SheetType.BOTTOM
-    })
   }
 }

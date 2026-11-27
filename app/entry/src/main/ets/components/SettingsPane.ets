@@ -65,7 +65,7 @@ export struct SettingsPane {
   Account() {
     Column({ space: 14 }) {
       this.SectionTitle('账号')
-      this.SettingNote('Threads 账号', '原生界面是本地演示。登录和使用真实的 Threads 账号，请前往网页。')
+      this.SettingNote('Threads 账号', '本机操作不会连接 Threads；使用真实账号请打开网页。')
       Button({ type: ButtonType.Capsule }) {
         Text(this.openingWeb ? '正在打开网页…' : '打开 Threads 网页')
           .fontSize('15fp').fontColor($r('app.color.timeline_on_action')).textAlign(TextAlign.Center)

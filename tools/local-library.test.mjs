@@ -8,10 +8,11 @@ const modelUrl = `data:text/javascript,${encodeURIComponent(stripTypeScriptTypes
 const { decodeLibrary, emptyLibrary, matchesPost } = await import(modelUrl);
 
 const demoIds = ['p1', 'p2'];
-const empty = { posts: [], likedIds: [], followedIds: [], savedIds: [] };
-const persisted = (fields = {}) => JSON.stringify({ version: 1, ...empty, ...fields });
+const legacy = { posts: [], likedIds: [], followedIds: [], savedIds: [] };
+const empty = { ...legacy, replies: [], hiddenIds: [] };
+const persisted = (fields = {}) => JSON.stringify({ version: 1, ...legacy, ...fields });
 
-test('a valid versioned snapshot restores local posts and interactions', () => {
+test('an older snapshot restores existing content and defaults the new fields', () => {
   assert.deepEqual(emptyLibrary(), empty);
   const state = {
     posts: [{ id: 'local-post-1', body: '  我自己的帖子\n' }],
@@ -20,8 +21,29 @@ test('a valid versioned snapshot restores local posts and interactions', () => {
     savedIds: ['p2', 'local-post-1']
   };
   const restored = decodeLibrary(persisted(state), demoIds);
-  assert.deepEqual(restored, state);
-  assert.deepEqual(decodeLibrary(persisted(restored), demoIds), state);
+  assert.deepEqual(restored, { ...state, replies: [], hiddenIds: [] });
+  assert.deepEqual(decodeLibrary(persisted(restored), demoIds), restored);
+});
+
+test('reply restoration keeps only valid same-post chains and hides demo posts only', () => {
+  const reply = (id, postId, parentId, body = 'valid') => ({ id: `local-${id}`, postId, parentId, body });
+  const first = reply(1, 'p1', 'sample-1');
+  const second = reply(2, 'p1', first.id, '  preserving reply text  ');
+  const state = decodeLibrary(persisted({
+    posts: [{ id: 'local-post-1', body: 'Local post' }],
+    hiddenIds: ['p2', 'p2', 'other', 'local-post-1'],
+    replies: [second, first, reply(1, 'p1', undefined, 'duplicate'), reply(3, 'p2', first.id),
+      reply(4, 'p1', 'local-5'), reply(5, 'p1', 'local-4'), reply(6, 'p1', 'missing'),
+      reply(7, 'p2', 'sample-1'), reply(8, 'missing-post'), reply(9, 'p1', undefined, ' '),
+      reply(10, 'p1', 'local-6'), reply(11, 'p1', undefined, '🙂'.repeat(141))]
+  }), demoIds, [{ id: 'sample-1', postId: 'p1' }]);
+  assert.deepEqual(state.replies, [second, first]);
+  assert.deepEqual(state.hiddenIds, ['p2']);
+});
+
+test('no more than 80 replies survive restoration', () => {
+  const replies = Array.from({ length: 81 }, (_, i) => ({ id: `local-${i + 1}`, postId: 'p1', body: `Reply ${i}` }));
+  assert.equal(decodeLibrary(persisted({ replies }), demoIds).replies.length, 80);
 });
 
 test('missing, corrupted, or incompatible snapshots fall back to an empty library', () => {

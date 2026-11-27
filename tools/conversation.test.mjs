@@ -5,7 +5,9 @@ import { test } from 'node:test';
 import vm from 'node:vm';
 
 const readSource = (relative) => readFileSync(new URL(`../app/entry/src/main/ets/${relative}.ets`, import.meta.url), 'utf8');
-const library = await import(`data:text/javascript,${encodeURIComponent(stripTypeScriptTypes(readSource('model/LocalLibrary')))}`);
+const loadModel = (name) => import(`data:text/javascript,${encodeURIComponent(stripTypeScriptTypes(readSource(`model/${name}`)))}`);
+const library = await loadModel('LocalLibrary');
+const identity = await loadModel('LocalIdentity');
 const source = readSource('pages/Timeline');
 const paneSource = readSource('components/ConversationPane');
 
@@ -13,7 +15,7 @@ const paneSource = readSource('components/ConversationPane');
 function stateClass(source) {
   const end = source.search(/^  @Builder\s*$/m);
   assert.ok(end > 0, 'missing ArkUI builder boundary');
-  return source.slice(0, end).replace(/^import .*?;$/gm, '').replace(/^export /gm, '')
+  return source.slice(0, end).replace(/^import\s+[^;]+;\r?$/gm, '').replace(/^export /gm, '')
     .replace(/^@(Entry|Component)\s*$/gm, '').replace(/^struct /m, 'class ')
     .replace(/@(State|StorageProp|Watch|Prop|BuilderParam)\b(?:\('[^']*'\))?\s+/g, '') + '\n}';
 }
@@ -23,12 +25,12 @@ class NavPathStack {
   size() { return this.entries.length; }
   getAllPathName() { return this.entries.map(({ name }) => name); }
   pushPath(entry, animate) { this.entries.push(entry); this.animations.push(animate); }
-  pop(result, animate) { this.animations.push(animate); this.entries.pop().onPop(result); }
+  pop(result, animate) { this.animations.push(animate); this.entries.pop()?.onPop?.(result); }
 }
 const platform = { FrameCallback: class {}, Scroller: class {}, ScrollAlign: { START: 'start' } };
 const { Timeline, ShellTab } = vm.runInNewContext(stripTypeScriptTypes(`${stateClass(source)}\n({ Timeline, ShellTab });`,
   { mode: 'transform' }), {
-  ...library, ...platform, NavPathStack, SegmentButtonV2Items: class {}, LengthMetrics: { vp: n => n }
+  ...library, ...identity, ...platform, NavPathStack, SegmentButtonV2Items: class {}, LengthMetrics: { vp: n => n }
 });
 const Pane = vm.runInNewContext(stripTypeScriptTypes(`${stateClass(paneSource)}\nConversationPane;`), {
   ...platform, KeyboardAvoidMode: { RESIZE: 'resize' }
@@ -46,6 +48,11 @@ function session() {
     scrollToIndex: (...args) => scrolls.push(args)
   };
   page.onPageShow();
+  page.libraryReady = true;
+  page.saveLibrary = async value => {
+    page.applyLibrary(value);
+    return true;
+  };
   const [post, other] = page.timelinePosts;
   const [first, second] = page.repliesFor(post.id);
   const [foreign] = page.repliesFor(other.id);
@@ -111,7 +118,7 @@ test('a dirty draft never changes recipients or vanishes when another reply or t
   assert.equal(stack.size(), 1);
 });
 
-test('Back protects text before popping: keep resumes the same draft, discard leaves, empty editor collapses first', () => {
+test('Back protects text before popping: keep resumes the same draft, discard leaves, empty editor collapses first', async () => {
   const { page, post, second, stack } = session();
   page.openPost(post, second.id);
   page.expandCurrentReply(post.id);
@@ -120,7 +127,7 @@ test('Back protects text before popping: keep resumes the same draft, discard le
   page.requestDetailBack();
   assert.equal(page.replyExitPending, true);
   assert.equal(stack.size(), 1);
-  page.submitReply(post.id);
+  await page.submitReply(post.id);
   assert.equal(page.localReplies.length, 0, 'old send action cannot commit while confirming an exit');
   page.keepReplyDraft();
   assert.equal(page.replyExitPending, false);
@@ -144,35 +151,35 @@ test('Back protects text before popping: keep resumes the same draft, discard le
   assert.equal(stack.size(), 0);
 });
 
-test('submission requires the active post and expanded composer, saves the chosen person once and focuses the new reply', () => {
+test('submission requires the active post and expanded composer, saves the chosen person once and focuses the new reply', async () => {
   const { page, post, other, second } = session();
   page.openPost(post, second.id);
   page.replyDraft = 'stale callback on a collapsed composer';
-  page.submitReply(post.id);
+  await page.submitReply(post.id);
   assert.equal(page.localReplies.length, 0);
   page.replyDraft = '';
   page.expandCurrentReply(post.id);
   for (const invalid of ['', ' \n\t', 'x'.repeat(281)]) {
     page.replyDraft = invalid;
-    page.submitReply(post.id);
+    await page.submitReply(post.id);
     assert.equal(page.localReplies.length, 0);
     assert.equal(page.replyDraft, invalid);
   }
   const text = '复'.repeat(280);
   page.replyDraft = text;
   for (const wrong of [other.id, 'missing']) {
-    page.submitReply(wrong);
+    await page.submitReply(wrong);
     assert.equal(page.localReplies.length, 0);
     assert.equal(page.replyDraft, text);
     assert.equal(page.replyTargetId, second.id);
   }
-  page.submitReply(post.id);
+  await page.submitReply(post.id);
   const [sent] = page.localReplies;
   assert.deepEqual([sent.postId, sent.parentId, sent.toAuthor, sent.body, sent.local],
     [post.id, second.id, second.author, text, true]);
   assert.equal(page.replyDraft, '');
   assertRecipient(page, sent.id, '', false);
-  page.submitReply(post.id);
+  await page.submitReply(post.id);
   assert.equal(page.localReplies.length, 1, 'double tap cannot publish twice');
   assert.equal(page.replyCount(post), post.replies + 1);
   assert.equal(page.replyCount(other), other.replies);
@@ -182,18 +189,51 @@ test('submission requires the active post and expanded composer, saves the chose
 
   page.beginReply(post.id, sent.id);
   page.replyDraft = '  继续回复本机回复  ';
-  page.submitReply(post.id);
+  await page.submitReply(post.id);
   const child = page.localReplies.find(reply => reply.id !== sent.id);
   assert.deepEqual([child.parentId, child.toAuthor, child.body], [sent.id, sent.author, '继续回复本机回复']);
   assertRecipient(page, child.id, '', false);
   page.requestDetailBack();
   page.replyDraft = 'too late';
-  page.submitReply(post.id);
+  await page.submitReply(post.id);
   assert.equal(page.localReplies.length, 2);
-  assert.equal(new Timeline().replyCount(post), post.replies, 'local replies never survive a fresh page');
+  const fresh = new Timeline();
+  assert.equal(fresh.replyCount(post), post.replies, 'fresh page does not show local replies before loading the library');
+  fresh.applyLibrary(page.library);
+  assert.equal(fresh.replyCount(post), post.replies + 2);
+  const restored = fresh.repliesFor(post.id).find(reply => reply.id === child.id);
+  assert.deepEqual([restored.parentId, restored.toAuthor, restored.body], [sent.id, sent.author, child.body]);
 });
 
-test('the feed shows the latest reply to this post even when discussion order nests it under a parent', () => {
+test('a failed local write keeps the exact draft and recipient and can be retried without duplicating replies', async () => {
+  const { page, post, second, stack } = session();
+  page.openPost(post, second.id);
+  page.expandCurrentReply(post.id);
+  const draft = '  回复原来的收件人\n';
+  page.replyDraft = draft;
+  const save = page.saveLibrary;
+  let rejectWrite;
+  page.saveLibrary = () => new Promise(resolve => { rejectWrite = () => resolve(false); });
+  const pending = page.submitReply(post.id);
+  assert.equal(page.replyDraft, draft, 'only a successful write consumes the draft');
+  assertRecipient(page, second.id, second.id, true);
+  rejectWrite();
+  await pending;
+  assert.equal(page.replyDraft, draft);
+  assertRecipient(page, second.id, second.id, true);
+  assert.equal(page.localReplies.length, 0);
+  assert.equal(stack.size(), 1);
+
+  page.saveLibrary = save;
+  await page.submitReply(post.id);
+  const [sent] = page.localReplies;
+  assert.deepEqual([page.localReplies.length, sent.body, sent.parentId, sent.toAuthor],
+    [1, draft.trim(), second.id, second.author]);
+  assert.equal(page.replyDraft, '');
+  assertRecipient(page, sent.id, '', false);
+});
+
+test('the feed shows the latest reply to this post even when discussion order nests it under a parent', async () => {
   const { page, post, other, first, second, foreign } = session();
   assert.equal(page.previewReply(post.id).id, first.id);
   assert.equal(page.previewReply(other.id).id, foreign.id);
@@ -201,14 +241,14 @@ test('the feed shows the latest reply to this post even when discussion order ne
   page.openPost(post, second.id);
   page.expandCurrentReply(post.id);
   page.replyDraft = '最新的深层回复';
-  page.submitReply(post.id);
+  await page.submitReply(post.id);
   const latest = page.focusedReplyId;
   assert.equal(page.repliesFor(post.id)[0].id, first.id);
   page.requestDetailBack();
   page.openPost(other);
   page.expandCurrentReply(other.id);
   page.replyDraft = '另一帖中更新的回复';
-  page.submitReply(other.id);
+  await page.submitReply(other.id);
   page.requestDetailBack();
   assert.deepEqual(Array.from(page.previewRows('missing-post')), []);
   const summaries = page.previewRows(post.id);
@@ -219,7 +259,7 @@ test('the feed shows the latest reply to this post even when discussion order ne
   assertRecipient(page, latest, latest, false);
 });
 
-test('the detail builder wires root and reply recipients, context, draft protection and send to the current post', () => {
+test('the detail builder wires root and reply recipients, context, draft protection and send to the current post', async () => {
   const body = source.match(/^  DetailContent\([^\n]*\) \{([\s\S]*?)^  \}/m)?.[1];
   assert.ok(body, 'missing detail builder');
   const optionsFor = vm.runInNewContext(stripTypeScriptTypes(`(function(post) { ${body.trim().replace(/^ConversationPane\(/, 'return (')} })`));
@@ -245,7 +285,7 @@ test('the detail builder wires root and reply recipients, context, draft protect
   assert.equal(options().confirmLeave, true);
   options().onKeep();
   assert.equal(options().draft, '准确保留上下文');
-  options().onSend();
+  await options().onSend();
   const nested = page.localReplies[0];
   assert.equal(options().focusId, nested.id);
   assert.equal(options().expanded, false);
@@ -254,7 +294,7 @@ test('the detail builder wires root and reply recipients, context, draft protect
 
   options().onExpand();
   options().onDraft('新的根回复');
-  options().onSend();
+  await options().onSend();
   const root = options().rows[0];
   assert.deepEqual([root.parentId, root.toAuthor, root.body, root.id], [undefined, post.name, '新的根回复', options().focusId]);
   options().onExpand();
@@ -265,12 +305,12 @@ test('the detail builder wires root and reply recipients, context, draft protect
   assert.equal(page.replyCount(post), post.replies + 2);
 });
 
-test('an activity reply reopens by its exact ID, while an activity like opens the post; origin survives both trips', () => {
+test('an activity reply reopens by its exact ID, while an activity like opens the post; origin survives both trips', async () => {
   const { page, post, first, stack } = session();
   page.openPost(post, first.id);
   page.expandCurrentReply(post.id);
   page.replyDraft = '用于定位的本机回复';
-  page.submitReply(post.id);
+  await page.submitReply(post.id);
   const sent = page.localReplies[0];
   page.requestDetailBack();
   page.likedIds = [post.id];
@@ -284,6 +324,26 @@ test('an activity reply reopens by its exact ID, while an activity like opens th
     assert.equal(page.selectedTab, ShellTab.Activity);
     assert.equal(page.timelineVisible, false);
   }
+});
+
+test('a post detail opened from an author page returns there before returning to the same search', () => {
+  const { page, post, other, second, stack } = session();
+  page.selectTab(ShellTab.Search);
+  page.searchQuery = post.handle;
+  page.openAuthor(post.id);
+  assert.deepEqual(stack.getAllPathName(), ['AuthorProfile']);
+  assert.equal(stack.entries[0].param.id, post.id);
+  page.openAuthor(other.id);
+  assert.equal(stack.size(), 1, 'opening an author does not stack over an author');
+  page.openPost(post, second.id);
+  assert.deepEqual(stack.getAllPathName(), ['AuthorProfile', 'PostDetail']);
+  assertRecipient(page, second.id, second.id, false);
+  page.requestDetailBack();
+  assert.deepEqual(stack.getAllPathName(), ['AuthorProfile']);
+  assert.equal(page.activeDetailId, '');
+  stack.pop(undefined, false);
+  assert.equal(page.selectedTab, ShellTab.Search);
+  assert.equal(page.searchQuery, post.handle);
 });
 
 test('the native list resolves the exact ID after layout and never animates, replays old jumps or scrolls after leaving', () => {
@@ -367,7 +427,7 @@ test('reply navigation keeps originating filters, reading anchor and motion poli
     frames.shift().onIdle(0);
     page.firstVisibleIndex = 1;
     page.searchQuery = '未清除的搜索';
-    page.libraryShowsSaved = true;
+    page.libraryMode = 1;
     page.rememberReadingPosition();
     page.selectTab(tab);
     page.motionPreferenceReady = true;
@@ -383,7 +443,7 @@ test('reply navigation keeps originating filters, reading anchor and motion poli
     assert.equal(page.selectedTab, tab);
     assert.equal(page.followingOnly, true);
     assert.equal(page.searchQuery, '未清除的搜索');
-    assert.equal(page.libraryShowsSaved, true);
+    assert.equal(page.libraryMode, 1);
     assert.deepEqual({ ...page.readingAnchor }, { postId: other.id, clipped: 13 });
     assert.deepEqual(scrolls, [], 'no reflow: do not scroll the feed merely because a detail closed');
   }

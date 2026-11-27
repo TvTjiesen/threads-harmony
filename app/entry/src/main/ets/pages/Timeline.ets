@@ -1,21 +1,33 @@
 import { accessibility } from '@kit.AccessibilityKit';
+import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { FrameCallback, LengthMetrics, router, SegmentButtonV2Items, TabSegmentButtonV2 } from '@kit.ArkUI';
-import { decodeLibrary, emptyLibrary, LibraryPost, LIBRARY_POST_LIMIT, LOCAL_POST_BODY_LIMIT, LocalLibrary, matchesPost } from '../model/LocalLibrary';
+import { pasteboard } from '@kit.BasicServicesKit';
+import { systemShare } from '@kit.ShareKit';
+import { decodeLibrary, emptyLibrary, encodeLibrary, LibraryPost, LibraryReply, LIBRARY_POST_LIMIT, LIBRARY_REPLY_LIMIT,
+  LOCAL_POST_BODY_LIMIT, LOCAL_REPLY_BODY_LIMIT, LocalLibrary, matchesPost, updateLibrary } from '../model/LocalLibrary';
+import { decodeIdentity, emptyIdentity, LocalIdentity, normalizeIdentity } from '../model/LocalIdentity';
 import { ActivityEntry, ActivityPane } from '../components/ActivityPane';
-import { ReadingTabs } from '../components/ReadingTabs';
+import { AuthorPane } from '../components/AuthorPane';
 import { ConversationPane, ConversationReply } from '../components/ConversationPane';
+import { DiscoveryAuthor, DiscoveryPane } from '../components/DiscoveryPane';
+import { IdentityEditor, LibraryHub } from '../components/LibraryHub';
+import { ReadingTabs } from '../components/ReadingTabs';
 import { SettingsPane } from '../components/SettingsPane';
 
 const LARGE_TEXT_SCALE = 1.4;
 const WIDE_VIEWPORT = 680;
 const SIDE_NAV_WIDTH = 840;
 const MAX_LIST_WIDTH = 1248;
-const REPLY_LIMIT = 280;
+const REPLY_LIMIT = LOCAL_REPLY_BODY_LIMIT;
 const POST_DETAIL = 'PostDetail';
 const POST_COMPOSER = 'PostComposer';
 const POST_DRAFT_LIMIT = LOCAL_POST_BODY_LIMIT;
 const POST_SETTINGS = 'Settings';
+const AUTHOR_PROFILE = 'AuthorProfile';
+const IDENTITY_EDITOR = 'IdentityEditor';
+const POST_EDITOR = 'PostEditor';
+const DISCOVERY_TOPICS: string[] = ['折叠屏', '周末', '阅读', '通勤', '明信片', '歌单'];
 
 enum ShellTab {
   Home,
@@ -25,6 +37,8 @@ enum ShellTab {
 }
 const LIBRARY_STORE = 'timeline_local_library';
 const LIBRARY_KEY = 'content_v1';
+const IDENTITY_STORE = 'timeline_identity';
+const IDENTITY_KEY = 'profile_v1';
 const POST_DRAFT_STORE = 'timeline_post_draft';
 const POST_DRAFT_KEY = 'body';
 
@@ -100,7 +114,21 @@ struct Timeline {
   @State private libraryMessage: string = '';
   @State private selectedTab: ShellTab = ShellTab.Home;
   @State private searchQuery: string = '';
-  @State private libraryShowsSaved: boolean = false;
+  @State private discoveryMode: number = 0;
+  @State private libraryMode: number = 0;
+  @State private hiddenIds: string[] = [];
+  @State private identity: LocalIdentity = emptyIdentity();
+  @State private identityReady: boolean = false;
+  @State private identityBusy: boolean = false;
+  @State private identityName: string = '';
+  @State private identityBio: string = '';
+  @State private identityMessage: string = '';
+  @State private identityConfirmLeave: boolean = false;
+  @State private editingPostId: string = '';
+  @State private editBody: string = '';
+  @State private editMessage: string = '';
+  @State private editConfirmLeave: boolean = false;
+  private menuOpen: boolean = false;
   @State private followingOnly: boolean = false;
   private homeTabAnchor: ReadingAnchor = { postId: '', clipped: 0 };
   private followingTabAnchor: ReadingAnchor = { postId: '', clipped: 0 };
@@ -160,6 +188,7 @@ struct Timeline {
     }
     this.loadMotionPreference();
     this.loadLibrary();
+    this.loadIdentity();
   }
 
   aboutToDisappear(): void {
@@ -354,8 +383,7 @@ struct Timeline {
       return;
     }
     const next = this.nextSelection(this.likedIds, id);
-    if (await this.saveLibrary({ posts: this.library.posts, likedIds: next, followedIds: this.followedIds,
-      savedIds: this.savedIds })) {
+    if (await this.saveLibrary(updateLibrary(this.library, { likedIds: next }))) {
       const nextTriggers = [...this.animationTriggers];
       nextTriggers[index] = !next.includes(id) || !this.allowsMotionFeedback() ? -1 : nextTriggers[index] + 1;
       this.animationTriggers = nextTriggers;
@@ -364,12 +392,13 @@ struct Timeline {
 
   private async toggleFollow(id: string): Promise<void> {
     const next = this.nextSelection(this.followedIds, id);
-    await this.saveLibrary({ posts: this.library.posts, likedIds: this.likedIds, followedIds: next,
-      savedIds: this.savedIds });
+    await this.saveLibrary(updateLibrary(this.library, { followedIds: next }));
   }
 
   private openPost(post: MockPost, focusId: string = ''): void {
-    if (this.detailPaths.size() > 0 || !this.timelinePosts.some((item: MockPost) => item.id === post.id)) {
+    const paths = this.detailPaths.getAllPathName();
+    if ((paths.length > 0 && (paths.length !== 1 || paths[0] !== AUTHOR_PROFILE)) ||
+      !this.timelinePosts.some((item: MockPost) => item.id === post.id)) {
       return;
     }
     this.rememberReadingPosition();
@@ -454,7 +483,7 @@ struct Timeline {
   }
 
   private beginReply(postId: string, targetId: string): void {
-    if (this.activeDetailId !== postId || this.replyExitPending || this.confirmingDelete) { return; }
+    if (this.activeDetailId !== postId || this.replyExitPending || this.confirmingDelete || this.libraryBusy) { return; }
     if (targetId && !this.repliesFor(postId).some((row: DemoReply) => row.id === targetId)) { return; }
     if (this.replyDraft.length > 0 && this.replyTargetId !== targetId) {
       this.inform('先完成当前回复，文字和回复对象都已保留。');
@@ -469,7 +498,7 @@ struct Timeline {
   }
 
   private requestDetailBack(): void {
-    if (!this.activeDetailId) { return; }
+    if (!this.activeDetailId || this.libraryBusy) { return; }
     if (this.confirmingDelete) { this.closePost(); return; }
     if (this.replyExitPending) { this.keepReplyDraft(); return; }
     if (this.replyDraft.length > 0) { this.replyExitPending = true; return; }
@@ -489,17 +518,22 @@ struct Timeline {
     this.closePost();
   }
 
-  private submitReply(postId: string): void {
+  private async submitReply(postId: string): Promise<void> {
     const post = this.timelinePosts.find((item: MockPost) => item.id === postId);
     const body = this.replyDraft.trim();
-    if (!this.replyExpanded || this.replyExitPending || postId !== this.activeDetailId || post === undefined ||
-      !body || this.replyDraft.length > REPLY_LIMIT) { return; }
+    if (!this.replyExpanded || this.replyExitPending || this.libraryBusy || !this.libraryReady ||
+      postId !== this.activeDetailId || post === undefined || !body || this.replyDraft.length > REPLY_LIMIT) { return; }
+    if (this.library.replies.length >= LIBRARY_REPLY_LIMIT || this.replySequence >= 999999999999999) {
+      this.inform('本机回复已达上限，可在「我的 → 回复」中管理。');
+      return;
+    }
     const parent = this.targetRow(postId);
     if (this.replyTargetId && parent === undefined) { return; }
-    this.replySequence += 1;
-    const id = 'local-' + this.replySequence;
-    this.localReplies = [{ id: id, postId: postId, author: '你', body: body, local: true,
-      parentId: parent?.id, toAuthor: parent?.author ?? post.name }, ...this.localReplies];
+    const sequence = this.replySequence + 1;
+    const id = 'local-' + sequence;
+    const reply: LibraryReply = { id: id, postId: postId, body: body, parentId: parent?.id };
+    if (!(await this.saveLibrary(updateLibrary(this.library, { replies: [reply, ...this.library.replies] })))) { return; }
+    this.replySequence = sequence;
     this.replyDraft = '';
     this.replyExpanded = false;
     this.focusedReplyId = id;
@@ -507,7 +541,7 @@ struct Timeline {
   }
 
   private localPost(post: LibraryPost): MockPost {
-    return { id: post.id, name: '你', handle: '本机帖子', time: '离线', body: post.body,
+    return { id: post.id, name: this.identity.name, handle: '本机帖子', time: '离线', body: post.body,
       replies: 0, likes: 0, avatarColor: '#4A7B78', local: true };
   }
 
@@ -526,8 +560,10 @@ struct Timeline {
     this.likedIds = value.likedIds;
     this.followedIds = value.followedIds;
     this.savedIds = value.savedIds;
-    if (value.posts.length !== previousPosts.length - POSTS.length ||
-      value.posts.some((post: LibraryPost, index: number) => post.id !== previousPosts[index]?.id)) {
+    this.hiddenIds = value.hiddenIds;
+    if (value.posts.length !== previousPosts.length - POSTS.length || value.posts.some((post: LibraryPost, index: number) =>
+      post.id !== previousPosts[index]?.id || post.body !== previousPosts[index]?.body ||
+      this.identity.name !== previousPosts[index]?.name)) {
       const next = [...value.posts.map((post: LibraryPost) => this.localPost(post)), ...POSTS];
       this.animationTriggers = next.map((post: MockPost) => {
         const index = previousPosts.findIndex((previous: MockPost) => previous.id === post.id);
@@ -535,6 +571,13 @@ struct Timeline {
       });
       this.timelinePosts = next;
     }
+    this.localReplies = value.replies.map((row: LibraryReply): DemoReply => {
+      const sampleParent = SAMPLE_REPLIES.find((sample: DemoReply) => sample.id === row.parentId);
+      const parent = row.parentId ? sampleParent?.author ?? '你' :
+        this.timelinePosts.find((post: MockPost) => post.id === row.postId)?.name;
+      return { id: row.id, postId: row.postId, body: row.body, author: '你', local: true,
+        parentId: row.parentId, toAuthor: parent };
+    });
   }
 
   private async loadLibrary(): Promise<void> {
@@ -549,10 +592,12 @@ struct Timeline {
       if (typeof raw !== 'string') {
         throw new Error('Invalid library store');
       }
-      const value = decodeLibrary(raw, POSTS.map((post: MockPost) => post.id));
+      const value = decodeLibrary(raw, POSTS.map((post: MockPost) => post.id), SAMPLE_REPLIES);
       this.applyLibrary(value);
       this.postSequence = value.posts.reduce((latest: number, post: LibraryPost) =>
         Math.max(latest, Number(post.id.substring('local-post-'.length))), 0);
+      this.replySequence = value.replies.reduce((latest: number, row: LibraryReply) =>
+        Math.max(latest, Number(row.id.substring('local-'.length))), 0);
       this.libraryReady = true;
     } catch (_error) {
       this.libraryMessage = '暂时无法读取本机内容，浏览演示帖不受影响。';
@@ -569,8 +614,7 @@ struct Timeline {
     this.libraryMessage = '';
     try {
       const store = await this.libraryPreferences();
-      await store.put(LIBRARY_KEY, JSON.stringify({ version: 1, posts: value.posts, likedIds: value.likedIds,
-        followedIds: value.followedIds, savedIds: value.savedIds }));
+      await store.put(LIBRARY_KEY, encodeLibrary(value));
       await store.flush();
       this.applyLibrary(value);
       return true;
@@ -589,8 +633,7 @@ struct Timeline {
 
   private async toggleSaved(post: MockPost): Promise<void> {
     const next = this.nextSelection(this.savedIds, post.id);
-    await this.saveLibrary({ posts: this.library.posts, likedIds: this.likedIds, followedIds: this.followedIds,
-      savedIds: next });
+    await this.saveLibrary(updateLibrary(this.library, { savedIds: next }));
   }
 
   private selectTab(tab: ShellTab): void {
@@ -612,8 +655,8 @@ struct Timeline {
   }
 
   private visibleFeed(): MockPost[] {
-    return this.followingOnly ? this.timelinePosts.filter((post: MockPost) => this.followedIds.includes(post.id))
-      : this.timelinePosts;
+    return this.timelinePosts.filter((post: MockPost) => !this.hiddenIds.includes(post.id) &&
+      (!this.followingOnly || this.followedIds.includes(post.id)));
   }
 
   private selectFeed(following: boolean): void {
@@ -657,25 +700,213 @@ struct Timeline {
     }
   }
 
-  private listedPosts(search: boolean): MockPost[] {
-    return this.timelinePosts.filter((post: MockPost) => search
-      ? matchesPost(this.searchQuery, post.name, post.handle, post.body)
-      : (this.libraryShowsSaved ? this.savedIds.includes(post.id) : post.local === true));
+  private discoveryPosts(): MockPost[] {
+    return this.timelinePosts.filter((post: MockPost) => !this.hiddenIds.includes(post.id) &&
+      matchesPost(this.searchQuery, post.name, post.handle, post.body));
+  }
+
+  private authorSummary(id: string): DiscoveryAuthor {
+    const post = POSTS.find((item: MockPost) => item.id === id);
+    return { id: post?.id ?? '', name: post?.name ?? '', handle: post?.handle ?? '',
+      avatarColor: post?.avatarColor ?? '', followed: this.followedIds.includes(id),
+      postCount: post === undefined || this.hiddenIds.includes(id) ? 0 : 1 };
+  }
+
+  private discoveryAuthors(): DiscoveryAuthor[] {
+    return POSTS.filter((post: MockPost) => matchesPost(this.searchQuery, post.name, post.handle, ''))
+      .map((post: MockPost) => this.authorSummary(post.id));
+  }
+
+  private profilePosts(): MockPost[] {
+    return this.timelinePosts.filter((post: MockPost) => this.libraryMode === 1 ? this.savedIds.includes(post.id) :
+      this.libraryMode === 2 ? this.likedIds.includes(post.id) : post.local === true);
+  }
+
+  private openAuthor(id: string): void {
+    const post = POSTS.find((item: MockPost) => item.id === id);
+    if (this.detailPaths.size() > 0 || post === undefined) { return; }
+    this.rememberReadingPosition();
+    this.timelineVisible = false;
+    this.detailPaths.pushPath({ name: AUTHOR_PROFILE, param: post, onPop: () => this.onPageShow() },
+      this.allowsMotionFeedback());
+  }
+
+  private async loadIdentity(): Promise<void> {
+    if (this.identityBusy || this.identityReady) { return; }
+    this.identityBusy = true;
+    this.identityMessage = '';
+    try {
+      const store = await this.identityPreferences();
+      const raw = await store.get(IDENTITY_KEY, '');
+      if (typeof raw !== 'string') { throw new Error('Invalid identity store'); }
+      this.identity = decodeIdentity(raw);
+      this.applyLibrary(this.library);
+      this.identityReady = true;
+    } catch (_error) {
+      this.identityMessage = '本机资料暂时无法读取，点「编辑资料」重试。';
+    } finally {
+      this.identityBusy = false;
+    }
+  }
+
+  private async identityPreferences(): Promise<preferences.Preferences> {
+    const context = this.getUIContext().getHostContext();
+    if (context === undefined) { throw new Error('Identity host context unavailable'); }
+    return preferences.getPreferences(context, { name: IDENTITY_STORE });
+  }
+
+  private async openIdentity(): Promise<void> {
+    if (this.detailPaths.size() > 0 || this.identityBusy) { return; }
+    if (!this.identityReady) { await this.loadIdentity(); }
+    if (!this.identityReady || this.detailPaths.size() > 0 || this.selectedTab !== ShellTab.Profile) { return; }
+    this.identityName = this.identity.name;
+    this.identityBio = this.identity.bio;
+    this.identityConfirmLeave = false;
+    this.identityMessage = '';
+    this.detailPaths.pushPath({ name: IDENTITY_EDITOR, onPop: () => this.onPageShow() }, this.allowsMotionFeedback());
+  }
+
+  private requestIdentityBack(): void {
+    if (this.identityBusy) { return; }
+    if (this.identityConfirmLeave) { this.identityConfirmLeave = false; }
+    else if (this.identityName !== this.identity.name || this.identityBio !== this.identity.bio) {
+      this.identityConfirmLeave = true;
+    } else { this.closePost(); }
+  }
+
+  private async saveIdentity(): Promise<void> {
+    const value = normalizeIdentity(this.identityName, this.identityBio);
+    if (this.identityBusy || this.identityConfirmLeave || value === undefined) { return; }
+    this.identityBusy = true;
+    try {
+      const store = await this.identityPreferences();
+      await store.put(IDENTITY_KEY, JSON.stringify(value));
+      await store.flush();
+      this.identity = value;
+      this.applyLibrary(this.library);
+      this.closePost();
+    } catch (_error) {
+      this.identityMessage = '未能保存，本次输入仍在。';
+    } finally {
+      this.identityBusy = false;
+    }
+  }
+
+  private currentPostBody(post: MockPost): string {
+    return post.local ? this.timelinePosts.find((item: MockPost) => item.id === post.id)?.body ?? post.body : post.body;
+  }
+
+  private async copyPost(post: MockPost): Promise<void> {
+    try {
+      await pasteboard.getSystemPasteboard().setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, this.currentPostBody(post)));
+      this.inform('已复制正文');
+    } catch (_error) { this.inform('无法复制，请重试。'); }
+  }
+
+  private async sharePost(post: MockPost): Promise<void> {
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const data = new systemShare.SharedData({ utd: 'general.plain-text', content: this.currentPostBody(post),
+        title: post.local ? '本机帖子' : '示例帖子' });
+      await new systemShare.ShareController(data).show(context, { anchor: 'post-menu-' + post.id });
+    } catch (_error) { this.inform('系统分享不可用，可以复制正文。'); }
+  }
+
+  @Builder
+  PostMenu(post: MockPost) {
+    Menu() {
+      MenuItem({ content: '复制正文' }).onClick(() => { this.copyPost(post); })
+      MenuItem({ content: '系统分享…' }).onClick(() => { this.sharePost(post); })
+      if (post.local) {
+        MenuItem({ content: '编辑本机帖子' }).onClick(() => this.openPostEditor(post))
+      } else {
+        MenuItem({ content: this.hiddenIds.includes(post.id) ? '恢复显示' : '隐藏此示例' })
+          .onClick(() => { this.toggleHidden(post.id); })
+      }
+    }
+  }
+
+  private async toggleHidden(id: string): Promise<void> {
+    if (!POSTS.some((post: MockPost) => post.id === id)) { return; }
+    this.rememberReadingPosition();
+    if (await this.saveLibrary(updateLibrary(this.library, { hiddenIds: this.nextSelection(this.hiddenIds, id) }))) {
+      this.inform(this.hiddenIds.includes(id) ? '已从首页和发现隐藏，可在设置中恢复。' : '已恢复显示');
+      this.onReadingLayoutChange();
+    }
+  }
+
+  private async restoreHidden(): Promise<void> {
+    if (this.hiddenIds.length > 0 && await this.saveLibrary(updateLibrary(this.library, { hiddenIds: [] }))) {
+      this.restorePending = true;
+      this.inform('已恢复所有示例帖子');
+    }
+  }
+
+  private openPostEditor(post: MockPost): void {
+    const paths = this.detailPaths.getAllPathName();
+    if (!post.local || !this.libraryReady || this.libraryBusy || this.replyExpanded || this.replyExitPending ||
+      (paths.length > 0 && (paths.length !== 1 || paths[0] !== POST_DETAIL))) { return; }
+    const stored = this.library.posts.find((item: LibraryPost) => item.id === post.id);
+    if (stored === undefined) { return; }
+    this.rememberReadingPosition();
+    this.timelineVisible = false;
+    this.editingPostId = stored.id;
+    this.editBody = stored.body;
+    this.editMessage = '';
+    this.editConfirmLeave = false;
+    this.detailPaths.pushPath({ name: POST_EDITOR, onPop: () => this.onPageShow() }, this.allowsMotionFeedback());
+  }
+
+  private requestPostEditorBack(): void {
+    if (this.libraryBusy) { return; }
+    const stored = this.library.posts.find((post: LibraryPost) => post.id === this.editingPostId);
+    if (this.editConfirmLeave) { this.editConfirmLeave = false; }
+    else if (stored !== undefined && stored.body !== this.editBody) { this.editConfirmLeave = true; }
+    else { this.leaveComposer(); }
+  }
+
+  private async savePostEdit(): Promise<void> {
+    if (this.editConfirmLeave || !this.isValidPostBody(this.editBody) ||
+      !this.library.posts.some((post: LibraryPost) => post.id === this.editingPostId)) { return; }
+    const posts = this.library.posts.map((post: LibraryPost): LibraryPost =>
+      post.id === this.editingPostId ? { id: post.id, body: this.editBody } : post);
+    if (await this.saveLibrary(updateLibrary(this.library, { posts: posts }))) { this.leaveComposer(); }
+    else { this.editMessage = '未能保存，本次输入仍在。'; }
+  }
+
+  private async removeReply(reply: DemoReply): Promise<void> {
+    if (this.menuOpen || this.libraryBusy) { return; }
+    this.menuOpen = true;
+    try {
+      const decision = await this.getUIContext().getPromptAction().showDialog({ title: '删除本机回复？',
+        message: '这条回复及其下的本机回复会删除，不会影响 Threads。',
+        buttons: [{ text: '取消', color: '' }, { text: '删除', color: '' }] });
+      if (decision.index !== 1) { return; }
+      const removed: string[] = [reply.id];
+      for (let i = 0; i < removed.length; i++) {
+        this.library.replies.forEach((row: LibraryReply) => {
+          if (row.parentId === removed[i] && !removed.includes(row.id)) { removed.push(row.id); }
+        });
+      }
+      if (await this.saveLibrary(updateLibrary(this.library, { replies: this.library.replies.filter((row: LibraryReply) =>
+        !removed.includes(row.id)) }))) { this.inform('已删除本机回复'); }
+    } catch (_error) {
+      // Dismissal leaves the discussion unchanged.
+    } finally { this.menuOpen = false; }
   }
 
   private async removeLocalPost(post: MockPost): Promise<void> {
     if (!post.local || !this.confirmingDelete || this.libraryBusy) {
       return;
     }
-    const saved = await this.saveLibrary({
+    const saved = await this.saveLibrary(updateLibrary(this.library, {
       posts: this.library.posts.filter((item: LibraryPost) => item.id !== post.id),
       likedIds: this.likedIds.filter((id: string) => id !== post.id),
-      followedIds: this.followedIds,
-      savedIds: this.savedIds.filter((id: string) => id !== post.id)
-    });
+      savedIds: this.savedIds.filter((id: string) => id !== post.id),
+      replies: this.library.replies.filter((row: LibraryReply) => row.postId !== post.id)
+    }));
     if (saved) {
       this.confirmingDelete = false;
-      this.localReplies = this.localReplies.filter((reply: DemoReply) => reply.postId !== post.id);
       if (this.readingAnchor.postId === post.id) {
         this.readingAnchor = { postId: '', clipped: 0 };
       }
@@ -780,8 +1011,7 @@ struct Timeline {
     const body = this.previewBody;
     this.postSequence = Math.max(this.postSequence + 1, Date.now());
     const post: LibraryPost = { id: `local-post-${this.postSequence}`, body: body };
-    const saved = await this.saveLibrary({ posts: [post, ...this.library.posts], likedIds: this.likedIds,
-      followedIds: this.followedIds, savedIds: this.savedIds });
+    const saved = await this.saveLibrary(updateLibrary(this.library, { posts: [post, ...this.library.posts] }));
     if (saved) {
       this.selectedTab = ShellTab.Home;
       this.followingOnly = false;
@@ -888,6 +1118,12 @@ struct Timeline {
       }.id('save-' + post.id).width(44).height(44).buttonStyle(ButtonStyleMode.TEXTUAL)
         .accessibilityText(this.savedIds.includes(post.id) ? '已收藏' : '收藏').accessibilitySelected(this.savedIds.includes(post.id))
         .enabled(this.libraryReady && !this.libraryBusy).onClick(() => { this.toggleSaved(post); })
+      Button({ type: ButtonType.Circle }) {
+        Text('···').fontSize('20vp').fontColor($r('app.color.timeline_text_secondary')).accessibilityLevel('no')
+      }.id('post-menu-' + post.id).width(44).height(44).buttonStyle(ButtonStyleMode.TEXTUAL)
+        .accessibilityText('帖子操作')
+        .enabled(!this.libraryBusy && (!inDetail || (!this.replyExpanded && !this.replyExitPending && !this.confirmingDelete)))
+        .bindMenu(this.PostMenu(post))
     }.width('100%')
   }
 
@@ -911,7 +1147,7 @@ struct Timeline {
   }
 
   @Builder
-  PostCard(post: MockPost, inDetail: boolean) {
+  PostCard(post: MockPost, inDetail: boolean, authorLink: boolean = true) {
     Column() {
       Row({ space: 12 }) {
         Text(post.name.substring(0, 1)).width(36).height(36).fontSize('15vp').fontWeight(FontWeight.Medium)
@@ -920,14 +1156,21 @@ struct Timeline {
         Column({ space: 4 }) {
           Row({ space: 4 }) {
             Column({ space: 2 }) {
-              Text(post.name).fontSize(16).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
+              if (authorLink && !inDetail && !post.local) {
+                Text(post.name).id('post-author-' + post.id).fontSize(16).fontWeight(FontWeight.Bold)
+                  .fontColor($r('app.color.timeline_text_primary')).accessibilityText('查看作者 ' + post.name)
+                  .onClick(() => this.openAuthor(post.id))
+              } else {
+                Text(post.local ? this.identity.name : post.name).fontSize(16).fontWeight(FontWeight.Bold)
+                  .fontColor($r('app.color.timeline_text_primary'))
+              }
               Text(post.handle + ' · ' + post.time).fontSize(12).fontColor($r('app.color.timeline_text_secondary'))
             }.alignItems(HorizontalAlign.Start).layoutWeight(1)
             if (!post.local && this.fontScale < LARGE_TEXT_SCALE && this.viewportWidth >= 360) { this.FollowAction(post) }
           }.width('100%')
           if (!post.local && (this.fontScale >= LARGE_TEXT_SCALE || this.viewportWidth < 360)) { this.FollowAction(post) }
           if (inDetail) {
-            Text(post.body).fontSize(16).fontColor($r('app.color.timeline_text_body')).width('100%')
+            Text(this.currentPostBody(post)).fontSize(16).fontColor($r('app.color.timeline_text_body')).width('100%')
               .textAlign(TextAlign.Start).copyOption(CopyOptions.InApp)
           } else {
             Text(post.body).id('body-' + post.id).fontSize(16).fontColor($r('app.color.timeline_text_body')).width('100%')
@@ -968,8 +1211,9 @@ struct Timeline {
   @Builder
   DetailContent(post: MockPost) {
     ConversationPane({ rootPost: () => { this.DiscussionRoot(post) }, rootAuthor: post.name, rows: this.repliesFor(post.id),
-      focusId: this.focusedReplyId, recipient: this.replyRecipient(post), contextLine: this.targetRow(post.id)?.body ?? post.body,
+      focusId: this.focusedReplyId, recipient: this.replyRecipient(post), contextLine: this.targetRow(post.id)?.body ?? this.currentPostBody(post),
       expanded: this.replyExpanded, draft: this.replyDraft, confirmLeave: this.replyExitPending, largeText: this.toolbarInList(),
+      busy: this.libraryBusy,
       onBack: () => this.requestDetailBack(), onEdit: (id: string) => this.beginReply(post.id, id),
       onExpand: () => this.expandCurrentReply(post.id), onDraft: (value: string) => { this.replyDraft = value; },
       onSend: () => this.submitReply(post.id), onDiscard: () => this.discardReplyAndClose(), onKeep: () => this.keepReplyDraft() })
@@ -989,7 +1233,7 @@ struct Timeline {
             .fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
         }.width('100%').alignItems(HorizontalAlign.Start)
         Column({ space: 12 }) {
-          Text('你 · 本地预演').fontSize(15).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
+          Text(this.identity.name + ' · 本机预览').fontSize(15).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
           Text(this.previewBody).width('100%').fontSize(15).textAlign(TextAlign.Start)
             .fontColor($r('app.color.timeline_text_body')).copyOption(CopyOptions.InApp)
         }.width('100%').padding(18).alignItems(HorizontalAlign.Start)
@@ -1097,61 +1341,86 @@ struct Timeline {
   }
 
   @Builder
-  LocalCollection(search: boolean) {
-    List({ space: 12 }) {
-      ListItem() {
-        Column({ space: 12 }) {
-          if (search) {
-            Text('搜索').fontSize(28).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
-          } else {
-            Row({ space: 12 }) {
-              Text('你').fontSize('21vp').fontWeight(FontWeight.Bold).width(54).height(54)
-                .textAlign(TextAlign.Center).borderRadius(27).backgroundColor($r('app.color.timeline_action'))
-                .fontColor($r('app.color.timeline_on_action')).accessibilityLevel('no')
-              Column({ space: 2 }) {
-                Text('个人主页').fontSize(26).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
-                Text('本机资料').fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
-              }.alignItems(HorizontalAlign.Start).layoutWeight(1)
-            }.width('100%')
-            Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(8) } }) {
-              Button('设置').constraintSize({ minHeight: 48 }).onClick(() => this.openSettings())
-                .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body'))
-              Button('打开 Threads 网页').constraintSize({ minHeight: 48 }).enabled(!this.openingWeb)
-                .onClick(() => { this.openWeb(); })
-                .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body'))
-            }.width('100%')
+  DiscoveryPostRows() {
+    ForEach(this.discoveryPosts(), (post: MockPost) => {
+      ListItem() { this.PostCard(post, false) }
+    }, (post: MockPost) => post.id + ':' + post.body)
+  }
+
+  @Builder
+  AuthorPostRows(post: MockPost) {
+    if (!this.hiddenIds.includes(post.id)) {
+      ListItem() { this.PostCard(post, false, false) }
+    }
+  }
+
+  @Builder
+  ProfileItems() {
+    if (this.libraryMode === 3) {
+      ForEach(this.localReplies, (reply: DemoReply) => {
+        Column({ space: 4 }) {
+          Button({ type: ButtonType.Normal }) {
+            Column({ space: 5 }) {
+              Text('回复 '+ (reply.toAuthor ?? '原帖')).fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
+              Text(reply.body).fontSize(16).fontColor($r('app.color.timeline_text_body')).wordBreak(WordBreak.BREAK_WORD)
+            }.width('100%').alignItems(HorizontalAlign.Start)
+          }.id('profile-reply-' + reply.id).width('100%').constraintSize({ minHeight: 48 })
+            .padding({ left: 0, right: 0 }).buttonStyle(ButtonStyleMode.TEXTUAL)
+            .onClick(() => this.openActivityPost({ id: 'reply-' + reply.id, postId: reply.postId,
+              author: reply.author, body: reply.body, kind: 'reply' }))
+          Button('删除回复').buttonStyle(ButtonStyleMode.TEXTUAL).constraintSize({ minHeight: 44 })
+            .enabled(this.libraryReady && !this.libraryBusy).fontColor($r('app.color.timeline_text_secondary'))
+            .onClick(() => { this.removeReply(reply); })
+          Divider().strokeWidth(0.5).color($r('app.color.timeline_border'))
+        }.width('100%').alignItems(HorizontalAlign.Start)
+      }, (reply: DemoReply) => reply.id)
+    } else {
+      ForEach(this.profilePosts(), (post: MockPost) => { this.PostCard(post, false) },
+        (post: MockPost) => post.id + ':' + post.body)
+    }
+  }
+
+  @Builder
+  EditorDecision(onContinue: () => void, onDiscard: () => void) {
+    Column({ space: 8 }) {
+      Text('放弃未保存的修改？').fontSize(17).fontWeight(FontWeight.Bold)
+        .fontColor($r('app.color.timeline_text_primary'))
+      Button('继续编辑').constraintSize({ minHeight: 48 })
+        .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
+        .onClick(() => onContinue())
+      Button('放弃修改并返回').constraintSize({ minHeight: 48 }).buttonStyle(ButtonStyleMode.TEXTUAL)
+        .fontColor($r('app.color.timeline_text_body')).onClick(() => onDiscard())
+    }.width('100%').alignItems(HorizontalAlign.Start).padding(20)
+  }
+
+  @Builder
+  PostEditorContent() {
+    Scroll() {
+      Column({ space: 14 }) {
+        Button('返回').buttonStyle(ButtonStyleMode.TEXTUAL).constraintSize({ minHeight: 48 })
+          .fontColor($r('app.color.timeline_text_body')).onClick(() => this.requestPostEditorBack())
+        Text('编辑本机帖子').fontSize(26).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
+        Text('只修改这台设备上的正文，原讨论和互动会保留。')
+          .fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
+        if (this.editConfirmLeave) {
+          this.EditorDecision(() => { this.editConfirmLeave = false; }, () => this.leaveComposer())
+        } else {
+          TextArea({ text: this.editBody, placeholder: '帖子正文' }).id('post-editor-input')
+            .width('100%').constraintSize({ minHeight: 140, maxHeight: 260 }).maxLength(POST_DRAFT_LIMIT)
+            .fontSize(16).fontColor($r('app.color.timeline_text_body'))
+            .backgroundColor($r('app.color.timeline_surface_muted')).enabled(!this.libraryBusy)
+            .onChange((value: string) => { this.editBody = value; this.editMessage = ''; })
+          Text(this.editBody.length + ' / ' + POST_DRAFT_LIMIT).fontSize(13)
+            .fontColor($r('app.color.timeline_text_secondary'))
+          Button('保存修改').id('post-editor-save').width('100%').constraintSize({ minHeight: 48 })
+            .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
+            .enabled(!this.libraryBusy && this.isValidPostBody(this.editBody)).onClick(() => { this.savePostEdit(); })
+          if (this.editMessage) {
+            Text(this.editMessage).fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
           }
-          Text(search ? '搜索本机帖子和演示内容，不查找 Threads 用户。' : '仅保存在这台设备，不是你的 Threads 账号。')
-            .fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
-          if (search) {
-            TextInput({ text: this.searchQuery, placeholder: '按作者或正文搜索' }).width('100%').maxLength(120)
-              .constraintSize({ minHeight: 48 }).fontColor($r('app.color.timeline_text_body'))
-              .backgroundColor($r('app.color.timeline_surface')).accessibilityText('搜索本机帖子')
-              .onChange((value: string) => { this.searchQuery = value; })
-          } else {
-            Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(8) } }) {
-              Button('收藏').constraintSize({ minHeight: 48 }).accessibilitySelected(this.libraryShowsSaved)
-                .backgroundColor(this.libraryShowsSaved ? $r('app.color.timeline_action') : $r('app.color.timeline_toolbar_button'))
-                .fontColor(this.libraryShowsSaved ? $r('app.color.timeline_on_action') : $r('app.color.timeline_text_body'))
-                .onClick(() => { this.libraryShowsSaved = true; })
-              Button('本机帖子').constraintSize({ minHeight: 48 }).accessibilitySelected(!this.libraryShowsSaved)
-                .backgroundColor(!this.libraryShowsSaved ? $r('app.color.timeline_action') : $r('app.color.timeline_toolbar_button'))
-                .fontColor(!this.libraryShowsSaved ? $r('app.color.timeline_on_action') : $r('app.color.timeline_text_body'))
-                .onClick(() => { this.libraryShowsSaved = false; })
-            }.width('100%')
-          }
-          this.LibraryStatus()
-          if (this.listedPosts(search).length === 0 && !this.libraryLoading) {
-            Text(search ? '未找到匹配的帖子。' : (this.libraryShowsSaved ? '还没有收藏。' : '还没有本机帖子。'))
-              .fontSize(15).fontColor($r('app.color.timeline_text_secondary'))
-          }
-        }.width('100%').alignItems(HorizontalAlign.Start).padding({ top: 10, bottom: 8 })
-      }
-      ForEach(this.listedPosts(search), (post: MockPost) => {
-        ListItem() { this.PostCard(post, false) }
-      }, (post: MockPost) => post.id)
-    }.width('100%').height('100%').constraintSize({ maxWidth: 640 }).alignListItem(ListItemAlign.Center)
-      .padding({ left: 18, right: 18, bottom: 20 }).scrollBar(BarState.Auto)
+        }
+      }.width('100%').constraintSize({ maxWidth: 640 }).alignItems(HorizontalAlign.Start).padding(18)
+    }.width('100%').height('100%').align(Alignment.Top).scrollBar(BarState.Auto)
   }
 
   @Builder
@@ -1175,11 +1444,33 @@ struct Timeline {
           motionPreferenceReady: this.motionPreferenceReady, motionPreferenceSaving: this.motionPreferenceSaving,
           motionPreferenceWarning: this.motionPreferenceWarning, openingWeb: this.openingWeb,
           onClose: () => this.closePost(), onMotionChange: (enabled: boolean) => { this.updateMotionPreference(enabled); },
-          onWeb: () => { this.openWeb(); }
+          onWeb: () => { this.openWeb(); }, hiddenCount: this.hiddenIds.length, libraryBusy: this.libraryBusy,
+           onRestoreHidden: () => { this.restoreHidden(); }
         })
       }.hideTitleBar(true).backgroundColor($r('app.color.timeline_background'))
         .onBackPressed(() => { this.closePost(); return true; })
-    } else if (post !== undefined) {
+    } else if (name === IDENTITY_EDITOR) {
+      NavDestination() {
+        if (this.identityConfirmLeave) {
+          this.EditorDecision(() => { this.identityConfirmLeave = false; }, () => this.closePost())
+        } else {
+          IdentityEditor({ name: this.identityName, bio: this.identityBio, busy: this.identityBusy, message: this.identityMessage,
+            onName: (value: string) => { this.identityName = value; this.identityMessage = ''; },
+            onBio: (value: string) => { this.identityBio = value; this.identityMessage = ''; },
+            onSave: () => { this.saveIdentity(); }, onBack: () => this.requestIdentityBack() })
+        }
+      }.hideTitleBar(true).backgroundColor($r('app.color.timeline_surface'))
+        .onBackPressed(() => { this.requestIdentityBack(); return true; })
+    } else if (name === POST_EDITOR) {
+      NavDestination() { this.PostEditorContent() }.hideTitleBar(true).backgroundColor($r('app.color.timeline_surface'))
+        .onBackPressed(() => { this.requestPostEditorBack(); return true; })
+    } else if (name === AUTHOR_PROFILE && post !== undefined) {
+      NavDestination() {
+        AuthorPane({ author: this.authorSummary(post.id), posts: () => { this.AuthorPostRows(post) },
+          onBack: () => this.closePost(), onFollow: () => { this.toggleFollow(post.id); } })
+      }.hideTitleBar(true).backgroundColor($r('app.color.timeline_surface'))
+        .onBackPressed(() => { this.closePost(); return true; })
+    } else if (name === POST_DETAIL && post !== undefined) {
       NavDestination() {
         this.DetailContent(post)
       }.hideTitleBar(true).backgroundColor($r('app.color.timeline_surface'))
@@ -1207,10 +1498,25 @@ struct Timeline {
   }
 
   @Builder
-  SearchRoot() { this.LocalCollection(true) }
+  SearchRoot() {
+    DiscoveryPane({ query: this.searchQuery, mode: this.discoveryMode, authors: this.discoveryAuthors(),
+      topics: DISCOVERY_TOPICS, hasPosts: this.discoveryPosts().length > 0,
+      posts: () => { this.DiscoveryPostRows() }, status: () => { this.LibraryStatus() },
+      onQuery: (value: string) => { this.searchQuery = value; },
+      onMode: (value: number) => { this.discoveryMode = value === 1 ? 1 : 0; },
+      onAuthor: (id: string) => this.openAuthor(id),
+      onTopic: (topic: string) => { this.searchQuery = topic; this.discoveryMode = 0; } })
+  }
 
   @Builder
-  ProfileRoot() { this.LocalCollection(false) }
+  ProfileRoot() {
+    LibraryHub({ identity: this.identity, mode: this.libraryMode,
+      hasItems: this.libraryMode === 3 ? this.localReplies.length > 0 : this.profilePosts().length > 0,
+      busy: this.libraryLoading || this.identityBusy, message: this.identityMessage || this.libraryMessage,
+      items: () => { this.ProfileItems() }, onMode: (value: number) => { this.libraryMode = value; },
+      onEdit: () => { this.openIdentity(); }, onCompose: () => this.openComposer(), onSettings: () => this.openSettings(),
+      onWeb: () => { this.openWeb(); } })
+  }
 
   @Builder
   ActivityRoot() {
@@ -1242,7 +1548,7 @@ struct Timeline {
         }
         ForEach(this.visibleFeed(), (post: MockPost) => {
           ListItem() { this.PostCard(post, false) }
-        }, (post: MockPost) => post.id)
+        }, (post: MockPost) => post.local ? post.id + ':' + post.name + ':' + post.body : post.id)
         if (this.followingOnly && this.visibleFeed().length === 0) {
           ListItem() {
             Column({ space: 8 }) {

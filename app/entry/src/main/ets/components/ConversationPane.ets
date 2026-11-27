@@ -39,6 +39,7 @@ export struct ConversationPane {
   @Prop draft: string = '';
   @Prop @Watch('syncKeyboardMode') confirmLeave: boolean = false;
   @Prop largeText: boolean = false;
+  @Prop busy: boolean = false;
   onBack: () => void = (): void => {};
   onEdit: (id: string) => void = (_id: string): void => {};
   onExpand: () => void = (): void => {};
@@ -167,7 +168,7 @@ export struct ConversationPane {
       Divider().strokeWidth(0.5).color($r('app.color.timeline_border'))
       Text(`讨论 · ${this.rows.length} 条回复`).margin({ top: 10 }).fontSize(17).fontWeight(FontWeight.Bold)
         .fontColor($r('app.color.timeline_text_primary'))
-      Text('这里显示示例与本机回复。本机回复仅在本次运行中保留，不会发送到 Threads。').fontSize(13)
+      Text('这里显示示例与本机回复。你添加的回复仅保存在这台设备，不会发送到 Threads。').fontSize(13)
         .fontColor($r('app.color.timeline_text_secondary')).padding({ bottom: 10 })
     }.width('100%').alignItems(HorizontalAlign.Start)
   }
@@ -246,12 +247,13 @@ export struct ConversationPane {
           .fontColor($r('app.color.timeline_text_body')).placeholderColor($r('app.color.timeline_text_muted'))
           .borderRadius(12).backgroundColor($r('app.color.timeline_surface_muted')).enableKeyboardOnFocus(true)
           .accessibilityText('本机回复内容，回复 ' + this.recipientLabel()).accessibilityDescription(this.contextLine)
-          .onChange((value: string) => this.onDraft(value)).onAppear(() => this.focusEditor())
+          .enabled(!this.busy).onChange((value: string) => this.onDraft(value)).onAppear(() => this.focusEditor())
         Button('添加', { type: ButtonType.Capsule })
           .id('convo-submit').constraintSize({ minHeight: 48 }).padding({ left: 12, right: 12 }).fontSize(15)
           .fontColor($r('app.color.timeline_on_action')).backgroundColor($r('app.color.timeline_action'))
           .accessibilityText('添加本机回复，不发送到 Threads')
-          .enabled(this.draft.trim().length > 0 && this.draft.length <= REPLY_LIMIT).onClick(() => this.onSend())
+          .enabled(!this.busy && this.draft.trim().length > 0 && this.draft.length <= REPLY_LIMIT)
+           .onClick(() => this.onSend())
       }.width('100%').alignItems(VerticalAlign.Bottom)
     }.width('100%').alignItems(HorizontalAlign.Start).padding({ top: 6, bottom: 8 })
   }

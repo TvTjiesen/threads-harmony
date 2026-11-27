@@ -6,6 +6,9 @@ export struct SettingsPane {
   @Prop motionPreferenceSaving: boolean = false;
   @Prop openingWeb: boolean = false;
   @Prop motionPreferenceWarning: string = '';
+  @Prop hiddenCount: number = 0;
+  @Prop libraryBusy: boolean = false;
+  onRestoreHidden: () => void = (): void => {};
   onClose: () => void = () => {};
   onMotionChange: (enabled: boolean) => void = (_enabled: boolean) => {};
   onWeb: () => void = () => {};
@@ -84,7 +87,14 @@ export struct SettingsPane {
       this.SectionTitle('本机数据')
       this.SettingNote('帖子、收藏和草稿', '本机帖子、收藏和已保存的草稿只留在这台设备，不会发布或同步到 Threads。')
       Divider().color($r('app.color.timeline_border'))
-      this.SettingNote('本地回复', '在原生界面添加的回复仅在本次运行期间保留，不会发送到 Threads。')
+      this.SettingNote('本机资料与回复', '资料和添加的回复仅保存在这台设备，不会同步或发送到 Threads。')
+      Divider().color($r('app.color.timeline_border'))
+      this.SettingNote('已隐藏的示例', `已从首页和发现中隐藏 ${this.hiddenCount} 条，原有收藏和互动仍保留。`)
+      if (this.hiddenCount > 0) {
+        Button('恢复所有隐藏示例').id('settings-restore-hidden').buttonStyle(ButtonStyleMode.TEXTUAL)
+          .constraintSize({ minHeight: 48 }).fontColor($r('app.color.timeline_text_primary'))
+          .enabled(!this.libraryBusy).onClick(() => this.onRestoreHidden())
+      }
     }.width('100%').padding(16).alignItems(HorizontalAlign.Start)
       .backgroundColor($r('app.color.timeline_surface')).borderRadius(22)
       .border({ width: 1, color: $r('app.color.timeline_border') })

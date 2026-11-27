@@ -9,8 +9,11 @@ const app = readFileSync(new URL('../app/entry/src/main/ets/pages/Index.ets', im
 const timelineSource = readFileSync(new URL('../app/entry/src/main/ets/pages/Timeline.ets', import.meta.url), 'utf8');
 const settingsSource = readFileSync(new URL('../app/entry/src/main/ets/components/SettingsPane.ets', import.meta.url), 'utf8');
 const tabsSource = readFileSync(new URL('../app/entry/src/main/ets/components/ReadingTabs.ets', import.meta.url), 'utf8');
+const profileSource = readFileSync(new URL('../app/entry/src/main/ets/components/LibraryHub.ets', import.meta.url), 'utf8');
 const librarySource = readFileSync(new URL('../app/entry/src/main/ets/model/LocalLibrary.ets', import.meta.url), 'utf8');
 const libraryModel = await import(`data:text/javascript,${encodeURIComponent(stripTypeScriptTypes(librarySource))}`);
+const identitySource = readFileSync(new URL('../app/entry/src/main/ets/model/LocalIdentity.ets', import.meta.url), 'utf8');
+const identityModel = await import(`data:text/javascript,${encodeURIComponent(stripTypeScriptTypes(identitySource))}`);
 
 function timelineMethods(start, end) {
   const first = timelineSource.indexOf(start);
@@ -103,7 +106,7 @@ test('like counters and per-post animation triggers follow interaction state', a
     async saveLibrary(value) { this.library = value; this.likedIds = value.likedIds; return true; }
     ${nextSelection}
     ${methods}
-  }; Timeline`), { emptyLibrary: libraryModel.emptyLibrary });
+  }; Timeline`), { ...libraryModel });
   const page = new Timeline();
   page.timelinePosts = [{ id: 'p1' }, { id: 'p2' }];
   page.animationTriggers = [-1, -1];
@@ -183,11 +186,12 @@ test('motion preference is loaded before animation, serialized to disk and indep
     animationTriggers = [-1]; timelinePosts = POSTS; library = emptyLibrary();
     getUIContext() { return { getHostContext: () => 'host' }; }
     async loadLibrary() {}
+    async loadIdentity() {}
     async saveLibrary(value) { this.library = value; this.likedIds = value.likedIds; return true; }
     ${nextSelection}
     ${methods}
   }; Timeline`), { POSTS: [{ id: 'p1' }], DISPLAY_PREFERENCES: 'timeline_display', REDUCE_MOTION_KEY: 'reduce_motion',
-    preferences, accessibility, emptyLibrary: libraryModel.emptyLibrary });
+    preferences, accessibility, ...libraryModel });
 
   const page = new Timeline();
   page.aboutToAppear();
@@ -281,8 +285,9 @@ test('the home toolbar renders a two-way native feed filter without settings or 
   const toolbar = builder(timelineSource, 'Toolbar');
   assert.match(toolbar, /Text\(['"]本机预览['"]\)/);
   assert.doesNotMatch(toolbar, /openSettings|openWeb|settingsVisible|router\./);
-  assert.match(builder(timelineSource, 'LocalCollection'), /\.onClick\([^\n]*this\.openSettings\(\)/,
+  assert.match(builder(timelineSource, 'ProfileRoot'), /LibraryHub\(\{[\s\S]*onSettings:[^\n]*this\.openSettings\(\)/,
     'settings must remain accessible from the profile');
+  assert.match(builder(profileSource, 'Profile'), /Button\('设置'[^\n]*\.id\('library-settings'\)[\s\S]*?\.onClick\([^\n]*this\.onSettings\(\)/);
 
   const options = toolbar.match(/\bTabSegmentButtonV2\((\{[\s\S]*?\})\)/)?.[1];
   assert.ok(options, 'instantiate the system segment; custom buttons with the same labels are not a substitute');
@@ -324,6 +329,21 @@ test('the flat reading rows still expose follow, like, replies and bookmark acti
   assert.match(builder(timelineSource, 'FollowAction'), /\.onClick\([^\n]*this\.toggleFollow\(post\.id\)/);
 });
 
+test('post overflow uses an anchored native menu with only local actions', () => {
+  assert.match(builder(timelineSource, 'PostActions'), /\.bindMenu\(this\.PostMenu\(post\)\)/);
+  const menu = builder(timelineSource, 'PostMenu');
+  assert.match(menu, /Menu\(\)\s*\{/);
+  for (const [label, action] of [['复制正文', 'copyPost(post)'], ['系统分享…', 'sharePost(post)'],
+    ['编辑本机帖子', 'openPostEditor(post)'], ['隐藏此示例', 'toggleHidden(post.id)']]) {
+    assert.ok(menu.includes(label) && menu.includes(`this.${action}`));
+  }
+  assert.match(menu, /if \(post\.local\) \{[\s\S]*?this\.openPostEditor\(post\)[\s\S]*?\} else \{[\s\S]*?this\.toggleHidden\(post\.id\)/);
+  const actions = timelineMethods('  private async copyPost(', '  @Builder\n  PostMenu(');
+  assert.match(actions, /setData\(pasteboard\.createData\(pasteboard\.MIMETYPE_TEXT_PLAIN, this\.currentPostBody\(post\)\)\)/);
+  assert.match(actions, /SharedData\(\{ utd: 'general\.plain-text', content: this\.currentPostBody\(post\)/);
+  assert.doesNotMatch(actions, /https?:|\.openLink\(/);
+});
+
 test('Stage follows system font scale and timeline reflows when text grows', () => {
   const timeline = readFileSync(new URL('../app/entry/src/main/ets/pages/Timeline.ets', import.meta.url), 'utf8');
   assert.equal(appConfig.app.configuration, '$profile:configuration');
@@ -350,7 +370,7 @@ test('reading reflow keeps a post ID, adjusts for the large-text toolbar and def
   const Timeline = vm.runInNewContext(stripTypeScriptTypes(`class Timeline {
     timelineVisible = true; restorePending = false; restoreScheduled = false;
     viewportWidth = 400; fontScale = 1; firstVisibleIndex = 1; timelinePosts = POSTS;
-    selectedTab = ShellTab.Home; followingOnly = false; followedIds = ['p2'];
+    selectedTab = ShellTab.Home; followingOnly = false; followedIds = ['p2']; hiddenIds = [];
     followingTabAnchor = { postId: '', clipped: 0 };
     detailPaths = { size: () => 0 };
     ${timelineMethods('  private visibleFeed(', '  private activityEntries(')}
@@ -465,31 +485,71 @@ test('the parent wires the four reading pages and the independent composer to th
   const options = builder(timelineSource, 'Shell').match(/\bReadingTabs\((\{[\s\S]*?\})\)/)?.[1];
   assert.ok(options, 'the timeline must instantiate ReadingTabs, not just import it');
   const visits = [];
+  let discovery;
+  let profile;
+  const topics = ['主题'];
   const shell = vm.runInNewContext(stripTypeScriptTypes(`class Shell {
-    selectedTab = 2; viewportWidth = 400; activityEntries() { return ['activity']; }
-    Feed() { visits.push('home'); } LocalCollection(search) { visits.push(search ? 'search' : 'profile'); }
+    selectedTab = 2; viewportWidth = 400; searchQuery = '初始'; discoveryMode = 1; libraryMode = 0;
+    identity = { name: '本机名称', bio: '' }; localReplies = []; libraryLoading = false; identityBusy = false;
+    identityMessage = ''; libraryMessage = '';
+    Feed() { visits.push('home'); } activityEntries() { return ['activity']; }
+    discoveryAuthors() { return ['author']; } discoveryPosts() { return ['post']; }
+    DiscoveryPostRows() { visits.push('search rows'); } LibraryStatus() { visits.push('library status'); }
+    profilePosts() { return ['post']; } ProfileItems() { visits.push('profile rows'); }
     selectTab(index) { visits.push(index); } openComposer() { visits.push('compose'); }
+    openAuthor(id) { visits.push(id); } openIdentity() { visits.push('edit identity'); }
+    openSettings() { visits.push('settings'); } openWeb() { visits.push('web'); }
     ${builder(timelineSource, 'SearchRoot')}
     ${builder(timelineSource, 'ActivityRoot')}
     ${builder(timelineSource, 'ProfileRoot')}
     options() { return (${options}); }
-  }; new Shell()`), { visits, SIDE_NAV_WIDTH: 840, ActivityPane: ({ entries }) => visits.push(...entries) });
+  }; new Shell()`), {
+    visits, SIDE_NAV_WIDTH: 840, DISCOVERY_TOPICS: topics,
+    DiscoveryPane: (props) => { visits.push('search'); discovery = props; },
+    ActivityPane: ({ entries }) => visits.push(...entries),
+    LibraryHub: (props) => { visits.push('profile'); profile = props; }
+  });
   const config = shell.options();
   assert.equal(config.activeIndex, shell.selectedTab);
   for (const slot of ['home', 'search', 'activity', 'profile']) config[slot]();
   config.onSelectTab(3);
   config.onCompose();
   assert.deepEqual(visits, ['home', 'search', 'activity', 'profile', 3, 'compose']);
+  assert.equal(discovery.query, '初始');
+  assert.equal(discovery.mode, 1);
+  assert.equal(discovery.topics, topics);
+  assert.equal(discovery.hasPosts, true);
+  discovery.onQuery('搜索');
+  assert.equal(shell.searchQuery, '搜索');
+  discovery.onTopic(topics[0]);
+  assert.equal(shell.searchQuery, topics[0]);
+  assert.equal(shell.discoveryMode, 0);
+  discovery.posts();
+  discovery.status();
+  discovery.onAuthor('author');
+  assert.equal(profile.identity, shell.identity);
+  assert.equal(profile.hasItems, true);
+  profile.items();
+  profile.onMode(3);
+  config.profile();
+  assert.equal(profile.mode, 3);
+  assert.equal(profile.hasItems, false, 'reply mode reads replies, not the matching posts');
+  profile.onEdit();
+  profile.onCompose();
+  profile.onSettings();
+  profile.onWeb();
+  assert.deepEqual(visits.slice(6), ['search rows', 'library status', 'author', 'profile rows', 'profile',
+    'edit identity', 'compose', 'settings', 'web']);
 });
 
 test('shell tabs and local activity preserve origin and never create duplicate routes', () => {
   const lifecycle = timelineMethods('  onPageShow(', '  private async displayPreferences(');
-  const actions = timelineMethods('  private selectTab(', '  private listedPosts(');
+  const actions = timelineMethods('  private selectTab(', '  private authorSummary(');
   const tabs = { Home: 0, Search: 1, Activity: 2, Profile: 3 };
   const Shell = vm.runInNewContext(stripTypeScriptTypes(`class Shell {
     selectedTab = ShellTab.Home; timelineVisible = true;
-    timelinePosts = [{id:'p1',name:'first',body:'hello'},{id:'p2',name:'second',body:'world'}];
-    likedIds = ['p1','missing']; savedIds = ['p1']; followedIds = ['p2'];
+    timelinePosts = [{id:'p1',name:'first',handle:'@first',body:'hello'},{id:'p2',name:'second',handle:'@second',body:'world'}];
+    likedIds = ['p1','missing']; savedIds = ['p1']; followedIds = ['p2']; hiddenIds = [];
     localReplies = [{id:'r1',postId:'p2',body:'reply'},{id:'r2',postId:'missing',body:'ignore'}];
     stack = []; motion = false; opened = [];
     detailPaths = { size: () => this.stack.length, pushPath: (entry) => this.stack.push(entry) };
@@ -497,10 +557,10 @@ test('shell tabs and local activity preserve origin and never create duplicate r
     followingTabAnchor = {postId:'',clipped:0}; followingOnly = false;
     allowsMotionFeedback() { return this.motion; }
     getUIContext() { return { postFrameCallback() {} }; }
-    openPost(post) { this.opened.push(post.id); }
+    openPost(post, focusId) { this.opened.push([post.id, focusId]); }
     ${lifecycle}
     ${actions}
-  }; Shell`), { ShellTab: tabs, POST_SETTINGS: 'Settings', LayoutFrame: class {} });
+  }; Shell`), { ShellTab: tabs, POST_SETTINGS: 'Settings', LayoutFrame: class {}, matchesPost: libraryModel.matchesPost });
   const page = new Shell();
   page.selectFeed(true);
   assert.deepEqual(Array.from(page.visibleFeed(), (post) => post.id), ['p2']);
@@ -529,26 +589,55 @@ test('shell tabs and local activity preserve origin and never create duplicate r
   assert.deepEqual(Array.from(entries, ({ id }) => id), ['like-p1', 'save-p1', 'reply-r1']);
   page.openActivityPost(entries[2]);
   page.openActivityPost({ postId: 'missing' });
-  assert.deepEqual(Array.from(page.opened), ['p2']);
+  assert.deepEqual(Array.from(page.opened, (entry) => Array.from(entry)), [['p2', 'r1']]);
+  page.searchQuery = 'world';
+  assert.deepEqual(Array.from(page.discoveryPosts(), ({ id }) => id), ['p2']);
+  page.hiddenIds = ['p2'];
+  assert.deepEqual(Array.from(page.discoveryPosts(), ({ id }) => id), []);
+  assert.deepEqual(Array.from(page.visibleFeed(), ({ id }) => id), ['p1']);
 });
 
-test('post detail uses one stack entry and keeps replies local and scoped to their post', () => {
-  const methods = timelineMethods('  private openPost(', '  private localPost(');
-  const post = { id: 'p1', replies: 12 };
-  const other = { id: 'p2', replies: 7 };
+test('post detail uses one stack entry and saves replies only to the local library for that post', async () => {
+  const methods = timelineMethods('  private openPost(', '  private nextSelection(');
+  const post = { id: 'p1', name: 'first', replies: 12 };
+  const other = { id: 'p2', name: 'second', replies: 7 };
+  let disk = '';
+  let pending = '';
+  let failFlush = false;
+  let flushGate;
+  let writes = 0;
+  const store = {
+    async get(key, fallback) { assert.equal(key, 'content_v1'); assert.equal(fallback, ''); return disk; },
+    async put(key, data) { assert.equal(key, 'content_v1'); pending = data; writes++; },
+    async flush() {
+      if (flushGate) await flushGate;
+      if (failFlush) throw new Error('library write failed');
+      disk = pending;
+    }
+  };
   const Timeline = vm.runInNewContext(stripTypeScriptTypes(`class Timeline {
     timelineVisible = true; replyDraft = 'old draft'; replySequence = 0; localReplies = [];
-    motion = false; anchorCaptures = 0; timelinePosts = POSTS;
+    motion = false; anchorCaptures = 0; timelinePosts = POSTS; animationTriggers = [-1, -1];
+    library = emptyLibrary(); libraryReady = false; libraryBusy = false; libraryLoading = false; identity = emptyIdentity();
     allowsMotionFeedback() { return this.motion; }
     rememberReadingPosition() { this.anchorCaptures++; }
     onPageShow() { this.timelineVisible = this.detailPaths.size() === 0; }
+    getUIContext() { return { getHostContext: () => 'host' }; }
+    inform() {}
     ${methods}
   }; Timeline`), {
-    POSTS: [post, other], POST_DETAIL: 'PostDetail',
-    REPLY_LIMIT: 280,
-    SAMPLE_REPLIES: [{ id: 's1', postId: 'p1', body: 'sample' }]
+    ...libraryModel, ...identityModel, POSTS: [post, other], POST_DETAIL: 'PostDetail', AUTHOR_PROFILE: 'AuthorProfile',
+    LIBRARY_STORE: 'timeline_local_library', LIBRARY_KEY: 'content_v1', REPLY_LIMIT: 280,
+    SAMPLE_REPLIES: [{ id: 's1', postId: 'p1', body: 'sample' }],
+    preferences: { getPreferences: async (context, { name }) => {
+      assert.equal(context, 'host');
+      assert.equal(name, 'timeline_local_library');
+      return store;
+    } }
   });
   const page = new Timeline();
+  await page.loadLibrary();
+  assert.equal(page.libraryReady, true);
   const stack = [];
   const transitions = [];
   page.detailPaths = {
@@ -565,19 +654,41 @@ test('post detail uses one stack entry and keeps replies local and scoped to the
   assert.equal(page.timelineVisible, false);
   assert.equal(page.replyDraft, '');
   assert.equal(page.replyCount(post), 12);
-  page.expandCurrentReply(post.id);
+  page.beginReply(post.id, 's1');
   for (const draft of [' \n ', 'a'.repeat(281)]) {
     page.replyDraft = draft;
-    page.submitReply('p1');
+    await page.submitReply('p1');
   }
-  page.replyDraft = '  第一条本地回复  ';
-  page.submitReply('missing');
+  const draft = '  第一条本地回复  ';
+  page.replyDraft = draft;
+  await page.submitReply('missing');
+  assert.equal(writes, 0);
   assert.equal(page.localReplies.length, 0);
-  page.submitReply('p1');
+  failFlush = true;
+  await page.submitReply('p1');
+  assert.equal(page.replyDraft, draft);
+  assert.equal(page.replyTargetId, 's1');
+  assert.equal(page.focusedReplyId, '');
+  assert.equal(page.replyCount(post), 12);
+  assert.match(page.libraryMessage, /未能保存/);
+  failFlush = false;
+  let releaseFlush;
+  flushGate = new Promise((resolve) => { releaseFlush = resolve; });
+  const saving = page.submitReply('p1');
+  await page.submitReply('p1');
+  assert.equal(page.libraryBusy, true);
+  assert.equal(page.replyDraft, draft);
+  assert.equal(page.focusedReplyId, '');
+  assert.equal(disk, '');
+  releaseFlush();
+  await saving;
+  assert.equal(writes, 2, 'one failed save and one successful save, with no concurrent double send');
   assert.equal(page.replyDraft, '');
+  assert.equal(page.focusedReplyId, 'local-1');
   assert.equal(page.replyCount(post), 13);
   assert.equal(page.replyCount(other), 7);
-  assert.deepEqual(Array.from(page.repliesFor('p1'), (reply) => reply.body), ['第一条本地回复', 'sample']);
+  assert.deepEqual(Array.from(page.repliesFor('p1'), (reply) => reply.body), ['sample', '第一条本地回复'],
+    'a nested local reply appears after its parent');
   assert.equal(page.repliesFor('p2').length, 0);
   page.expandCurrentReply(post.id);
   page.replyDraft = '未提交的草稿';
@@ -593,27 +704,47 @@ test('post detail uses one stack entry and keeps replies local and scoped to the
   page.closePost();
   assert.deepEqual(transitions, [false, false, true, true]);
   assert.equal(page.replyCount(post), 13);
-  assert.equal(new Timeline().replyCount(post), 12, 'local replies do not survive a fresh page');
+  const reopened = new Timeline();
+  assert.equal(reopened.replyCount(post), 12, 'before loading the local library only public demo counts are visible');
+  await reopened.loadLibrary();
+  assert.equal(reopened.replyCount(post), 13, 'local replies survive a fresh page after loading device preferences');
+  assert.equal(reopened.replySequence, 1);
+  assert.equal(reopened.repliesFor('p1')[1].parentId, 's1');
+  assert.equal(reopened.repliesFor('p2').length, 0);
   stack.push({ name: 'Settings' });
   page.openPost(post);
-  assert.deepEqual(stack.map(({ name }) => name), ['Settings'], 'details cannot open through another destination');
+  assert.deepEqual(stack.map(({ name }) => name), ['Settings'], 'details cannot open through settings');
   stack.pop();
+  stack.push({ name: 'AuthorProfile' });
+  page.openPost(post, 'local-1');
+  page.openPost(other);
+  assert.deepEqual(stack.map(({ name }) => name), ['AuthorProfile', 'PostDetail']);
+  assert.equal(page.focusedReplyId, 'local-1');
+  page.closePost();
+  assert.deepEqual(stack.map(({ name }) => name), ['AuthorProfile'], 'closing detail returns to the same author');
   assert.match(timelineSource, /Navigation\(this\.detailPaths\)/);
-  assert.match(builder(timelineSource, 'DetailDestination'), /this\.DetailContent\(post\)[\s\S]*?\.onBackPressed\(\(\) => \{\s*this\.requestDetailBack\(\);\s*return true;/);
+  const detail = builder(timelineSource, 'DetailDestination');
+  assert.match(detail, /this\.DetailContent\(post\)[\s\S]*?\.onBackPressed\(\(\) => \{\s*this\.requestDetailBack\(\);\s*return true;/);
+  assert.match(detail, /name === IDENTITY_EDITOR[\s\S]*?IdentityEditor\(\{[\s\S]*?onBack: \(\) => this\.requestIdentityBack\(\)/);
+  assert.match(detail, /name === POST_EDITOR[\s\S]*?this\.PostEditorContent\(\)[\s\S]*?\.onBackPressed\(\(\) => \{ this\.requestPostEditorBack\(\); return true;/);
+  assert.match(detail, /name === AUTHOR_PROFILE && post !== undefined[\s\S]*?AuthorPane\(\{ author: this\.authorSummary\(post\.id\)/);
   assert.match(builder(timelineSource, 'DiscussionRoot'), /this\.PostCard\(post, true\)/);
+  assert.match(builder(timelineSource, 'PostCard'), /if \(inDetail\) \{\s*Text\(this\.currentPostBody\(post\)\)/,
+    'detail renders the current local post rather than its navigation snapshot');
   assert.match(builder(timelineSource, 'Feed'), /this\.PostCard\(post, false\)/);
 });
 
 test('post drafts persist explicitly and preview posts are added once without modifying the saved draft', async () => {
   const constants = timelineSource.slice(timelineSource.indexOf('const POST_COMPOSER'), timelineSource.indexOf('interface DemoReply'));
-  const methods = timelineMethods('  private localPost(', '  @Builder');
+  const methods = [timelineMethods('  private localPost(', '  @Builder\n  PostMenu('),
+    timelineMethods('  private async postDraftPreferences(', '  @Builder')].join('\n');
   const { Composer, DraftDecision, ShellTab } = vm.runInNewContext(stripTypeScriptTypes(`
     ${constants}
     class Composer {
       postDraft = ''; savedPostDraft = ''; postDraftReady = false; postDraftBusy = false;
       postDraftMessage = ''; draftDecision = DraftDecision.None; postDraftLoadId = 0;
       showingPostPreview = false; previewBody = ''; postSequence = 0;
-      library = emptyLibrary(); libraryReady = false; libraryLoading = false; libraryBusy = false;
+      library = emptyLibrary(); libraryReady = false; libraryLoading = false; libraryBusy = false; identity = emptyIdentity();
       likedIds = []; followedIds = []; savedIds = [];
       timelinePosts = [...POSTS]; animationTriggers = [0, -1];
       timelineVisible = true; anchorCaptures = 0; selectedTab = ShellTab.Home; followingOnly = false;
@@ -634,8 +765,8 @@ test('post drafts persist explicitly and preview posts are added once without mo
       ${methods}
     }
     ({ Composer, DraftDecision, ShellTab });`, { mode: 'transform' }), {
-    ...libraryModel,
-    POSTS: [{ id: 'p1' }, { id: 'p2' }],
+    ...libraryModel, ...identityModel,
+    POSTS: [{ id: 'p1' }, { id: 'p2' }], SAMPLE_REPLIES: [],
     preferences: { getPreferences: async (stores, { name }) => stores[name] }
   });
   const settle = () => new Promise(setImmediate);
@@ -817,7 +948,7 @@ test('post drafts persist explicitly and preview posts are added once without mo
   page.openComposer();
   assert.equal(page.postDraft, body, 'the in-memory saved draft is unchanged by a preview');
   assert.deepEqual(JSON.parse(libraryDisk), {
-    version: 1, posts: [{ id: added.id, body: preview }], likedIds: [], followedIds: [], savedIds: []
+    version: 1, posts: [{ id: added.id, body: preview }], likedIds: [], followedIds: [], savedIds: [], replies: [], hiddenIds: []
   });
   const reopened = new Composer(stores);
   await reopened.loadLibrary();

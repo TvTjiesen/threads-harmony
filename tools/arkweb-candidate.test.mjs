@@ -314,7 +314,7 @@ test('the flat reading rows still expose follow, like, replies and bookmark acti
   assert.doesNotMatch(row, /\.shadow\(/);
   assert.match(row, /this\.FollowAction\(post\)/);
   assert.match(row, /this\.PostActions\(post, inDetail\)/);
-  assert.match(row, /Text\(post\.body\.trim\(\) \? post\.body : '图片帖子'\)\.id\('body-' \+ post\.id\)[^{}]*?\.onClick\(\(\) => this\.openPost\(post\)\)/,
+  assert.match(row, /Text\(post\.body\.trim\(\) \? post\.body : \(post\.video !== undefined \? '视频帖子' : '图片帖子'\)\)\s*\.id\('body-' \+ post\.id\)[^{}]*?\.onClick\(\(\) => this\.openPost\(post\)\)/,
     'the feed body opens the original post, not a selected reply');
   assert.match(row, /if \(!inDetail\)\s*\{\s*ForEach\(this\.previewRows\(post\.id\),[\s\S]*?this\.SummaryEntry\(post, reply\)[\s\S]*?=> reply\.id\)/,
     'replace only the summary row and tap handler when the latest reply ID changes');
@@ -772,12 +772,17 @@ test('post drafts persist explicitly and preview posts are added once without mo
     ...libraryModel, ...identityModel,
     POSTS: [{ id: 'p1' }, { id: 'p2' }], SAMPLE_REPLIES: [],
     discardPostPhoto: (_context, key) => { discardedPhotos.push(key); },
+    discardPostVideo: (_context, key) => { discardedVideos.push(key); },
+    pickPostVideo: async (_context, fromFiles) => { videoPicks++; assert.equal(fromFiles, true); return nextVideo; },
     pickPostPhotos: async (_context, remaining) => { receivedRemaining.push(remaining); return nextPhotos; },
     postPhotoUri: (_context, key) => 'file:///test/' + key,
     preferences: { getPreferences: async (stores, { name }) => stores[name] }
   });
   const settle = () => new Promise(setImmediate);
   const discardedPhotos = [];
+  const discardedVideos = [];
+  let videoPicks = 0;
+  let nextVideo;
   const receivedRemaining = [];
   let nextPhotos = [];
   let disk = '';
@@ -1029,6 +1034,49 @@ test('post drafts persist explicitly and preview posts are added once without mo
   photoReopened.library = libraryModel.emptyLibrary();
   await photoReopened.releasePostPhoto(b);
   assert.deepEqual(discardedPhotos, [b], 'an unreferenced image can be released');
+
+  const video = { key: `video-${'c'.repeat(32)}.mp4`, durationMs: 7220 };
+  disk = JSON.stringify({ body: '', photoKeys: [a] });
+  const moving = new Composer(stores);
+  await moving.loadLibrary();
+  moving.openComposer();
+  await settle();
+  nextVideo = video;
+  await moving.selectDraftVideo();
+  assert.equal(videoPicks, 0, 'choosing a video cannot replace photos');
+  moving.removeDraftPhoto(a);
+  await moving.selectDraftVideo(true);
+  assert.ok(moving.canSavePostDraft(), 'a video can be saved without a caption');
+  const photoCalls = receivedRemaining.length;
+  await moving.selectDraftPhotos();
+  assert.equal(receivedRemaining.length, photoCalls, 'choosing photos cannot replace a video');
+  await moving.savePostDraft(false);
+  assert.deepEqual(JSON.parse(disk), { body: '', video });
+  moving.openPostPreview();
+  await moving.openVideo(moving.previewVideo);
+  assert.equal(moving.route.name, 'VideoPlayer');
+  await moving.openVideo(moving.previewVideo);
+  assert.equal(moving.detailPaths.size(), 2, 'duplicate taps do not stack players');
+  moving.detailPaths.pop({ closed: true });
+  assert.equal(moving.route.name, 'PostComposer');
+  assert.equal(moving.playerVideo, undefined);
+  assert.equal(moving.showingPostPreview, true);
+  await moving.addPreviewToTimeline();
+  assert.deepEqual(JSON.parse(libraryDisk).posts[0].video, video);
+  assert.deepEqual(JSON.parse(disk), { body: '', video });
+  const videoReopened = new Composer(stores);
+  await videoReopened.loadLibrary();
+  videoReopened.openComposer();
+  await settle();
+  assert.equal(videoReopened.draftVideo.key, video.key);
+  assert.equal(videoReopened.timelinePosts[0].video.key, video.key);
+  videoReopened.draftDecision = DraftDecision.Clear;
+  await videoReopened.savePostDraft(true);
+  await settle();
+  assert.deepEqual(discardedVideos, [], 'clearing a shared video draft keeps the posted attachment');
+  videoReopened.library = libraryModel.emptyLibrary();
+  await videoReopened.releasePostVideo(video.key);
+  assert.deepEqual(discardedVideos, [video.key]);
   assert.match(timelineSource, /ForEach\(this\.visibleFeed\(\),/);
 });
 

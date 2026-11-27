@@ -181,6 +181,32 @@ test('draft restoration migrates old keys and sanitizes canonical arrays with th
   assert.throws(() => decode({ body: 'x'.repeat(501), photoKeys: [a] }), /Invalid local draft/);
 });
 
+test('video-only posts and drafts retain validated duration without rewriting legacy photos', () => {
+  const key = `video-${'a'.repeat(32)}.mp4`;
+  const video = { key, durationMs: 60000 };
+  const picture = photo('b');
+  const posts = [
+    { id: 'local-post-1', body: '', video },
+    { id: 'local-post-2', body: '', photoKeys: [picture] },
+    { id: 'local-post-3', body: 'Keep the caption' }
+  ];
+  const invalid = [null, { key: '../' + key, durationMs: 1 }, { key, durationMs: 0 },
+    { key, durationMs: '1500' }, { key, durationMs: 1000.5 }, { key, durationMs: 60001 }];
+  assert.equal(canKeepPost('', [], video), true);
+  assert.equal(canKeepPost('x'.repeat(501), [], video), false);
+  assert.ok(invalid.every((item) => !canKeepPost('', [], item)));
+  assert.deepEqual(decodePostDraft(JSON.stringify({ body: '', video })), { body: '', video });
+  assert.deepEqual(decodePostDraft(JSON.stringify({ body: '', photoKey: picture, video })), { body: '', photoKeys: [picture] });
+  const state = decodeLibrary(persisted({ posts: [
+    { ...posts[0], video: { ...video, fileUri: 'file:///ignored' } },
+    { id: 'local-post-2', body: '', photoKey: picture, video },
+    { ...posts[2], video: invalid[1] },
+    { id: 'local-post-4', body: '', video: invalid.at(-1) }
+  ] }), demoIds);
+  assert.deepEqual(state.posts, posts);
+  assert.deepEqual(decodeLibrary(encodeLibrary(state), demoIds), state);
+});
+
 test('search is trimmed, case-insensitive, and requires every term across the fields', () => {
   const matches = (query) => matchesPost(query, 'Mina Chen', '@Skyline', 'A quiet morning in 杭州');
   assert.equal(matches(' \t\n '), true);

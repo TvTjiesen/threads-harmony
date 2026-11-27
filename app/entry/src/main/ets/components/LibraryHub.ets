@@ -1,4 +1,4 @@
-import { LengthMetrics } from '@kit.ArkUI';
+import { LengthMetrics, SegmentButtonV2Items, TabSegmentButtonV2 } from '@kit.ArkUI';
 import {
   emptyIdentity, IDENTITY_BIO_LIMIT, IDENTITY_NAME_LIMIT, identityLength, LocalIdentity, normalizeIdentity
 } from '../model/LocalIdentity';
@@ -9,6 +9,11 @@ const PROFILE_MAX_WIDTH = 640;
 export struct LibraryHub {
   @Prop identity: LocalIdentity = emptyIdentity();
   @Prop mode: number = 0;
+  @Prop mediaMode: number = 0;
+  private readonly mediaFilters: SegmentButtonV2Items = new SegmentButtonV2Items([
+    { text: '全部' }, { text: '图片' }, { text: '视频' }
+  ]);
+  onMediaMode: (value: number) => void = (_value: number): void => {};
   @Prop hasItems: boolean = false;
   @Prop busy: boolean = false;
   @Prop message: string = '';
@@ -24,7 +29,7 @@ export struct LibraryHub {
       case 1: return '还没有收藏';
       case 2: return '还没有点赞';
       case 3: return '还没有回复';
-      default: return '还没有本机帖子';
+      default: return this.mediaMode === 1 ? '还没有图片帖' : this.mediaMode === 2 ? '还没有视频帖' : '还没有本机帖子';
     }
   }
 
@@ -109,6 +114,11 @@ export struct LibraryHub {
           this.ModeButton(2, '点赞')
           this.ModeButton(3, '回复')
         }.width('100%')
+        if (this.mode === 0) {
+          TabSegmentButtonV2({ items: this.mediaFilters, itemMaxFontScale: 2, selectedIndex: this.mediaMode,
+            $selectedIndex: (value: number) => this.onMediaMode(value) })
+            .id('library-media-filter').width('100%').constraintSize({ maxWidth: 388 })
+        }
         if (this.busy || this.message.length > 0) {
           Text(this.message.length > 0 ? this.message : '正在读取本机内容…').id('library-status')
             .width('100%').fontSize('14fp').fontColor($r('app.color.timeline_text_secondary'))

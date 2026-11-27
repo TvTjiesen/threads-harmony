@@ -1,5 +1,6 @@
 export const LIBRARY_POST_LIMIT = 40;
 export const MAX_POST_PHOTOS = 4;
+export const MAX_POST_VIDEO_DURATION_MS = 60000;
 export const LOCAL_POST_BODY_LIMIT = 500;
 export const LIBRARY_REPLY_LIMIT = 80;
 export const LOCAL_REPLY_BODY_LIMIT = 280;
@@ -16,9 +17,15 @@ export interface ReplyReference {
   postId: string;
 }
 
+export interface PostVideoAttachment {
+  key: string;
+  durationMs: number;
+}
+
 export interface PostDraft {
   body: string;
   photoKeys?: string[];
+  video?: PostVideoAttachment;
 }
 
 export interface LibraryPost extends PostDraft {
@@ -58,12 +65,26 @@ function storedPostPhotoKeys(value: StoredPostDraft): string[] {
   return isPostPhotoKey(legacyKey) ? [legacyKey] : [];
 }
 
-function postWithPhotos(id: string, body: string, photoKeys: string[]): LibraryPost {
-  return photoKeys.length > 0 ? { id: id, body: body, photoKeys: photoKeys } : { id: id, body: body };
+export function isPostVideoKey(value: string): boolean {
+  return typeof value === 'string' && value.length === 42 && /^video-[a-f0-9]{32}\.mp4$/.test(value);
 }
 
-export function canKeepPost(body: string, photoKeys: string[]): boolean {
-  return body.length <= LOCAL_POST_BODY_LIMIT && (body.trim().length > 0 || photoKeys.some(isPostPhotoKey));
+function validPostVideo(value?: PostVideoAttachment): PostVideoAttachment | undefined {
+  if (value === undefined || value === null || typeof value !== 'object' || !isPostVideoKey(value.key) ||
+    !Number.isInteger(value.durationMs) || value.durationMs <= 0 || value.durationMs > MAX_POST_VIDEO_DURATION_MS) {
+    return undefined;
+  }
+  return { key: value.key, durationMs: value.durationMs };
+}
+
+function postWithMedia(id: string, body: string, photoKeys: string[], video?: PostVideoAttachment): LibraryPost {
+  if (photoKeys.length > 0) { return { id: id, body: body, photoKeys: photoKeys }; }
+  return video === undefined ? { id: id, body: body } : { id: id, body: body, video: video };
+}
+
+export function canKeepPost(body: string, photoKeys: string[], video?: PostVideoAttachment): boolean {
+  return body.length <= LOCAL_POST_BODY_LIMIT &&
+    (body.trim().length > 0 || photoKeys.some(isPostPhotoKey) || validPostVideo(video) !== undefined);
 }
 
 export function decodePostDraft(raw: string): PostDraft {
@@ -72,7 +93,9 @@ export function decodePostDraft(raw: string): PostDraft {
   if (value === null || typeof value !== 'object' || typeof value.body !== 'string' ||
     value.body.length > LOCAL_POST_BODY_LIMIT) { throw new Error('Invalid local draft'); }
   const keys = storedPostPhotoKeys(value);
-  return keys.length > 0 ? { body: value.body, photoKeys: keys } : { body: value.body };
+  if (keys.length > 0) { return { body: value.body, photoKeys: keys }; }
+  const video = validPostVideo(value.video);
+  return video === undefined ? { body: value.body } : { body: value.body, video: video };
 }
 
 interface LibraryState {
@@ -108,7 +131,8 @@ export function updateLibrary(value: LocalLibrary, patch: LibraryPatch): LocalLi
 }
 
 export function encodeLibrary(value: LocalLibrary): string {
-  const posts = value.posts.map((post: LibraryPost) => postWithPhotos(post.id, post.body, validPostPhotoKeys(post.photoKeys)));
+  const posts = value.posts.map((post: LibraryPost) =>
+    postWithMedia(post.id, post.body, validPostPhotoKeys(post.photoKeys), validPostVideo(post.video)));
   const stored: StoredLibrary<LibraryPost> = { version: 1, posts: posts, likedIds: value.likedIds,
     followedIds: value.followedIds, savedIds: value.savedIds, replies: value.replies, hiddenIds: value.hiddenIds };
   return JSON.stringify(stored);
@@ -181,8 +205,9 @@ export function decodeLibrary(raw: string, demoIds: string[], samples: ReplyRefe
         continue;
       }
       const keys = storedPostPhotoKeys(post);
-      if (canKeepPost(post.body, keys)) {
-        posts.push(postWithPhotos(post.id, post.body, keys));
+      const video = validPostVideo(post.video);
+      if (canKeepPost(post.body, keys, video)) {
+        posts.push(postWithMedia(post.id, post.body, keys, video));
         ids.push(post.id);
       }
     }

@@ -4,11 +4,13 @@ import { preferences } from '@kit.ArkData';
 import { FrameCallback, LengthMetrics, router, SegmentButtonV2Items, TabSegmentButtonV2 } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { systemShare } from '@kit.ShareKit';
-import { canKeepPost, decodeLibrary, decodePostDraft, emptyLibrary, encodeLibrary, isPostPhotoKey, LibraryPost,
+import { canKeepPost, decodeLibrary, decodePostDraft, emptyLibrary, encodeLibrary, isPostPhotoKey, LibraryPost, isPostVideoKey,
   LibraryReply, LIBRARY_POST_LIMIT, LIBRARY_REPLY_LIMIT, LOCAL_POST_BODY_LIMIT, LOCAL_REPLY_BODY_LIMIT,
-  LocalLibrary, matchesPost, MAX_POST_PHOTOS, PostDraft, updateLibrary } from '../model/LocalLibrary';
+  LocalLibrary, matchesPost, MAX_POST_PHOTOS, PostDraft, PostVideoAttachment, updateLibrary } from '../model/LocalLibrary';
 import { discardPostPhoto, pickPostPhotos, postPhotoUri } from '../model/PostPhotoStore';
 import { PhotoViewer, PostGallery, PostPhoto } from '../components/PostPhoto';
+import { discardPostVideo, pickPostVideo, postVideoPosterUri, postVideoUri } from '../model/PostVideoStore';
+import { PostVideo, PostVideoPlayer } from '../components/PostVideo';
 import { decodeIdentity, emptyIdentity, LocalIdentity, normalizeIdentity } from '../model/LocalIdentity';
 import { ActivityEntry, ActivityPane } from '../components/ActivityPane';
 import { AuthorPane } from '../components/AuthorPane';
@@ -31,6 +33,7 @@ const AUTHOR_PROFILE = 'AuthorProfile';
 const IDENTITY_EDITOR = 'IdentityEditor';
 const POST_EDITOR = 'PostEditor';
 const PHOTO_VIEWER = 'PhotoViewer';
+const VIDEO_PLAYER = 'VideoPlayer';
 const DISCOVERY_TOPICS: string[] = ['折叠屏', '周末', '阅读', '通勤', '明信片', '歌单'];
 
 enum ShellTab {
@@ -94,6 +97,7 @@ interface MockPost {
   avatarColor: string;
   local?: boolean;
   photoKeys?: string[];
+  video?: PostVideoAttachment;
 }
 
 const POSTS: MockPost[] = [
@@ -122,6 +126,7 @@ struct Timeline {
   @State private searchQuery: string = '';
   @State private discoveryMode: number = 0;
   @State private libraryMode: number = 0;
+  @State private profileMediaMode: number = 0;
   @State private hiddenIds: string[] = [];
   @State private identity: LocalIdentity = emptyIdentity();
   @State private identityReady: boolean = false;
@@ -165,6 +170,12 @@ struct Timeline {
   @State private viewerPhotoKeys: string[] = [];
   @State private viewerPhotoIndex: number = 0;
   @State private photoPicking: boolean = false;
+  @State private draftVideo: PostVideoAttachment | undefined = undefined;
+  @State private savedDraftVideo: PostVideoAttachment | undefined = undefined;
+  @State private previewVideo: PostVideoAttachment | undefined = undefined;
+  @State private playerVideo: PostVideoAttachment | undefined = undefined;
+  @State private videoDestinationVisible: boolean = false;
+  @StorageProp('timelineAppForeground') private appForeground: boolean = false;
   @State private postDraftReady: boolean = false;
   @State private postDraftBusy: boolean = false;
   @State private postDraftMessage: string = '';
@@ -554,7 +565,7 @@ struct Timeline {
 
   private localPost(post: LibraryPost): MockPost {
     return { id: post.id, name: this.identity.name, handle: '本机帖子', time: '离线', body: post.body,
-      replies: 0, likes: 0, avatarColor: '#4A7B78', local: true, photoKeys: post.photoKeys };
+      replies: 0, likes: 0, avatarColor: '#4A7B78', local: true, photoKeys: post.photoKeys, video: post.video };
   }
 
   private async libraryPreferences(): Promise<preferences.Preferences> {
@@ -576,6 +587,8 @@ struct Timeline {
     if (value.posts.length !== previousPosts.length - POSTS.length || value.posts.some((post: LibraryPost, index: number) =>
       post.id !== previousPosts[index]?.id || post.body !== previousPosts[index]?.body ||
       !(this.samePhotoOrder(post.photoKeys ?? [], previousPosts[index]?.photoKeys ?? [])) ||
+      post.video?.key !== previousPosts[index]?.video?.key ||
+      post.video?.durationMs !== previousPosts[index]?.video?.durationMs ||
       this.identity.name !== previousPosts[index]?.name)) {
       const next = [...value.posts.map((post: LibraryPost) => this.localPost(post)), ...POSTS];
       this.animationTriggers = next.map((post: MockPost) => {
@@ -732,7 +745,9 @@ struct Timeline {
 
   private profilePosts(): MockPost[] {
     return this.timelinePosts.filter((post: MockPost) => this.libraryMode === 1 ? this.savedIds.includes(post.id) :
-      this.libraryMode === 2 ? this.likedIds.includes(post.id) : post.local === true);
+      this.libraryMode === 2 ? this.likedIds.includes(post.id) : post.local === true &&
+      (this.profileMediaMode === 1 ? (post.photoKeys?.length ?? 0) > 0 :
+        this.profileMediaMode === 2 ? post.video !== undefined : true));
   }
 
   private openAuthor(id: string): void {
@@ -844,6 +859,38 @@ struct Timeline {
     } }, this.allowsMotionFeedback());
   }
 
+  private currentVideo(post: MockPost): PostVideoAttachment | undefined {
+    return this.timelinePosts.find((item: MockPost) => item.id === post.id)?.video;
+  }
+
+  private videoUri(key: string, poster: boolean = false): string {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined;
+    if (context === undefined || !isPostVideoKey(key)) { return ''; }
+    return poster ? postVideoPosterUri(context, key) : postVideoUri(context, key);
+  }
+
+  private openVideo(video?: PostVideoAttachment): void {
+    const paths = this.detailPaths.getAllPathName();
+    if (video === undefined || !isPostVideoKey(video.key) || this.playerVideo !== undefined ||
+      this.libraryBusy || this.photoPicking || this.replyExpanded || this.replyExitPending || this.confirmingDelete ||
+      (paths.length > 0 && paths[paths.length - 1] !== POST_DETAIL &&
+        paths[paths.length - 1] !== POST_COMPOSER && paths[paths.length - 1] !== AUTHOR_PROFILE)) { return; }
+    this.rememberReadingPosition();
+    this.timelineVisible = false;
+    this.videoDestinationVisible = false;
+    this.playerVideo = video;
+    this.detailPaths.pushPath({ name: VIDEO_PLAYER, onPop: () => {
+      this.videoDestinationVisible = false;
+      this.playerVideo = undefined;
+      this.onPageShow();
+    } }, this.allowsMotionFeedback());
+  }
+
+  private closeVideo(): void {
+    this.videoDestinationVisible = false;
+    this.closePost();
+  }
+
   private async copyPost(post: MockPost): Promise<void> {
     try {
       await pasteboard.getSystemPasteboard().setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, this.currentPostBody(post)));
@@ -917,13 +964,13 @@ struct Timeline {
 
   private canSavePostEdit(): boolean {
     const stored = this.library.posts.find((post: LibraryPost) => post.id === this.editingPostId);
-    return stored !== undefined && this.editBody !== stored.body && canKeepPost(this.editBody, stored.photoKeys ?? []);
+    return stored !== undefined && this.editBody !== stored.body && canKeepPost(this.editBody, stored.photoKeys ?? [], stored.video);
   }
 
   private async savePostEdit(): Promise<void> {
     if (this.editConfirmLeave || !this.canSavePostEdit()) { return; }
     const posts = this.library.posts.map((post: LibraryPost): LibraryPost =>
-      post.id === this.editingPostId ? { id: post.id, body: this.editBody, photoKeys: post.photoKeys } : post);
+      post.id === this.editingPostId ? { id: post.id, body: this.editBody, photoKeys: post.photoKeys, video: post.video } : post);
     if (await this.saveLibrary(updateLibrary(this.library, { posts: posts }))) { this.leaveComposer(); }
     else { this.editMessage = '未能保存，本次输入仍在。'; }
   }
@@ -954,6 +1001,7 @@ struct Timeline {
       return;
     }
     const oldPhotos = this.currentPhotoKeys(post).slice();
+    const formerVideoKey = this.currentVideo(post)?.key;
     const saved = await this.saveLibrary(updateLibrary(this.library, {
       posts: this.library.posts.filter((item: LibraryPost) => item.id !== post.id),
       likedIds: this.likedIds.filter((id: string) => id !== post.id),
@@ -962,6 +1010,7 @@ struct Timeline {
     }));
     if (saved) {
       this.releasePostPhotos(oldPhotos);
+      if (formerVideoKey !== undefined) { this.releasePostVideo(formerVideoKey); }
       this.confirmingDelete = false;
       if (this.readingAnchor.postId === post.id) {
         this.readingAnchor = { postId: '', clipped: 0 };
@@ -987,15 +1036,19 @@ struct Timeline {
     this.timelineVisible = false;
     this.postDraft = this.savedPostDraft;
     this.draftPhotoKeys = this.savedDraftPhotoKeys.slice();
+    this.draftVideo = this.savedDraftVideo;
     this.postDraftMessage = '';
     this.draftDecision = DraftDecision.None;
     this.detailPaths.pushPath({ name: POST_COMPOSER, onPop: () => {
       const oldPhotos = this.draftPhotoKeys;
+      const formerVideoKey = this.draftVideo?.key;
       this.draftPhotoKeys = this.savedDraftPhotoKeys.slice();
+      this.draftVideo = this.savedDraftVideo;
       this.postDraftLoadId += 1;
       this.postDraftBusy = false;
       this.closePostPreview();
       this.releasePostPhotos(oldPhotos);
+      if (formerVideoKey !== undefined) { this.releasePostVideo(formerVideoKey); }
       this.onPageShow();
     } }, this.allowsMotionFeedback());
     if (!this.postDraftReady) {
@@ -1018,6 +1071,8 @@ struct Timeline {
       this.postDraft = draft.body;
       this.savedDraftPhotoKeys = draft.photoKeys ?? [];
       this.draftPhotoKeys = this.savedDraftPhotoKeys.slice();
+      this.savedDraftVideo = draft.video;
+      this.draftVideo = draft.video;
       this.postDraftReady = true;
     } catch (_error) {
       if (loadId === this.postDraftLoadId) {
@@ -1058,6 +1113,54 @@ struct Timeline {
     keys.forEach((key: string) => { this.releasePostPhoto(key); });
   }
 
+  private async releasePostVideo(key: string): Promise<void> {
+    if (!isPostVideoKey(key) || !this.libraryReady) { return; }
+    try {
+      const savedKey = this.postDraftReady ? this.savedDraftVideo?.key :
+        (await this.readStoredDraft(await this.postDraftPreferences())).video?.key;
+      if (this.libraryBusy || this.postDraftBusy || savedKey === key || this.savedDraftVideo?.key === key ||
+        this.draftVideo?.key === key || this.previewVideo?.key === key || this.playerVideo?.key === key ||
+        this.library.posts.some((post: LibraryPost) => post.video?.key === key)) { return; }
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined;
+      if (context !== undefined) { discardPostVideo(context, key); }
+    } catch (_error) {
+      // Preserve the video if stored references could not be read.
+    }
+  }
+
+  private async selectDraftVideo(fromFiles: boolean = false): Promise<void> {
+    if (!this.libraryReady || !this.canChangeDraftPhotos() || this.draftPhotoKeys.length > 0 ||
+      this.draftVideo !== undefined) { return; }
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined;
+    if (context === undefined) { return; }
+    const loadId = this.postDraftLoadId;
+    this.photoPicking = true;
+    this.postDraftMessage = '';
+    try {
+      const video = await pickPostVideo(context, fromFiles);
+      if (video === undefined) { return; }
+      if (loadId !== this.postDraftLoadId) {
+        discardPostVideo(context, video.key);
+        return;
+      }
+      this.draftVideo = video;
+    } catch (error) {
+      if (loadId === this.postDraftLoadId) {
+        this.postDraftMessage = error instanceof Error ? error.message : '无法添加视频，请重试。';
+      }
+    } finally {
+      this.photoPicking = false;
+    }
+  }
+
+  private removeDraftVideo(): void {
+    if (!this.canChangeDraftPhotos() || this.draftVideo === undefined) { return; }
+    const key = this.draftVideo.key;
+    this.draftVideo = undefined;
+    this.postDraftMessage = '';
+    this.releasePostVideo(key);
+  }
+
   private canChangeDraftPhotos(): boolean {
     return this.postDraftReady && !this.postDraftBusy && !this.photoPicking &&
       !this.showingPostPreview && this.draftDecision === DraftDecision.None;
@@ -1065,7 +1168,7 @@ struct Timeline {
 
   private async selectDraftPhotos(): Promise<void> {
     const remaining = MAX_POST_PHOTOS - this.draftPhotoKeys.length;
-    if (!this.libraryReady || !this.canChangeDraftPhotos() || remaining <= 0) { return; }
+    if (!this.libraryReady || !this.canChangeDraftPhotos() || this.draftVideo !== undefined || remaining <= 0) { return; }
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined;
     if (context === undefined) { return; }
     const loadId = this.postDraftLoadId;
@@ -1108,17 +1211,18 @@ struct Timeline {
   }
 
   private draftChanged(): boolean {
-    return this.postDraft !== this.savedPostDraft || !this.samePhotoOrder(this.draftPhotoKeys, this.savedDraftPhotoKeys);
+    return this.postDraft !== this.savedPostDraft || !this.samePhotoOrder(this.draftPhotoKeys, this.savedDraftPhotoKeys) ||
+      this.draftVideo?.key !== this.savedDraftVideo?.key;
   }
 
   private canSavePostDraft(): boolean {
     return this.postDraftReady && !this.postDraftBusy && !this.photoPicking && this.draftDecision === DraftDecision.None &&
-      canKeepPost(this.postDraft, this.draftPhotoKeys) && this.draftChanged();
+      canKeepPost(this.postDraft, this.draftPhotoKeys, this.draftVideo) && this.draftChanged();
   }
 
   private canPreviewPostDraft(): boolean {
     return this.postDraftReady && !this.postDraftBusy && !this.photoPicking && this.draftDecision === DraftDecision.None &&
-      !this.showingPostPreview && canKeepPost(this.postDraft, this.draftPhotoKeys);
+      !this.showingPostPreview && canKeepPost(this.postDraft, this.draftPhotoKeys, this.draftVideo);
   }
 
   private openPostPreview(): void {
@@ -1127,6 +1231,7 @@ struct Timeline {
     }
     this.previewBody = this.postDraft;
     this.previewPhotoKeys = this.draftPhotoKeys.slice();
+    this.previewVideo = this.draftVideo;
     this.showingPostPreview = true;
   }
 
@@ -1134,10 +1239,12 @@ struct Timeline {
     this.showingPostPreview = false;
     this.previewBody = '';
     this.previewPhotoKeys = [];
+    this.previewVideo = undefined;
   }
 
   private async addPreviewToTimeline(): Promise<void> {
-    if (!this.showingPostPreview || !canKeepPost(this.previewBody, this.previewPhotoKeys) || this.libraryBusy || !this.libraryReady) {
+    if (!this.showingPostPreview || !canKeepPost(this.previewBody, this.previewPhotoKeys, this.previewVideo) ||
+      this.libraryBusy || !this.libraryReady) {
       return;
     }
     if (this.library.posts.length >= LIBRARY_POST_LIMIT) {
@@ -1147,7 +1254,7 @@ struct Timeline {
     const body = this.previewBody;
     this.postSequence = Math.max(this.postSequence + 1, Date.now());
     const post: LibraryPost = { id: `local-post-${this.postSequence}`, body: body,
-      photoKeys: this.previewPhotoKeys.length > 0 ? this.previewPhotoKeys.slice() : undefined };
+      photoKeys: this.previewPhotoKeys.length > 0 ? this.previewPhotoKeys.slice() : undefined, video: this.previewVideo };
     const saved = await this.saveLibrary(updateLibrary(this.library, { posts: [post, ...this.library.posts] }));
     if (saved) {
       this.selectedTab = ShellTab.Home;
@@ -1193,6 +1300,9 @@ struct Timeline {
     }
     const body = clear ? '' : this.postDraft;
     const keys = clear ? [] : this.draftPhotoKeys.slice();
+    const video = clear ? undefined : this.draftVideo;
+    const formerSavedVideoKey = this.savedDraftVideo?.key;
+    const formerDraftVideoKey = this.draftVideo?.key;
     const formerPhotos = this.savedDraftPhotoKeys.concat(this.draftPhotoKeys.filter((key: string) =>
       !this.savedDraftPhotoKeys.includes(key)));
     let written = false;
@@ -1201,13 +1311,15 @@ struct Timeline {
     this.draftDecision = DraftDecision.None;
     try {
       const store = await this.postDraftPreferences();
-      const draft: PostDraft = { body: body, photoKeys: keys.length > 0 ? keys : undefined };
+      const draft: PostDraft = { body: body, photoKeys: keys.length > 0 ? keys : undefined, video: video };
       await store.put(POST_DRAFT_CONTENT_KEY, JSON.stringify(draft));
       await store.flush();
       this.savedPostDraft = body;
       this.postDraft = body;
       this.savedDraftPhotoKeys = keys;
       this.draftPhotoKeys = keys.slice();
+      this.savedDraftVideo = video;
+      this.draftVideo = video;
       written = true;
       this.postDraftMessage = clear ? '本机草稿已清空。' : '草稿已保存到本机。';
     } catch (_error) {
@@ -1215,7 +1327,13 @@ struct Timeline {
     } finally {
       this.postDraftBusy = false;
     }
-    if (written) { this.releasePostPhotos(formerPhotos); }
+    if (written) {
+      this.releasePostPhotos(formerPhotos);
+      if (formerSavedVideoKey !== undefined) { this.releasePostVideo(formerSavedVideoKey); }
+      if (formerDraftVideoKey !== undefined && formerDraftVideoKey !== formerSavedVideoKey) {
+        this.releasePostVideo(formerDraftVideoKey);
+      }
+    }
   }
 
   @Builder
@@ -1319,12 +1437,17 @@ struct Timeline {
             Text(this.currentPostBody(post)).fontSize(16).fontColor($r('app.color.timeline_text_body')).width('100%')
               .textAlign(TextAlign.Start).copyOption(CopyOptions.InApp)
           } else {
-            Text(post.body.trim() ? post.body : '图片帖子').id('body-' + post.id).fontSize(16).fontColor($r('app.color.timeline_text_body')).width('100%')
-              .textAlign(TextAlign.Start).accessibilityText('打开原帖：' + (post.body.trim() || '图片帖子')).onClick(() => this.openPost(post))
+            Text(post.body.trim() ? post.body : (post.video !== undefined ? '视频帖子' : '图片帖子'))
+              .id('body-' + post.id).fontSize(16).fontColor($r('app.color.timeline_text_body')).width('100%')
+              .textAlign(TextAlign.Start).accessibilityText('打开原帖：' + (post.body.trim() || (post.video !== undefined ? '视频帖子' : '图片帖子'))).onClick(() => this.openPost(post))
           }
           if (this.currentPhotoKeys(post).length > 0) {
             PostGallery({ uris: this.photoUris(this.currentPhotoKeys(post)), motionEnabled: this.allowsMotionFeedback(),
               onOpen: (index: number) => this.openPhoto(this.currentPhotoKeys(post), index) })
+          }
+          if (this.currentVideo(post) !== undefined) {
+            PostVideo({ posterUri: this.videoUri(this.currentVideo(post)?.key ?? '', true),
+              durationMs: this.currentVideo(post)?.durationMs ?? 0, onOpen: () => this.openVideo(this.currentVideo(post)) })
           }
           this.PostActions(post, inDetail)
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
@@ -1391,6 +1514,9 @@ struct Timeline {
           if (this.previewPhotoKeys.length > 0) {
             PostGallery({ uris: this.photoUris(this.previewPhotoKeys), motionEnabled: this.allowsMotionFeedback(),
               onOpen: (index: number) => this.openPhoto(this.previewPhotoKeys, index) })
+          } else if (this.previewVideo !== undefined) {
+            PostVideo({ posterUri: this.videoUri(this.previewVideo.key, true), durationMs: this.previewVideo.durationMs,
+              onOpen: () => this.openVideo(this.previewVideo) })
           }
         }.width('100%').padding(18).alignItems(HorizontalAlign.Start)
           .backgroundColor($r('app.color.timeline_surface')).borderRadius(22)
@@ -1456,8 +1582,16 @@ struct Timeline {
               .onChange((value: string) => { this.postDraft = value; this.postDraftMessage = ''; })
             Text(`${this.postDraft.length} / ${POST_DRAFT_LIMIT}`).fontSize(12)
               .fontColor($r('app.color.timeline_text_secondary'))
-            Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center, justifyContent: FlexAlign.SpaceBetween }) {
-              Text('图片 ' + this.draftPhotoKeys.length + ' / ' + MAX_POST_PHOTOS).id('draft-photo-count').fontSize(14)
+            Text('附件 · 最多四张图片或一段视频').fontSize(14).fontWeight(FontWeight.Medium)
+              .fontColor($r('app.color.timeline_text_primary'))
+            if (this.draftVideo !== undefined) {
+              PostVideo({ posterUri: this.videoUri(this.draftVideo.key, true), durationMs: this.draftVideo.durationMs, compact: true })
+              Button('移除视频').id('draft-video-remove').buttonStyle(ButtonStyleMode.TEXTUAL)
+                .constraintSize({ minHeight: 48 }).fontColor($r('app.color.timeline_text_body'))
+                .enabled(this.canChangeDraftPhotos()).onClick(() => this.removeDraftVideo())
+            } else {
+              Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center, justifyContent: FlexAlign.SpaceBetween }) {
+                Text('图片 ' + this.draftPhotoKeys.length + ' / ' + MAX_POST_PHOTOS).id('draft-photo-count').fontSize(14)
                 .fontColor($r('app.color.timeline_text_secondary'))
               Button(this.photoPicking ? '正在导入…' : this.draftPhotoKeys.length > 0 ? '添加图片' : '从相册选图')
                 .id('draft-photo-pick').buttonStyle(ButtonStyleMode.TEXTUAL).constraintSize({ minHeight: 48 })
@@ -1465,7 +1599,20 @@ struct Timeline {
                 .enabled(this.libraryReady && this.canChangeDraftPhotos() && this.draftPhotoKeys.length < MAX_POST_PHOTOS)
                 .onClick(() => { this.selectDraftPhotos(); })
             }.width('100%')
-            ForEach(this.draftPhotoKeys, (key: string) => { this.DraftPhotoRow(key) }, (key: string) => key)
+              ForEach(this.draftPhotoKeys, (key: string) => { this.DraftPhotoRow(key) }, (key: string) => key)
+              if (this.draftPhotoKeys.length === 0) {
+                Button(this.photoPicking ? '正在导入…' : '从相册选视频').id('draft-video-pick')
+                  .buttonStyle(ButtonStyleMode.TEXTUAL).constraintSize({ minHeight: 48 })
+                  .fontColor($r('app.color.timeline_text_body'))
+                  .enabled(this.libraryReady && this.canChangeDraftPhotos()).onClick(() => { this.selectDraftVideo(); })
+                Button('从文件选视频').id('draft-video-file-pick')
+                   .buttonStyle(ButtonStyleMode.TEXTUAL).constraintSize({ minHeight: 48 })
+                   .fontColor($r('app.color.timeline_text_body'))
+                   .enabled(this.libraryReady && this.canChangeDraftPhotos()).onClick(() => { this.selectDraftVideo(true); })
+                 Text('支持本机 MP4，最长 60 秒、最大 64 MiB。').fontSize(13)
+                  .fontColor($r('app.color.timeline_text_secondary'))
+              }
+            }
             if (this.draftDecision === DraftDecision.None) {
               Button(this.postDraftBusy ? '正在写入本机…' : '保存到本机', { type: ButtonType.Capsule })
                 .width('100%').constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16, top: 10, bottom: 10 })
@@ -1475,7 +1622,8 @@ struct Timeline {
                 .width('100%').constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16, top: 10, bottom: 10 })
                 .backgroundColor($r('app.color.timeline_toolbar_button')).fontColor($r('app.color.timeline_text_body'))
                 .enabled(this.canPreviewPostDraft()).onClick(() => this.openPostPreview())
-              if ((this.savedPostDraft.length > 0 || this.savedDraftPhotoKeys.length > 0) && !this.postDraftBusy && !this.photoPicking) {
+              if ((this.savedPostDraft.length > 0 || this.savedDraftPhotoKeys.length > 0 ||
+                this.savedDraftVideo !== undefined) && !this.postDraftBusy && !this.photoPicking) {
                 Button('清空本机草稿', { type: ButtonType.Capsule })
                   .constraintSize({ minHeight: 48 }).buttonStyle(ButtonStyleMode.TEXTUAL)
                   .fontColor($r('app.color.timeline_text_body'))
@@ -1638,6 +1786,17 @@ struct Timeline {
         }
       }.hideTitleBar(true).backgroundColor($r('app.color.timeline_surface'))
         .onBackPressed(() => { this.closePost(); return true; })
+    } else if (name === VIDEO_PLAYER) {
+      NavDestination() {
+        if (this.playerVideo !== undefined) {
+          PostVideoPlayer({ uri: this.videoUri(this.playerVideo.key), posterUri: this.videoUri(this.playerVideo.key, true),
+            durationMs: this.playerVideo.durationMs, active: this.appForeground && this.videoDestinationVisible,
+            onClose: () => this.closeVideo() })
+        }
+      }.hideTitleBar(true).backgroundColor($r('app.color.timeline_surface'))
+        .onShown(() => { this.videoDestinationVisible = true; })
+        .onWillHide(() => { this.videoDestinationVisible = false; })
+        .onBackPressed(() => { this.closeVideo(); return true; })
     } else if (name === POST_SETTINGS) {
       NavDestination() {
         SettingsPane({
@@ -1711,7 +1870,8 @@ struct Timeline {
 
   @Builder
   ProfileRoot() {
-    LibraryHub({ identity: this.identity, mode: this.libraryMode,
+    LibraryHub({ identity: this.identity, mode: this.libraryMode, mediaMode: this.profileMediaMode,
+      onMediaMode: (value: number) => { this.profileMediaMode = value; },
       hasItems: this.libraryMode === 3 ? this.localReplies.length > 0 : this.profilePosts().length > 0,
       busy: this.libraryLoading || this.identityBusy, message: this.identityMessage || this.libraryMessage,
       items: () => { this.ProfileItems() }, onMode: (value: number) => { this.libraryMode = value; },

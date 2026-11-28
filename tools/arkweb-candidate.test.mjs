@@ -1226,7 +1226,8 @@ test('candidate initializes only after Web attachment and gates navigation durin
   assert.match(overlay, /this\.initializeNetwork\(\)/);
   assert.match(overlay, /applyProxyOverride\(config, \(\) => finish\(true\)\)/);
   assert.match(overlay, /config\.insertProxyRule\(target\)/);
-  assert.match(overlay, /this\.controller\.loadUrl\(HOME_URL\)/);
+  assert.match(overlay, /this\.navigatePublicTarget\(HOME_URL\)/);
+  assert.match(overlay, /this\.controller\.loadUrl\(this\.retryTarget\)/);
   assert.match(overlay, /setTimeout\(\(\) =>/);
   assert.match(overlay, /this\.controller\.stop\(\)/);
   assert.match(overlay, /private proxyPending: boolean = false/);
@@ -1308,6 +1309,7 @@ test('fake-timer execution of production changeProxy: timeout retains lock; late
     ${methods}
     get change() { return this.changeProxy.bind(this); }
   }; Harness`), { ...timerApi, webview, getContext: page => page, normalizeProxy: value => value,
+    publicThreadsTarget: value => value,
     preferences: { getPreferencesSync: page => ({ getSync: () => page.saved, putSync: (_key, value) => { page.saved = value; },
       deleteSync: () => { page.saved = ''; }, flushSync: () => {} }) }
   });
@@ -1417,19 +1419,90 @@ test('system browser fallback opens only the fixed Threads URL and shows a manua
 test('web chrome preserves distinct navigation, a dismissible network sheet and accessible recovery', () => {
   const actions = builder(app, 'WebAction');
   assert.match(actions, /\.width\(48\)\.height\(48\)/);
-  assert.match(actions, /\.focusable\(true\)\.accessibilityText\(label\)/);
+  assert.match(actions, /\.focusable\(true\)\.focusBox\(/);
+  assert.match(actions, /\.accessibilityGroup\(true\)\.accessibilityText\(label\)/);
   const bar = builder(app, 'WebToolbar');
   assert.match(bar, /'web-back', \(\) => \{ this\.goBack\(\); \}/);
-  assert.match(bar, /'web-reload', \(\) => \{ this\.retry\(\); \}/);
+  assert.match(bar, /'web-reload', \(\) => \{ this\.refreshPage\(\); \}/);
   assert.match(app, /\.bindSheet\(\$\$this\.showSettings, this\.SettingsPanel\(\), \{[\s\S]*?showClose: false/);
   const settings = builder(app, 'SettingsPanel');
   assert.match(settings, /Scroll\(\)/);
   assert.match(settings, /'web-settings-done'[\s\S]*?this\.showSettings = false/);
+  assert.match(settings, /'web-settings-browser'[\s\S]*?'web-settings-done'[\s\S]*?'web-settings-notice'/,
+    'asynchronous load notices must not move Done toward the browser action');
   assert.match(settings, /'web-proxy-save'[\s\S]*?enabled\(this\.webReady && !this\.proxyPending\)/);
   const notice = builder(app, 'WebNotice');
   assert.match(notice, /FlexWrap\.Wrap/);
   assert.match(notice, /if \(this\.canNavigate\(\)\) \{\s+Button\('重试网页'\)\.id\('web-failure-retry'\)/);
   assert.match(notice, /'web-failure-browser'[\s\S]*?this\.openExternalHome\(\)/);
+});
+
+test('refresh and recovery stay on public Threads routes without replaying private URLs', () => {
+  const constants = app.slice(app.indexOf('const HOME_URL:'), app.indexOf('const PREF_NAME:'));
+  const routes = app.slice(app.indexOf('function isAllowedNavigation('), app.indexOf('// ArkWeb ProxyConfig'));
+  const methods = app.slice(app.indexOf('  private loadHome('), app.indexOf('  aboutToDisappear(')).replace(/^  private /gm, '  ');
+  const [Target, Harness] = vm.runInNewContext(stripTypeScriptTypes(`${constants}\n${routes}
+    class Harness {
+      ready = true; busy = false; browserFallback = false; banner = ''; retryTarget = HOME_URL;
+      current = ''; calls = [];
+      canNavigate() { return this.ready; }
+      beginLoading() { this.busy = true; this.browserFallback = false; }
+      failLoading() { this.busy = false; this.browserFallback = true; }
+      controller = {
+        getUrl: () => this.current,
+        refresh: () => this.calls.push('refresh'),
+        loadUrl: value => this.calls.push(value),
+      };
+      ${methods}
+    }
+    [publicThreadsTarget, Harness]`), { url: { URL: { parseURL: value => new URL(value) } } });
+
+  const home = 'https://www.threads.com/';
+  const post = `${home}@alice/post/ABC_123`;
+  assert.equal(Target(`${post}?tracking=1#section`), post);
+  assert.equal(Target('https://threads.net:443/@some.one/'), 'https://threads.net/@some.one/');
+  for (const unsafe of ['not a URL', `${home}login`, `${home}messages`, `${home}@alice/post/ABC/replies`,
+    'http://threads.com/', 'https://alice@threads.com/', 'https://threads.com:444/',
+    'https://threads.com.example.org/@alice', 'https://auth.meta.com/']) {
+    assert.equal(Target(unsafe), '', unsafe);
+  }
+
+  const page = new Harness();
+  const calls = () => Array.from(page.calls);
+  page.current = post;
+  page.refreshPage();
+  page.refreshPage();
+  page.retry();
+  assert.deepEqual(calls(), ['refresh'], 'in-flight requests are not started again');
+  page.failLoading();
+  page.retry();
+  assert.deepEqual(calls(), ['refresh', post]);
+  page.busy = false;
+  page.current = `${post}?tracking=1#section`;
+  page.refreshPage();
+  assert.deepEqual(calls(), ['refresh', post, post], 'URL metadata is not replayed');
+  page.busy = false;
+  page.current = `${home}login`;
+  page.refreshPage();
+  assert.equal(page.calls.length, 3);
+  assert.match(page.banner, /不会由应用重载/);
+  page.handlePageBegin(page.current);
+  page.failLoading();
+  page.retry();
+  assert.equal(page.calls.at(-1), home);
+  page.ready = false;
+  page.failLoading();
+  page.refreshPage();
+  page.retry();
+  assert.equal(page.calls.length, 4, 'proxy and attachment gate both paths');
+  page.ready = true;
+  page.handlePageBegin(post);
+  assert.equal(page.retryTarget, home, 'a late page-start does not change a failed attempt');
+  page.browserFallback = false;
+  page.current = 'about:blank';
+  page.refreshPage();
+  assert.equal(page.calls.length, 5);
+  assert.equal(page.calls.at(-1), home);
 });
 
 test('candidate keeps navigation, TLS, permission, and HTTP error guardrails', () => {

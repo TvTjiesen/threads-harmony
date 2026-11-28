@@ -1,7 +1,7 @@
 import { webview } from '@kit.ArkWeb';
 import { url } from '@kit.ArkTS';
 import { preferences } from '@kit.ArkData';
-import { router } from '@kit.ArkUI';
+import { ColorMetrics, LengthMetrics, router } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 
 const HOME_URL: string = 'https://www.threads.com/';
@@ -32,6 +32,26 @@ function isAllowedNavigation(target: string): boolean {
   } catch (_error) {
     return false;
   }
+}
+
+// Recovery accepts only public routes; never remember query, fragment or account/login URLs.
+function publicThreadsTarget(target: string): string {
+  if (!isAllowedNavigation(target)) {
+    return '';
+  }
+  try {
+    const parsed = url.URL.parseURL(target);
+    if (!['www.threads.com', 'threads.com', 'www.threads.net', 'threads.net'].includes(parsed.hostname.toLowerCase())) {
+      return '';
+    }
+    const path = parsed.pathname;
+    if (path === '/' || /^\/@[a-z0-9._]+(?:\/post\/[a-z0-9_-]+)?\/?$/i.test(path)) {
+      return `https://${parsed.hostname.toLowerCase()}${path}`;
+    }
+  } catch (_error) {
+    return '';
+  }
+  return '';
 }
 
 // ArkWeb ProxyConfig accepts [scheme://]host[:port], not paths or credentials.
@@ -68,6 +88,7 @@ struct Index {
   @State private showSettings: boolean = false;
   @State private webReady: boolean = false;
   private loadAttempt: number = 0;
+  private retryTarget: string = HOME_URL;
   private loadWatchdog: number | undefined = undefined;
   @State private browserFallback: boolean = false;
   private startupPaused: boolean = true;
@@ -314,19 +335,69 @@ struct Index {
   }
 
   private loadHome(): void {
+    this.navigatePublicTarget(HOME_URL);
+  }
+
+  private navigatePublicTarget(target: string): void {
     if (!this.canNavigate()) {
       return;
     }
+    const safeTarget = publicThreadsTarget(target);
+    this.retryTarget = safeTarget.length > 0 ? safeTarget : HOME_URL;
     this.beginLoading();
     try {
-      this.controller.loadUrl(HOME_URL);
+      this.controller.loadUrl(this.retryTarget);
     } catch (_error) {
       this.failLoading('应用内网页尚未就绪，可重试或用系统浏览器打开。');
     }
   }
 
   private retry(): void {
-    this.loadHome();
+    if (!this.busy) {
+      this.navigatePublicTarget(this.retryTarget);
+    }
+  }
+
+  private refreshPage(): void {
+    if (!this.canNavigate() || this.busy) {
+      return;
+    }
+    if (this.browserFallback) {
+      this.retry();
+      return;
+    }
+    try {
+      const current = this.controller.getUrl();
+      if (current === '' || current === 'about:blank') {
+        this.loadHome();
+        return;
+      }
+      const safeTarget = publicThreadsTarget(current);
+      if (safeTarget.length === 0) {
+        this.banner = '此页面不会由应用重载。可使用网页自身的操作，或返回后重新打开 Threads。';
+        return;
+      }
+      if (current !== safeTarget) {
+        this.navigatePublicTarget(safeTarget);
+        return;
+      }
+      this.retryTarget = safeTarget;
+      this.beginLoading();
+      this.controller.refresh();
+    } catch (_error) {
+      this.failLoading('无法刷新当前网页。可重试，或用系统浏览器打开官网。');
+    }
+  }
+
+  private handlePageBegin(target: string): void {
+    if (!this.canNavigate() || this.browserFallback || !isAllowedNavigation(target)) {
+      return;
+    }
+    const safeTarget = publicThreadsTarget(target);
+    this.retryTarget = safeTarget.length > 0 ? safeTarget : HOME_URL;
+    if (!this.busy) {
+      this.beginLoading();
+    }
   }
 
   aboutToDisappear(): void {
@@ -382,67 +453,94 @@ struct Index {
   WebAction(icon: Resource, label: string, controlId: string, action: () => void) {
     Button({ type: ButtonType.Circle, stateEffect: true }) {
       SymbolGlyph(icon).fontSize('21vp').fontColor([$r('app.color.timeline_text_primary')])
+        .accessibilityLevel('no')
     }
     .id(controlId).width(48).height(48).padding(0).buttonStyle(ButtonStyleMode.TEXTUAL)
-    .focusable(true).accessibilityText(label).onClick(action)
+    .backgroundColor($r('app.color.timeline_toolbar_button'))
+    .focusable(true).focusBox({ margin: LengthMetrics.vp(-2),
+      strokeColor: ColorMetrics.resourceColor($r('app.color.timeline_text_primary')), strokeWidth: LengthMetrics.vp(2) })
+    .accessibilityGroup(true).accessibilityText(label).onClick(action)
   }
 
   @Builder
   WebToolbar() {
-    Row() {
+    Row({ space: 4 }) {
       this.WebAction($r('sys.symbol.chevron_left'), '返回上一页', 'web-back', () => { this.goBack(); })
-      Text('Threads').fontSize(20).fontWeight(FontWeight.Medium).maxLines(1)
+      Text('Threads').fontSize('20fp').fontWeight(FontWeight.Medium).maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
         .fontColor($r('app.color.timeline_text_primary')).margin({ left: 4, right: 4 })
       if (Number(router.getLength()) > 1) {
         this.WebAction($r('sys.symbol.house'), '返回本地首页', 'web-local-home', () => { router.back(); })
       }
       this.WebAction($r('sys.symbol.gearshape'), '网络设置', 'web-settings', () => { this.showSettings = true; })
-      this.WebAction($r('sys.symbol.arrow_clockwise'), '重新加载官网首页', 'web-reload', () => { this.retry(); })
+      this.WebAction($r('sys.symbol.arrow_clockwise'), '刷新当前网页', 'web-reload', () => { this.refreshPage(); })
     }
-    .id('web-toolbar').width('100%').padding({ left: 8, right: 8, top: 4, bottom: 4 })
+    .id('web-toolbar').width('100%').constraintSize({ maxWidth: 960 })
+    .padding({ left: 8, right: 8, top: 6, bottom: 6 })
   }
 
   @Builder
   SettingsPanel() {
     Scroll() {
       Column({ space: 12 }) {
-        Text('网络设置').fontSize(22).fontWeight(FontWeight.Medium)
-          .fontColor($r('app.color.timeline_text_primary'))
-        Text('代理仅作用于应用内网页。可填写已有代理的主机和端口，不含账号或密码。')
-          .fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
+        Column({ space: 6 }) {
+          Text('网络设置').fontSize('22fp').fontWeight(FontWeight.Medium)
+            .fontColor($r('app.color.timeline_text_primary'))
+          Text('代理仅作用于应用内网页。可填写已有代理的主机和端口，不含账号或密码。')
+            .fontSize('14fp').fontColor($r('app.color.timeline_text_secondary'))
+        }.width('100%').alignItems(HorizontalAlign.Start).accessibilityGroup(true)
+        Text('代理地址').fontSize('14fp').fontWeight(FontWeight.Medium)
+          .fontColor($r('app.color.timeline_text_primary')).accessibilityLevel('no')
         TextInput({ text: this.proxyInput, placeholder: '主机:端口' })
-          .id('web-proxy-input').accessibilityText('代理地址')
-          .onChange((value: string) => { this.proxyInput = value; }).width('100%')
+          .id('web-proxy-input').width('100%').constraintSize({ minHeight: 48 })
+          .fontColor($r('app.color.timeline_text_primary')).placeholderColor($r('app.color.timeline_text_secondary'))
+          .backgroundColor($r('app.color.timeline_surface_muted'))
+          .focusBox({ margin: LengthMetrics.vp(-2),
+            strokeColor: ColorMetrics.resourceColor($r('app.color.timeline_text_primary')), strokeWidth: LengthMetrics.vp(2) })
+          .accessibilityText('代理地址').accessibilityDescription('输入主机名或 IP 地址和端口，不含账号或密码')
+          .onChange((value: string) => { this.proxyInput = value; })
         if (this.proxyPending) {
-          Text('正在等待系统应用网络设置').fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
+          Text('正在等待系统应用网络设置').fontSize('14fp').fontColor($r('app.color.timeline_text_secondary'))
         } else if (this.proxyActive.length > 0) {
-          Text('应用内代理已启用').fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
+          Text('应用内代理已启用').fontSize('14fp').fontColor($r('app.color.timeline_text_secondary'))
         }
-        if (this.banner.length > 0) {
-          Text(this.banner).id('web-settings-notice').fontSize(14)
-            .fontColor($r('app.color.timeline_text_body'))
-        }
-        Flex({ wrap: FlexWrap.Wrap }) {
+        Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(8) } }) {
           Button('保存并应用').id('web-proxy-save').constraintSize({ minHeight: 48, maxWidth: '100%' })
-            .buttonStyle(ButtonStyleMode.TEXTUAL).enabled(this.webReady && !this.proxyPending)
+            .fontSize('15fp').fontColor($r('app.color.timeline_on_action')).backgroundColor($r('app.color.timeline_action'))
+            .focusable(true).focusBox({ margin: LengthMetrics.vp(2),
+              strokeColor: ColorMetrics.resourceColor($r('app.color.timeline_text_primary')), strokeWidth: LengthMetrics.vp(2) })
+            .accessibilityText('保存并应用代理').enabled(this.webReady && !this.proxyPending)
             .onClick(() => { this.saveProxy(); })
           Button('关闭代理').id('web-proxy-clear').constraintSize({ minHeight: 48, maxWidth: '100%' })
-            .buttonStyle(ButtonStyleMode.TEXTUAL).enabled(this.webReady && !this.proxyPending)
-            .onClick(() => { this.clearProxy(); })
+            .fontSize('15fp').fontColor($r('app.color.timeline_text_primary'))
+            .backgroundColor($r('app.color.timeline_toolbar_button'))
+            .focusable(true).focusBox({ margin: LengthMetrics.vp(-2),
+              strokeColor: ColorMetrics.resourceColor($r('app.color.timeline_text_primary')), strokeWidth: LengthMetrics.vp(2) })
+            .enabled(this.webReady && !this.proxyPending).onClick(() => { this.clearProxy(); })
         }.width('100%')
-        Divider().color($r('app.color.timeline_border'))
+        Divider().color($r('app.color.timeline_border')).accessibilityLevel('no')
         Button('通过系统打开 Threads 网页').id('web-settings-browser')
           .constraintSize({ minHeight: 48, maxWidth: '100%' }).buttonStyle(ButtonStyleMode.TEXTUAL)
+          .fontSize('15fp').labelStyle({ maxLines: 2 }).fontColor($r('app.color.timeline_text_primary'))
+          .focusable(true).focusBox({ margin: LengthMetrics.vp(-2),
+            strokeColor: ColorMetrics.resourceColor($r('app.color.timeline_text_primary')), strokeWidth: LengthMetrics.vp(2) })
           .onClick(() => { this.openExternalHome(); })
-        if (this.externalHomeFailed) {
-          Text(`系统未能打开链接。请在浏览器中手动访问 ${HOME_URL}`).fontSize(14)
-            .fontColor($r('app.color.timeline_text_body'))
-        }
         Button('完成').id('web-settings-done').constraintSize({ minHeight: 48, maxWidth: '100%' })
-          .buttonStyle(ButtonStyleMode.TEXTUAL).onClick(() => { this.showSettings = false; })
-      }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 20, right: 20, top: 12, bottom: 20 })
-    }.width('100%')
+          .buttonStyle(ButtonStyleMode.TEXTUAL).fontSize('15fp').fontColor($r('app.color.timeline_text_primary'))
+          .focusable(true).focusBox({ margin: LengthMetrics.vp(-2),
+            strokeColor: ColorMetrics.resourceColor($r('app.color.timeline_text_primary')), strokeWidth: LengthMetrics.vp(2) })
+          .accessibilityDescription('关闭网络设置').onClick(() => { this.showSettings = false; })
+        if (this.banner.length > 0) {
+          Text(this.banner).id('web-settings-notice').fontSize('14fp').width('100%').padding(12).borderRadius(12)
+            .fontColor($r('app.color.timeline_text_body')).backgroundColor($r('app.color.timeline_surface_muted'))
+        }
+        if (this.externalHomeFailed) {
+          Text(`系统未能打开链接。请在浏览器中手动访问 ${HOME_URL}`).fontSize('14fp')
+            .fontColor($r('app.color.timeline_text_body')).wordBreak(WordBreak.BREAK_WORD)
+        }
+      }.width('100%').constraintSize({ maxWidth: 600 }).alignItems(HorizontalAlign.Start)
+        .padding({ left: 20, right: 20, top: 12, bottom: 20 })
+    }.width('100%').align(Alignment.Top).scrollBar(BarState.Auto)
   }
 
   @Builder
@@ -516,9 +614,7 @@ struct Index {
           return false;
         })
         .onPageBegin((event) => {
-          if (this.canNavigate() && isAllowedNavigation(event.url) && !this.busy && !this.browserFallback) {
-            this.beginLoading();
-          }
+          this.handlePageBegin(event.url);
         })
         .onPageEnd((event) => {
           if (this.canNavigate() && isAllowedNavigation(event.url) && this.busy) {

@@ -73,7 +73,7 @@ export struct ActivityPane {
           .fontWeight(FontWeight.Medium)
           .fontColor($r('app.color.timeline_text_primary'))
       }
-      .constraintSize({ minWidth: 48, minHeight: 48, maxWidth: '100%' })
+      .id('activity-entry-' + entry.id).constraintSize({ minWidth: 48, minHeight: 48, maxWidth: '100%' })
       .padding({ left: 14, right: 14, top: 10, bottom: 10 })
       .borderRadius(16)
       .backgroundColor($r('app.color.timeline_toolbar_button'))

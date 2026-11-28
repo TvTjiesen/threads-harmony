@@ -39,15 +39,17 @@ const Pane = vm.runInNewContext(stripTypeScriptTypes(`${stateClass(paneSource)}\
 
 function session() {
   const page = new Timeline();
-  const messages = [], frames = [], scrolls = [];
+  const messages = [], frames = [], scrolls = [], focus = [];
   page.getUIContext = () => ({
     postFrameCallback: frame => frames.push(frame),
+    getFocusController: () => ({ requestFocus: id => focus.push(id) }),
     getPromptAction: () => ({ showToast: ({ message }) => messages.push(message) })
   });
   page.timelineScroller = {
     offset: () => ({ yOffset: 160 }), getItemRect: () => ({ height: 80, y: -13 }),
     scrollToIndex: (...args) => scrolls.push(args)
   };
+  page.appForeground = true;
   page.onPageShow();
   page.libraryReady = true;
   page.saveLibrary = async value => {
@@ -57,7 +59,7 @@ function session() {
   const [post, other] = page.timelinePosts;
   const [first, second] = page.repliesFor(post.id);
   const [foreign] = page.repliesFor(other.id);
-  return { page, post, other, first, second, foreign, stack: page.detailPaths, messages, frames, scrolls };
+  return { page, post, other, first, second, foreign, stack: page.detailPaths, messages, frames, scrolls, focus };
 }
 
 function assertRecipient(page, focusId, targetId, expanded) {
@@ -307,7 +309,7 @@ test('the detail builder wires root and reply recipients, context, draft protect
 });
 
 test('an activity reply reopens by its exact ID, while an activity like opens the post; origin survives both trips', async () => {
-  const { page, post, first, stack } = session();
+  const { page, post, first, stack, frames, focus } = session();
   page.openPost(post, first.id);
   page.expandCurrentReply(post.id);
   page.replyDraft = '用于定位的本机回复';
@@ -318,10 +320,17 @@ test('an activity reply reopens by its exact ID, while an activity like opens th
   page.selectTab(ShellTab.Activity);
   const entries = page.activityEntries();
   for (const [kind, expected] of [['reply', sent.id], ['like', '']]) {
-    page.openActivityPost(entries.find(entry => entry.kind === kind));
+    const entry = entries.find(entry => entry.kind === kind);
+    const id = 'activity-entry-' + entry.id;
+    page.openActivityPost(entry, id);
     assertRecipient(page, expected, expected, false);
     page.requestDetailBack();
     assert.equal(stack.size(), 0);
+    assert.equal(frames.length, 0, 'the cached shell is still covered');
+    page.shellShown = true;
+    page.restoreDiscussionFocus();
+    frames.shift().onIdle(0);
+    assert.deepEqual(focus.splice(0), [id]);
     assert.equal(page.selectedTab, ShellTab.Activity);
     assert.equal(page.timelineVisible, false);
   }
@@ -347,10 +356,74 @@ test('a post detail opened from an author page returns there before returning to
   assert.equal(page.searchQuery, post.handle);
 });
 
-test('the native list resolves the exact ID after layout and never animates, replays old jumps or scrolls after leaving', () => {
+test('return focuses the precise opening control only once after its surface is shown, not on draft confirmation', () => {
+  const { page, post, second, stack, frames, focus, scrolls } = session();
+  page.selectTab(ShellTab.Search);
+  const id = page.discussionControlId('search', 'summary', post.id);
+  assert.equal(id, 'summary-' + post.id, 'retain the Discovery smoke ID');
+  assert.equal(new Set(['home', 'search', 'author', 'profile'].map(surface =>
+    page.discussionControlId(surface, 'summary', post.id))).size, 4, 'cached tabs cannot share the same target');
+  page.openPost(post, second.id, id);
+  page.expandCurrentReply(post.id);
+  page.replyDraft = '还没写完';
+  page.requestDetailBack();
+  assert.deepEqual([stack.size(), frames.length, focus.length], [1, 0, 0]);
+  page.keepReplyDraft();
+  page.requestDetailBack();
+  page.discardReplyAndClose();
+  assert.deepEqual([stack.size(), frames.length, focus.length], [0, 0, 0]);
+  page.shellShown = true;
+  page.restoreDiscussionFocus();
+  page.restoreDiscussionFocus();
+  assert.equal(frames.length, 1);
+  frames.shift().onIdle(0);
+  page.restoreDiscussionFocus();
+  assert.deepEqual([frames, focus, scrolls], [[], [id], []]);
+});
+
+test('return to a nested author and failed or stale focus requests do not reroute or retry indefinitely', () => {
+  const { page, post, second, stack, frames, focus } = session();
+  page.selectTab(ShellTab.Search);
+  page.openAuthor(post.id);
+  const id = page.discussionControlId('author', 'summary', post.id);
+  page.openPost(post, second.id, id);
+  page.requestDetailBack();
+  page.restoreDiscussionFocus();
+  assert.equal(frames.length, 0, 'AuthorProfile is still covered');
+  page.authorShown = true;
+  page.restoreDiscussionFocus();
+  frames.shift().onIdle(0);
+  assert.deepEqual(focus.splice(0), [id]);
+  assert.deepEqual(stack.getAllPathName(), ['AuthorProfile']);
+  stack.pop();
+  page.openPost(post, '', 'summary-missing');
+  page.requestDetailBack();
+  page.shellShown = true;
+  page.getUIContext = () => ({
+    postFrameCallback: frame => frames.push(frame), getFocusController: () => ({ requestFocus: id => {
+      focus.push(id);
+      throw new Error('origin unavailable');
+    } })
+  });
+  page.restoreDiscussionFocus();
+  frames.shift().onIdle(0);
+  frames.shift().onIdle(0);
+  assert.deepEqual([frames, focus.splice(0)], [[], ['summary-missing', 'summary-missing']]);
+  page.openPost(post, '', 'summary-stale');
+  page.requestDetailBack();
+  page.shellShown = true;
+  page.restoreDiscussionFocus();
+  page.selectTab(ShellTab.Home);
+  frames.shift().onIdle(0);
+  assert.deepEqual([frames, focus], [[], []]);
+});
+
+test('the native list scrolls to the exact live row, then focuses it once after layout, without focusing the composer', () => {
   const pane = new Pane();
-  const frames = [], calls = [];
-  pane.getUIContext = () => ({ postFrameCallback: frame => frames.push(frame) });
+  const frames = [], calls = [], focus = [];
+  pane.getUIContext = () => ({
+    postFrameCallback: frame => frames.push(frame), getFocusController: () => ({ requestFocus: id => focus.push(id) })
+  });
   pane.listScroller.scrollToIndex = (...args) => calls.push(args);
   pane.aboutToAppear();
   pane.rows = [{ id: 'first' }, { id: 'second' }];
@@ -360,17 +433,23 @@ test('the native list resolves the exact ID after layout and never animates, rep
   assert.equal(frames.length, 0, 'do not access list geometry before it mounts');
   pane.listMounted = true;
   pane.scheduleTarget();
+  assert.equal(frames.length, 0, 'wait for destination to be shown');
+  pane.shown = true;
+  pane.scheduleTarget();
   pane.rows = [{ id: 'new' }, ...pane.rows];
   pane.scheduleTarget();
   assert.equal(frames.length, 1);
   frames.shift().onIdle(0);
   assert.deepEqual(calls.splice(0), [[3, false, 'start']], 'resolve after insertion, not by the stale position');
+  assert.deepEqual(focus, [], 'focus waits for the post-scroll layout');
+  frames.shift().onIdle(0);
+  assert.deepEqual(focus.splice(0), ['convo-target-second']);
   pane.scheduleTarget();
   assert.equal(frames.length, 0, 'a refresh of the same rows cannot hijack manual reading');
   pane.focusId = 'absent';
   pane.targetChanged();
   frames.shift().onIdle(0);
-  assert.deepEqual(calls, [], 'missing target falls back without jumping to an unrelated row');
+  assert.deepEqual([calls, focus], [[], []], 'missing target neither scrolls nor focuses an unrelated row');
   pane.focusId = 'first';
   pane.targetChanged();
   pane.focusId = 'new';
@@ -379,13 +458,49 @@ test('the native list resolves the exact ID after layout and never animates, rep
   assert.deepEqual(calls.splice(0), [[1, false, 'start']], 'a pending frame must honor a newer target');
   pane.focusId = 'second';
   pane.targetChanged();
+  frames.shift().onIdle(0);
+  assert.deepEqual(focus, [], 'a newer target cancels the older focus frame');
   pane.aboutToDisappear();
   frames.shift().onIdle(0);
-  assert.deepEqual(calls, []);
+  assert.deepEqual([calls, focus], [[], []]);
   assert.match(paneSource, /initialIndex:\s*Math\.max\(0, this\.targetIndex\(\)\)/);
   assert.match(paneSource, /@Watch\('targetChanged'\) focusId/);
   assert.match(paneSource, /@Watch\('scheduleTarget'\) rows/);
   assert.match(paneSource, /\.onAppear\(\(\) => \{\s*this\.listMounted = true;\s*this\.scheduleTarget\(\)/);
+  assert.match(paneSource, /\.id\('convo-target-' \+ row\.id\)[^\n]*\n\s*\.focusable\(true\)\.tabStop\(true\)/);
+});
+
+test('reading row focus retries once for attachment and does not steal focus from an editor or hidden destination', () => {
+  const pane = new Pane(), frames = [], focus = [];
+  pane.getUIContext = () => ({
+    postFrameCallback: frame => frames.push(frame), getFocusController: () => ({ requestFocus: id => {
+      focus.push(id);
+      throw new Error('not on tree');
+    } })
+  });
+  pane.listScroller.scrollToIndex = () => {};
+  pane.aboutToAppear();
+  pane.shown = pane.listMounted = true;
+  pane.rows = [{ id: 'first' }, { id: 'next' }, { id: 'last' }];
+  pane.focusId = 'first';
+  pane.targetChanged();
+  frames.shift().onIdle(0);
+  frames.shift().onIdle(0);
+  frames.shift().onIdle(0);
+  assert.deepEqual(focus.splice(0), ['convo-target-first', 'convo-target-first']);
+  pane.scheduleTarget();
+  assert.equal(frames.length, 0);
+  for (const [id, block] of [['next', () => { pane.expanded = true; }], ['last', () => { pane.shown = false; }]]) {
+    pane.focusId = id;
+    pane.targetChanged();
+    frames.shift().onIdle(0);
+    block();
+    frames.shift().onIdle(0);
+    pane.expanded = false;
+    pane.shown = true;
+    pane.scheduleTarget();
+    assert.deepEqual([frames, focus], [[], []]);
+  }
 });
 
 test('reading never requests input focus; editing requests resize and restores the previous keyboard policy', () => {

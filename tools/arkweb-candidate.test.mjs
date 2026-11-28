@@ -24,7 +24,7 @@ function timelineMethods(start, end) {
 
 // Scope source-level wiring checks to the ArkUI builder that renders the control.
 function builder(source, name) {
-  const match = source.match(new RegExp(`^  ${name}\\([^\\n]*\\) \\{(?:[^\\n]*\\}$|[\\s\\S]*?^  \\})`, 'm'));
+  const match = source.match(new RegExp(`^  ${name}\\([^\\n]*(?:\\n {4}[^\\n]*)*?\\) \\{(?:[^\\n]*\\}$|[\\s\\S]*?^  \\})`, 'm'));
   assert.ok(match, `missing ArkUI builder: ${name}`);
   return match[0];
 }
@@ -313,17 +313,17 @@ test('the flat reading rows still expose follow, like, replies and bookmark acti
   assert.match(row, /Divider\(\)/);
   assert.doesNotMatch(row, /\.shadow\(/);
   assert.match(row, /this\.FollowAction\(post\)/);
-  assert.match(row, /this\.PostActions\(post, inDetail\)/);
-  assert.match(row, /Text\(post\.body\.trim\(\) \? post\.body : \(post\.video !== undefined \? '视频帖子' : '图片帖子'\)\)\s*\.id\('body-' \+ post\.id\)[^{}]*?\.onClick\(\(\) => this\.openPost\(post\)\)/,
-    'the feed body opens the original post, not a selected reply');
-  assert.match(row, /if \(!inDetail\)\s*\{\s*ForEach\(this\.previewRows\(post\.id\),[\s\S]*?this\.SummaryEntry\(post, reply\)[\s\S]*?=> reply\.id\)/,
+  assert.match(row, /this\.PostActions\(post, inDetail, surface\)/);
+  assert.match(row, /Text\(post\.body\.trim\(\) \? post\.body : \(post\.video !== undefined \? '视频帖子' : '图片帖子'\)\)\s*\.id\(this\.discussionControlId\(surface, 'body', post\.id\)\)[^{}]*?\.onClick\(\(\) => this\.openPost\(post, '', this\.discussionControlId\(surface, 'body', post\.id\)\)\)/,
+    'the feed body opens the original post, not a selected reply, and identifies its return control');
+  assert.match(row, /if \(!inDetail\)\s*\{\s*ForEach\(this\.previewRows\(post\.id\),[\s\S]*?this\.SummaryEntry\(post, surface, reply\)[\s\S]*?=> reply\.id\)/,
     'replace only the summary row and tap handler when the latest reply ID changes');
   const summary = builder(timelineSource, 'SummaryEntry');
   assert.match(summary, /Text\(reply\.author \+ '：' \+ reply\.body\)/);
-  assert.match(summary, /\.id\('summary-' \+ post\.id\)[^{}]*?\.onClick\(\(\) => this\.openPost\(post, reply\.id\)\)/,
-    'the summary opens the specific reply shown on that same post');
+  assert.match(summary, /\.id\(this\.discussionControlId\(surface, 'summary', post\.id\)\)[^{}]*?\.onClick\(\(\) => this\.openPost\(post, reply\.id, this\.discussionControlId\(surface, 'summary', post\.id\)\)\)/,
+    'the summary opens the specific reply shown on that post and identifies its return control');
   const actions = builder(timelineSource, 'PostActions');
-  for (const handler of ['toggleLike(post.id)', 'openPost(post)', 'toggleSaved(post)']) {
+  for (const handler of ['toggleLike(post.id)', "openPost(post, '', this.discussionControlId(surface, 'replies', post.id))", 'toggleSaved(post)']) {
     assert.ok(actions.includes(`this.${handler}`), `missing post action: ${handler}`);
   }
   assert.match(builder(timelineSource, 'FollowAction'), /\.onClick\([^\n]*this\.toggleFollow\(post\.id\)/);
@@ -603,7 +603,7 @@ test('shell tabs and local activity preserve origin and never create duplicate r
 });
 
 test('post detail uses one stack entry and saves replies only to the local library for that post', async () => {
-  const methods = timelineMethods('  private openPost(', '  private nextSelection(');
+  const methods = timelineMethods('  private restoreDiscussionFocus(', '  private nextSelection(');
   const post = { id: 'p1', name: 'first', replies: 12 };
   const other = { id: 'p2', name: 'second', replies: 7 };
   let disk = '';

@@ -12,6 +12,8 @@ const TOP_LEVEL_HOSTS: string[] = [
 ];
 const PREF_NAME: string = 'threads_settings';
 const KEY_PROXY: string = 'proxy';
+const RESUME_PREF_NAME: string = 'threads_public_resume';
+const KEY_RESUME_TARGET: string = 'target';
 const LOAD_TIMEOUT_MS: number = 20000;
 
 // ArkWeb overrides are shared by all Web components in this app, even across page instances.
@@ -34,8 +36,8 @@ function isAllowedNavigation(target: string): boolean {
   }
 }
 
-// Recovery accepts only public routes; never remember query, fragment or account/login URLs.
-function publicThreadsTarget(target: string): string {
+// Recovery and explicit resume accept only public routes, without a query or fragment.
+function publicThreadsTarget(target: string, includeHome: boolean = true): string {
   if (!isAllowedNavigation(target)) {
     return '';
   }
@@ -45,7 +47,7 @@ function publicThreadsTarget(target: string): string {
       return '';
     }
     const path = parsed.pathname;
-    if (path === '/' || /^\/@[a-z0-9._]+(?:\/post\/[a-z0-9_-]+)?\/?$/i.test(path)) {
+    if ((includeHome && path === '/') || /^\/@[a-z0-9._]+(?:\/post\/[a-z0-9_-]+)?\/?$/i.test(path)) {
       return `https://${parsed.hostname.toLowerCase()}${path}`;
     }
   } catch (_error) {
@@ -96,6 +98,107 @@ struct Index {
   @State private externalHomeFailed: boolean = false;
   @State private externalPageFailedUrl: string = '';
   private proxyWaiter: (() => void) | undefined = undefined;
+  private resumePrefs: preferences.Preferences | null = null;
+  @State private showResume: boolean = false;
+  @State private resumeReady: boolean = false;
+  @State private resumeTarget: string = '';
+  @State private resumeHasValue: boolean = false;
+  @State private resumeNotice: string = '';
+
+  private showPublicResume(): void {
+    this.resumeNotice = '';
+    if (!this.resumeReady) {
+      try {
+        const prefs = preferences.getPreferencesSync(getContext(this) as Context, { name: RESUME_PREF_NAME });
+        const stored = prefs.getSync(KEY_RESUME_TARGET, '');
+        const target = typeof stored === 'string' ? publicThreadsTarget(stored, false) : '';
+        this.resumeTarget = stored === target ? target : '';
+        this.resumeHasValue = stored !== '';
+        this.resumePrefs = prefs;
+        this.resumeReady = true;
+      } catch (_error) {
+        this.resumeNotice = '无法读取续读地址。请关闭面板后重试。';
+      }
+    }
+    if (this.resumeHasValue && this.resumeTarget.length === 0) {
+      this.resumeNotice = '已存地址无效，不能打开。可忘记或保存新的地址。';
+    }
+    this.showResume = true;
+  }
+
+  private writePublicResume(prefs: preferences.Preferences, target: string): void {
+    if (target.length > 0) {
+      prefs.putSync(KEY_RESUME_TARGET, target);
+    } else {
+      prefs.deleteSync(KEY_RESUME_TARGET);
+    }
+  }
+
+  private commitPublicResume(target: string): boolean {
+    const prefs = this.resumePrefs;
+    if (prefs === null) {
+      return false;
+    }
+    try {
+      this.writePublicResume(prefs, target);
+      prefs.flushSync();
+    } catch (_error) {
+      // A failed flush must not leave a new address in the shared Preferences cache.
+      try {
+        this.writePublicResume(prefs, this.resumeTarget);
+      } catch (_restoreError) {
+        // Still report the original write failure.
+      }
+      return false;
+    }
+    this.resumeTarget = target;
+    this.resumeHasValue = target.length > 0;
+    return true;
+  }
+
+  private canSavePublicResume(): boolean {
+    return this.resumeReady && this.canNavigate() && !this.busy && !this.browserFallback;
+  }
+
+  private savePublicResume(): void {
+    if (!this.canSavePublicResume()) {
+      return;
+    }
+    let target: string;
+    try {
+      target = publicThreadsTarget(this.controller.getUrl(), false);
+    } catch (_error) {
+      this.resumeNotice = '无法获取当前网页地址，请稍后重试。';
+      return;
+    }
+    if (target.length === 0) {
+      this.resumeNotice = '只能保存当前的 Threads 公开作者页或帖子页。';
+      return;
+    }
+    this.resumeNotice = this.commitPublicResume(target) ? '已保存当前网页地址。' : '未能保存续读地址，请重试。';
+  }
+
+  private openPublicResume(): void {
+    if (!this.resumeReady) {
+      return;
+    }
+    if (!this.canNavigate() || this.busy) {
+      this.resumeNotice = '网页尚未就绪。请等当前请求结束，再试一次。';
+      return;
+    }
+    const target = publicThreadsTarget(this.resumeTarget, false);
+    if (target.length === 0 || target !== this.resumeTarget) {
+      return;
+    }
+    this.showResume = false;
+    this.navigatePublicTarget(target);
+  }
+
+  private forgetPublicResume(): void {
+    if (this.resumeHasValue) {
+      this.resumeNotice = this.commitPublicResume('') ? '已忘记续读地址。' : '未能忘记续读地址，请重试。';
+    }
+  }
 
   private initializeNetwork(): void {
     if (appProxy.pending) {
@@ -460,6 +563,10 @@ struct Index {
   }
 
   onBackPress(): boolean {
+    if (this.showResume) {
+      this.showResume = false;
+      return true;
+    }
     if (this.showSettings) {
       this.showSettings = false;
       return true;
@@ -490,11 +597,67 @@ struct Index {
       if (Number(router.getLength()) > 1) {
         this.WebAction($r('sys.symbol.house'), '返回本地首页', 'web-local-home', () => { router.back(); })
       }
+      this.WebAction($r('sys.symbol.bookmark'), '网页续读', 'web-resume', () => { this.showPublicResume(); })
       this.WebAction($r('sys.symbol.gearshape'), '网络设置', 'web-settings', () => { this.showSettings = true; })
       this.WebAction($r('sys.symbol.arrow_clockwise'), '刷新当前网页', 'web-reload', () => { this.refreshPage(); })
     }
     .id('web-toolbar').width('100%').constraintSize({ maxWidth: 960 })
     .padding({ left: 8, right: 8, top: 6, bottom: 6 })
+    .bindSheet($$this.showResume, this.PublicResumePanel(), {
+      height: SheetSize.LARGE,
+      showClose: false,
+      dragBar: true,
+      backgroundColor: $r('app.color.timeline_surface')
+    })
+  }
+
+  @Builder
+  ResumeAction(label: string, controlId: string, enabled: boolean, primary: boolean, action: () => void) {
+    Button({ type: ButtonType.Normal, stateEffect: true }) {
+      Text(label).width('100%').fontSize('16fp').textAlign(TextAlign.Center).wordBreak(WordBreak.BREAK_WORD)
+        .fontColor(primary ? $r('app.color.timeline_on_action') : $r('app.color.timeline_text_primary'))
+        .accessibilityLevel('no')
+    }
+    .id(controlId).width('100%').constraintSize({ minHeight: 48 }).borderRadius(12)
+    .padding({ top: 10, bottom: 10, left: 12, right: 12 })
+    .backgroundColor(primary ? $r('app.color.timeline_action') : $r('app.color.timeline_toolbar_button'))
+    .focusable(true).focusBox({ margin: LengthMetrics.vp(-2),
+      strokeColor: ColorMetrics.resourceColor($r('app.color.timeline_text_primary')), strokeWidth: LengthMetrics.vp(2) })
+    .accessibilityGroup(true).accessibilityText(label).enabled(enabled).onClick(action)
+  }
+
+  @Builder
+  PublicResumePanel() {
+    Scroll() {
+      Column({ space: 12 }) {
+        Text('网页续读').fontSize('22fp').fontWeight(FontWeight.Medium)
+          .fontColor($r('app.color.timeline_text_primary'))
+        Text('不记录浏览历史。手动保存的公开作者页或帖子页地址仅留在本机，新地址会替换旧地址。')
+          .fontSize('14fp').fontColor($r('app.color.timeline_text_secondary'))
+        this.ResumeAction('保存当前公开页', 'web-resume-save', this.canSavePublicResume(), false,
+          () => { this.savePublicResume(); })
+        if (this.resumeNotice.length > 0) {
+          Text(this.resumeNotice).id('web-resume-notice').width('100%').fontSize('14fp').padding(12).borderRadius(12)
+            .fontColor($r('app.color.timeline_text_body')).backgroundColor($r('app.color.timeline_surface_muted'))
+        }
+        Divider().color($r('app.color.timeline_border')).accessibilityLevel('no')
+        if (this.resumeTarget.length > 0) {
+          Text('已保存的地址').fontSize('16fp').fontWeight(FontWeight.Medium)
+            .fontColor($r('app.color.timeline_text_primary'))
+          Text(this.resumeTarget).id('web-resume-target').width('100%').fontSize('14fp')
+            .fontColor($r('app.color.timeline_text_body')).wordBreak(WordBreak.BREAK_WORD)
+          this.ResumeAction('打开已存网页', 'web-resume-open', true, true,
+            () => { this.openPublicResume(); })
+        } else if (this.resumeReady && !this.resumeHasValue) {
+          Text('暂无续读地址').fontSize('14fp').fontColor($r('app.color.timeline_text_secondary'))
+        }
+        if (this.resumeHasValue) {
+          this.ResumeAction('忘记续读地址', 'web-resume-forget', true, false, () => { this.forgetPublicResume(); })
+        }
+        this.ResumeAction('关闭续读面板', 'web-resume-close', true, false, () => { this.showResume = false; })
+      }.width('100%').constraintSize({ maxWidth: 600 }).alignItems(HorizontalAlign.Start)
+        .padding({ left: 20, right: 20, top: 12, bottom: 20 })
+    }.id('web-resume-panel').width('100%').align(Alignment.Top).scrollBar(BarState.Auto)
   }
 
   @Builder

@@ -77,6 +77,12 @@ interface ReadingAnchor {
   clipped: number;
 }
 
+interface DiscussionOrigin {
+  id: string;
+  tab: ShellTab;
+  authorPage: boolean;
+}
+
 class LayoutFrame extends FrameCallback {
   private readonly task: () => void;
 
@@ -170,6 +176,7 @@ struct Timeline {
   @State private replyTargetId: string = '';
   @State private replyExpanded: boolean = false;
   @State private replyExitPending: boolean = false;
+  @State private discussionShown: boolean = false;
   @State private postDraft: string = '';
   @State private savedPostDraft: string = '';
   @State private draftPhotoKeys: string[] = [];
@@ -212,6 +219,10 @@ struct Timeline {
   private restorePending: boolean = false;
   private restoreScheduled: boolean = false;
   private timelineVisible: boolean = false;
+  private shellShown: boolean = true;
+  private authorShown: boolean = false;
+  private discussionReturn: DiscussionOrigin | undefined = undefined;
+  private discussionReturnScheduled: DiscussionOrigin | undefined = undefined;
   private watchingSystemMotion: boolean = false;
   private readonly systemMotionListener = (enabled: boolean): void => {
     this.systemReducesMotion = enabled;
@@ -253,6 +264,7 @@ struct Timeline {
 
   onPageHide(): void {
     this.timelineVisible = false;
+    this.discussionReturn = undefined;
   }
 
   onBackPress(): boolean {
@@ -458,12 +470,52 @@ struct Timeline {
     await this.saveLibrary(updateLibrary(this.library, { followedIds: next }));
   }
 
-  private openPost(post: MockPost, focusId: string = ''): void {
+  private discussionControlId(surface: string, control: string, postId: string): string {
+    // The cached tabs may contain the same post. Keep the existing Discovery IDs.
+    return (surface === 'search' ? '' : surface + '-') + control + '-' + postId;
+  }
+
+  private restoreDiscussionFocus(retry: boolean = true): void {
+    const origin = this.discussionReturn;
+    if (origin === undefined || origin === this.discussionReturnScheduled) { return; }
+    const paths = this.detailPaths.getAllPathName();
+    if (origin.tab !== this.selectedTab || (origin.authorPage ? paths.length !== 1 || paths[0] !== AUTHOR_PROFILE : paths.length !== 0)) {
+      this.discussionReturn = undefined;
+      return;
+    }
+    if (!this.appForeground || !(origin.authorPage ? this.authorShown : this.shellShown)) { return; }
+    this.discussionReturnScheduled = origin;
+    this.getUIContext().postFrameCallback(new LayoutFrame(() => {
+      if (this.discussionReturnScheduled === origin) { this.discussionReturnScheduled = undefined; }
+      if (this.discussionReturn !== origin) { return; }
+      if (origin.tab !== this.selectedTab || this.detailPaths.size() !== (origin.authorPage ? 1 : 0)) {
+        this.discussionReturn = undefined;
+        return;
+      }
+      if (!this.appForeground || !(origin.authorPage ? this.authorShown : this.shellShown)) { return; }
+      try {
+        this.getUIContext().getFocusController().requestFocus(origin.id);
+        this.discussionReturn = undefined;
+      } catch (_error) {
+        if (retry) {
+          this.restoreDiscussionFocus(false);
+        } else {
+          this.discussionReturn = undefined;
+        }
+      }
+    }));
+  }
+
+  private openPost(post: MockPost, focusId: string = '', originId: string = ''): void {
     const paths = this.detailPaths.getAllPathName();
     if ((paths.length > 0 && (paths.length !== 1 || paths[0] !== AUTHOR_PROFILE)) ||
       !this.timelinePosts.some((item: MockPost) => item.id === post.id)) {
       return;
     }
+    const origin: DiscussionOrigin = { id: originId, tab: this.selectedTab, authorPage: paths.length === 1 };
+    this.discussionReturn = undefined;
+    this.discussionShown = false;
+    if (origin.authorPage) { this.authorShown = false; } else { this.shellShown = false; }
     this.rememberReadingPosition();
     this.timelineVisible = false;
     this.activeDetailId = post.id;
@@ -474,6 +526,7 @@ struct Timeline {
     this.replyExitPending = false;
     this.confirmingDelete = false;
     this.detailPaths.pushPath({ name: POST_DETAIL, param: post, onPop: () => {
+      this.discussionShown = false;
       this.activeDetailId = '';
       this.focusedReplyId = '';
       this.replyTargetId = '';
@@ -481,7 +534,9 @@ struct Timeline {
       this.replyExitPending = false;
       this.replyDraft = '';
       this.confirmingDelete = false;
+      this.discussionReturn = origin.id ? origin : undefined;
       this.onPageShow();
+      this.restoreDiscussionFocus();
     } }, this.allowsMotionFeedback());
   }
 
@@ -709,6 +764,7 @@ struct Timeline {
       return;
     }
     this.rememberReadingPosition();
+    this.discussionReturn = undefined;
     this.selectedTab = tab;
     this.onPageShow();
   }
@@ -761,10 +817,10 @@ struct Timeline {
     return entries;
   }
 
-  private openActivityPost(entry: ActivityEntry): void {
+  private openActivityPost(entry: ActivityEntry, originId: string = ''): void {
     const post = this.timelinePosts.find((item: MockPost) => item.id === entry.postId);
     if (post !== undefined) {
-      this.openPost(post, entry.kind === 'reply' ? entry.id.substring('reply-'.length) : '');
+      this.openPost(post, entry.kind === 'reply' ? entry.id.substring('reply-'.length) : '', originId);
     }
   }
 
@@ -1551,7 +1607,7 @@ struct Timeline {
   }
 
   @Builder
-  PostActions(post: MockPost, inDetail: boolean) {
+  PostActions(post: MockPost, inDetail: boolean, surface: string) {
     Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center }) {
       Button({ type: ButtonType.Capsule }) {
         Row({ space: 5 }) {
@@ -1575,9 +1631,10 @@ struct Timeline {
             SymbolGlyph($r('sys.symbol.message')).fontSize(17).fontColor([$r('app.color.timeline_text_secondary')])
             Text(String(this.replyCount(post))).fontSize(12).fontColor($r('app.color.timeline_text_secondary'))
           }
-        }.id('replies-' + post.id).constraintSize({ minWidth: 48, minHeight: 44 }).buttonStyle(ButtonStyleMode.TEXTUAL)
+        }.id(this.discussionControlId(surface, 'replies', post.id))
+          .constraintSize({ minWidth: 48, minHeight: 44 }).buttonStyle(ButtonStyleMode.TEXTUAL)
           .padding({ left: 8, right: 10 }).accessibilityText('查看' + post.name + '的帖子详情，' + this.replyCount(post) + ' 条回复')
-          .onClick(() => this.openPost(post))
+          .onClick(() => this.openPost(post, '', this.discussionControlId(surface, 'replies', post.id)))
       }
       Blank().layoutWeight(1)
       Button({ type: ButtonType.Circle }) {
@@ -1596,7 +1653,7 @@ struct Timeline {
   }
 
   @Builder
-  SummaryEntry(post: MockPost, reply?: DemoReply) {
+  SummaryEntry(post: MockPost, surface: string, reply?: DemoReply) {
     if (reply !== undefined) {
       Button({ type: ButtonType.Normal }) {
         Row({ space: 12 }) {
@@ -1612,13 +1669,15 @@ struct Timeline {
         }.width('100%')
       }.width('100%').constraintSize({ minHeight: 48 }).padding({ top: 4, bottom: 4, left: 0, right: 0 })
         .buttonStyle(ButtonStyleMode.TEXTUAL).accessibilityGroup(true)
-        .id('summary-' + post.id).accessibilityText('查看 ' + reply.author + ' 的回复：' + reply.body)
-        .onClick(() => this.openPost(post, reply.id))
+        .id(this.discussionControlId(surface, 'summary', post.id))
+        .accessibilityText('查看 ' + reply.author + ' 的回复：' + reply.body)
+        .onClick(() => this.openPost(post, reply.id, this.discussionControlId(surface, 'summary', post.id)))
     }
   }
 
   @Builder
-  PostCard(post: MockPost, inDetail: boolean, authorLink: boolean = true, completeThread: boolean = false) {
+  PostCard(post: MockPost, inDetail: boolean, authorLink: boolean = true, completeThread: boolean = false,
+    surface: string = 'home') {
     Column() {
       Row({ space: 12 }) {
         Text(post.name.substring(0, 1)).width(36).height(36).fontSize('15vp').fontWeight(FontWeight.Medium)
@@ -1648,9 +1707,11 @@ struct Timeline {
             }
           } else if (!inDetail) {
             Text(post.body.trim() ? post.body : (post.video !== undefined ? '视频帖子' : '图片帖子'))
-              .id('body-' + post.id).fontSize(16).fontColor($r('app.color.timeline_text_body')).width('100%')
+              .id(this.discussionControlId(surface, 'body', post.id))
+              .fontSize(16).fontColor($r('app.color.timeline_text_body')).width('100%')
               .textAlign(TextAlign.Start).accessibilityText('打开原帖：' + (post.body.trim() || (post.video !== undefined ? '视频帖子' : '图片帖子')))
-               .focusable(true).accessibilityRole(AccessibilityRoleType.BUTTON).onClick(() => this.openPost(post))
+              .focusable(true).accessibilityRole(AccessibilityRoleType.BUTTON)
+              .onClick(() => this.openPost(post, '', this.discussionControlId(surface, 'body', post.id)))
           }
           if (completeThread) {
             Column() {
@@ -1672,15 +1733,17 @@ struct Timeline {
           }
           if (!inDetail && this.currentContinuation(post).length > 0) {
             Button('阅读全文 · ' + (this.currentContinuation(post).length + 1) + ' 段')
-              .id('open-thread-' + post.id).buttonStyle(ButtonStyleMode.TEXTUAL).constraintSize({ minHeight: 44 })
-              .fontColor($r('app.color.timeline_text_primary')).onClick(() => this.openPost(post))
+              .id(this.discussionControlId(surface, 'open-thread', post.id))
+              .buttonStyle(ButtonStyleMode.TEXTUAL).constraintSize({ minHeight: 44 })
+              .fontColor($r('app.color.timeline_text_primary'))
+              .onClick(() => this.openPost(post, '', this.discussionControlId(surface, 'open-thread', post.id)))
           }
-          this.PostActions(post, inDetail)
+          this.PostActions(post, inDetail, surface)
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
       }.width('100%').alignItems(VerticalAlign.Top)
       if (!inDetail) {
         ForEach(this.previewRows(post.id), (reply: DemoReply) => {
-          this.SummaryEntry(post, reply)
+          this.SummaryEntry(post, surface, reply)
         }, (reply: DemoReply) => reply.id)
       }
       Divider().strokeWidth(0.5).color($r('app.color.timeline_border')).margin({ top: 6 })
@@ -1737,7 +1800,7 @@ struct Timeline {
     ConversationPane({ rootPost: () => { this.DiscussionRoot(post) }, rootAuthor: post.name, rows: this.repliesFor(post.id),
       focusId: this.focusedReplyId, recipient: this.replyRecipient(post), contextLine: this.targetRow(post.id)?.body ?? this.currentPostBody(post),
       expanded: this.replyExpanded, draft: this.replyDraft, confirmLeave: this.replyExitPending, largeText: this.toolbarInList(),
-      busy: this.libraryBusy,
+      busy: this.libraryBusy, shown: this.discussionShown && this.appForeground,
       onBack: () => this.requestDetailBack(), onEdit: (id: string) => this.beginReply(post.id, id),
       onExpand: () => this.expandCurrentReply(post.id), onDraft: (value: string) => { this.replyDraft = value; },
       onSend: () => this.submitReply(post.id), onDiscard: () => this.discardReplyAndClose(), onKeep: () => this.keepReplyDraft() })
@@ -1995,14 +2058,14 @@ struct Timeline {
   @Builder
   DiscoveryPostRows() {
     ForEach(this.discoveryPosts(), (post: MockPost) => {
-      ListItem() { this.PostCard(post, false) }
+      ListItem() { this.PostCard(post, false, true, false, 'search') }
     }, (post: MockPost) => post.id + ':' + post.body)
   }
 
   @Builder
   AuthorPostRows(post: MockPost) {
     if (!this.hiddenIds.includes(post.id)) {
-      ListItem() { this.PostCard(post, false, false) }
+      ListItem() { this.PostCard(post, false, false, false, 'author') }
     }
   }
 
@@ -2019,7 +2082,7 @@ struct Timeline {
           }.id('profile-reply-' + reply.id).width('100%').constraintSize({ minHeight: 48 })
             .padding({ left: 0, right: 0 }).buttonStyle(ButtonStyleMode.TEXTUAL)
             .onClick(() => this.openActivityPost({ id: 'reply-' + reply.id, postId: reply.postId,
-              author: reply.author, body: reply.body, kind: 'reply' }))
+              author: reply.author, body: reply.body, kind: 'reply' }, 'profile-reply-' + reply.id))
           Button('删除回复').buttonStyle(ButtonStyleMode.TEXTUAL).constraintSize({ minHeight: 44 })
             .enabled(this.libraryReady && !this.libraryBusy).fontColor($r('app.color.timeline_text_secondary'))
             .onClick(() => { this.removeReply(reply); })
@@ -2027,7 +2090,7 @@ struct Timeline {
         }.width('100%').alignItems(HorizontalAlign.Start)
       }, (reply: DemoReply) => reply.id)
     } else {
-      ForEach(this.profilePosts(), (post: MockPost) => { this.PostCard(post, false) },
+      ForEach(this.profilePosts(), (post: MockPost) => { this.PostCard(post, false, true, false, 'profile') },
         (post: MockPost) => post.id + ':' + post.body)
     }
   }
@@ -2153,11 +2216,15 @@ struct Timeline {
         AuthorPane({ author: this.authorSummary(post.id), posts: () => { this.AuthorPostRows(post) },
           onBack: () => this.closePost(), onFollow: () => { this.toggleFollow(post.id); } })
       }.hideTitleBar(true).backgroundColor($r('app.color.timeline_surface'))
+        .onShown(() => { this.authorShown = true; this.restoreDiscussionFocus(); })
+        .onWillHide(() => { this.authorShown = false; })
         .onBackPressed(() => { this.closePost(); return true; })
     } else if (name === POST_DETAIL && post !== undefined) {
       NavDestination() {
         this.DetailContent(post)
       }.hideTitleBar(true).backgroundColor($r('app.color.timeline_surface'))
+        .onShown(() => { this.discussionShown = this.activeDetailId === post.id; })
+        .onWillHide(() => { this.discussionShown = false; })
         .onBackPressed(() => {
           this.requestDetailBack();
           return true;
@@ -2209,7 +2276,8 @@ struct Timeline {
 
   @Builder
   ActivityRoot() {
-    ActivityPane({ entries: this.activityEntries(), onOpen: (entry: ActivityEntry) => this.openActivityPost(entry) })
+    ActivityPane({ entries: this.activityEntries(),
+      onOpen: (entry: ActivityEntry) => this.openActivityPost(entry, 'activity-entry-' + entry.id) })
   }
 
   @Builder
@@ -2278,5 +2346,9 @@ struct Timeline {
     }
     .width('100%').height('100%').mode(NavigationMode.Stack).hideTitleBar(true)
     .navDestination(this.DetailDestination)
+    .onNavBarStateChange((shown: boolean) => {
+      this.shellShown = shown;
+      if (shown) { this.restoreDiscussionFocus(); }
+    })
   }
 }

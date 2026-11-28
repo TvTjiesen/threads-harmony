@@ -32,6 +32,7 @@ export struct ConversationPane {
   @BuilderParam rootPost: () => void;
   @Prop @Watch('scheduleTarget') rows: ConversationReply[] = [];
   @Prop @Watch('targetChanged') focusId: string = '';
+  @Prop @Watch('scheduleTarget') shown: boolean = false;
   @Prop rootAuthor: string = '';
   @Prop recipient: string = '';
   @Prop contextLine: string = '';
@@ -96,13 +97,14 @@ export struct ConversationPane {
   }
 
   private scheduleTarget(): void {
-    if (!this.listMounted || this.scrollPending || this.focusId === '' || this.scrolledId === this.focusId) {
+    if (!this.active || !this.shown || !this.listMounted || this.scrollPending ||
+      this.focusId === '' || this.scrolledId === this.focusId) {
       return;
     }
     this.scrollPending = true;
     this.getUIContext().postFrameCallback(new ConversationFrame(() => {
       this.scrollPending = false;
-      if (!this.active || !this.listMounted) {
+      if (!this.active || !this.shown || !this.listMounted || this.scrolledId === this.focusId) {
         return;
       }
       // Resolve again after layout: the parent may have inserted a reply or selected another ID.
@@ -110,6 +112,22 @@ export struct ConversationPane {
       if (index >= FIRST_REPLY_INDEX) {
         this.listScroller.scrollToIndex(index, false, ScrollAlign.START);
         this.scrolledId = this.focusId;
+        this.focusReadingRow(this.focusId, true);
+      }
+    }));
+  }
+
+  private focusReadingRow(id: string, retry: boolean): void {
+    this.getUIContext().postFrameCallback(new ConversationFrame(() => {
+      if (!this.active || !this.shown || !this.listMounted || this.focusId !== id || this.scrolledId !== id ||
+        this.expanded || this.confirmLeave || this.targetIndex() < FIRST_REPLY_INDEX) {
+        return;
+      }
+      try {
+        this.getUIContext().getFocusController().requestFocus('convo-target-' + id);
+      } catch (_error) {
+        // List layout may not have attached the exact row yet.
+        if (retry) { this.focusReadingRow(id, false); }
       }
     }));
   }
@@ -201,8 +219,9 @@ export struct ConversationPane {
           Text(this.replyRelation(row)).fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
             .wordBreak(WordBreak.BREAK_WORD)
           Text(row.body).width('100%').fontSize(16).fontColor($r('app.color.timeline_text_body'))
-            .wordBreak(WordBreak.BREAK_WORD).copyOption(CopyOptions.InApp)
+            .wordBreak(WordBreak.BREAK_WORD).copyOption(CopyOptions.InApp).focusable(true)
         }.id('convo-target-' + row.id).width('100%').alignItems(HorizontalAlign.Start)
+          .focusable(true).tabStop(true)
           .accessibilityGroup(true).accessibilitySelected(row.id === this.focusId)
           .accessibilityText((row.id === this.focusId ? '当前定位的回复，' : '') + row.author +
             (row.local ? '，本机回复，' : '，') + this.replyRelation(row) + '：' + row.body)

@@ -14,6 +14,16 @@ const PREF_NAME: string = 'threads_settings';
 const KEY_PROXY: string = 'proxy';
 const LOAD_TIMEOUT_MS: number = 20000;
 
+// ArkWeb overrides are shared by all Web components in this app, even across page instances.
+class AppProxyState {
+  pending: boolean = false;
+  active: string = '';
+  hasApplied: boolean = false;
+  requiresConfirmation: boolean = false;
+  onSettled: (() => void) | undefined = undefined;
+}
+const appProxy = new AppProxyState();
+
 function isAllowedNavigation(target: string): boolean {
   try {
     const parsed = url.URL.parseURL(target);
@@ -58,11 +68,29 @@ struct Index {
   @State private showSettings: boolean = false;
   @State private webReady: boolean = false;
   private loadAttempt: number = 0;
+  private loadWatchdog: number | undefined = undefined;
+  @State private browserFallback: boolean = false;
   private startupPaused: boolean = true;
   @State private proxyPending: boolean = false;
   @State private externalHomeFailed: boolean = false;
+  private proxyWaiter: (() => void) | undefined = undefined;
 
   private initializeNetwork(): void {
+    if (appProxy.pending) {
+      this.proxyPending = true;
+      this.failLoading('上一项代理操作仍在等待系统。可返回或用系统浏览器对照。');
+      this.proxyWaiter = () => {
+        this.proxyWaiter = undefined;
+        this.proxyPending = false;
+        if (this.webReady) {
+          this.initializeNetwork();
+        }
+      };
+      appProxy.onSettled = this.proxyWaiter;
+      return;
+    }
+    this.proxyActive = appProxy.active;
+    this.proxyInput = appProxy.active;
     let saved: preferences.ValueType = '';
     try {
       const context = getContext(this) as Context;
@@ -73,7 +101,11 @@ struct Index {
       this.banner = '读取网络设置失败。请在 ⚙ 中重新选择代理或关闭代理。';
       return;
     }
-    if (saved === '') {
+    if (appProxy.requiresConfirmation) {
+      this.failLoading('系统已返回代理状态。请在 ⚙ 中确认使用该代理或关闭代理。');
+      return;
+    }
+    if (appProxy.hasApplied || saved === '') {
       this.startupPaused = false;
       this.loadHome();
       return;
@@ -110,12 +142,20 @@ struct Index {
   }
 
   private canNavigate(): boolean {
-    return this.webReady && !this.startupPaused && !this.proxyPending;
+    return this.webReady && !this.startupPaused && !this.proxyPending && !appProxy.pending;
+  }
+
+  private finishLoading(): void {
+    this.loadAttempt++;
+    if (this.loadWatchdog !== undefined) {
+      clearTimeout(this.loadWatchdog);
+      this.loadWatchdog = undefined;
+    }
+    this.busy = false;
   }
 
   private stopLoading(): void {
-    this.loadAttempt++;
-    this.busy = false;
+    this.finishLoading();
     if (this.webReady) {
       try {
         this.controller.stop();
@@ -126,10 +166,12 @@ struct Index {
   }
 
   private changeProxy(target: string, fromSaved: boolean): void {
-    if (!this.webReady || this.proxyPending) {
+    if (!this.webReady || this.proxyPending || appProxy.pending) {
       return;
     }
-    if (target === this.proxyActive) {
+    if (target === appProxy.active) {
+      appProxy.requiresConfirmation = false;
+      appProxy.hasApplied = true;
       this.startupPaused = false;
       this.proxyInput = target;
       const saved = this.persistProxy(target);
@@ -140,8 +182,10 @@ struct Index {
       return;
     }
 
+    appProxy.pending = true;
     this.proxyPending = true;
     this.stopLoading();
+    this.browserFallback = false;
     this.banner = target.length > 0 ? '正在应用代理…' : '正在关闭代理…';
     let timedOut: boolean = false;
     let settled: boolean = false;
@@ -155,9 +199,9 @@ struct Index {
       if (fromSaved) {
         removedSavedRule = this.persistProxy('');
       }
-      this.banner = '代理操作等待系统回调超时。请等待回调，或退出并重新打开应用。';
-      if (fromSaved && !removedSavedRule) {
-        this.banner += ' 未能清除旧设置。';
+      if (this.webReady) {
+        this.failLoading('代理操作等待系统回调超时。可用系统浏览器对照，或结束应用进程后重开。' +
+          (fromSaved && !removedSavedRule ? ' 未能清除旧设置。' : ''));
       }
     }, LOAD_TIMEOUT_MS);
 
@@ -167,38 +211,55 @@ struct Index {
       }
       settled = true;
       clearTimeout(watchdog);
-      this.proxyPending = false;
-      if (!success) {
-        if (fromSaved) {
-          this.proxyInput = '';
-          removedSavedRule = this.persistProxy('');
+      appProxy.pending = false;
+      const waiter = appProxy.onSettled;
+      appProxy.onSettled = undefined;
+      if (this.webReady) { this.proxyPending = false; }
+      try {
+        if (!success) {
+          if (fromSaved) {
+            removedSavedRule = this.persistProxy('');
+          }
+          if (this.webReady) {
+            if (fromSaved) {
+              this.proxyInput = '';
+              this.startupPaused = true;
+            }
+            let message = target.length > 0 ? '应用代理失败。' : '关闭代理失败，仍保留上次确认的设置。';
+            if (fromSaved) {
+              message += removedSavedRule ? ' 已清除旧设置，请在 ⚙ 中重新选择网络。'
+                : ' 未能清除旧设置，请在 ⚙ 中重新选择网络。';
+            }
+            this.failLoading(message);
+          }
+          return;
         }
-        if (fromSaved) {
-          this.startupPaused = true;
-        }
-        this.banner = target.length > 0 ? '应用代理失败。' : '关闭代理失败，仍保留上次确认的设置。';
-        if (fromSaved) {
-          this.banner += removedSavedRule ? ' 已清除旧设置，请在 ⚙ 中重新选择网络。'
-            : ' 未能清除旧设置，请在 ⚙ 中重新选择网络。';
-        }
-        return;
-      }
 
-      this.proxyActive = target;
-      this.proxyInput = target;
-      if (fromSaved && timedOut) {
-        // Do not silently resume navigation or save an entry that timed out on startup.
-        this.banner = '系统已返回代理状态。请在 ⚙ 中确认使用该代理或关闭代理。';
-        if (!removedSavedRule) {
-          this.banner += ' 旧设置未能清除。';
+        appProxy.active = target;
+        appProxy.hasApplied = true;
+        appProxy.requiresConfirmation = fromSaved && timedOut;
+        if (this.webReady) {
+          this.proxyActive = target;
+          this.proxyInput = target;
         }
-        return;
-      }
-      this.startupPaused = false;
-      const saved = this.persistProxy(target);
-      this.loadHome();
-      if (!saved) {
-        this.banner = '本次网络设置已生效，但未能保存。';
+        if (fromSaved && timedOut) {
+          // Keep the confirmation gate across page reentry as well.
+          if (this.webReady) {
+            this.failLoading('系统已返回代理状态。请在 ⚙ 中确认使用该代理或关闭代理。' +
+              (!removedSavedRule ? ' 旧设置未能清除。' : ''));
+          }
+          return;
+        }
+        const saved = this.persistProxy(target);
+        if (this.webReady) {
+          this.startupPaused = false;
+          this.loadHome();
+          if (!saved) {
+            this.banner = '本次网络设置已生效，但未能保存。';
+          }
+        }
+      } finally {
+        if (waiter !== undefined) { waiter(); }
       }
     };
 
@@ -231,32 +292,50 @@ struct Index {
     this.changeProxy('', false);
   }
 
+  private beginLoading(): void {
+    this.finishLoading();
+    const attempt = this.loadAttempt;
+    this.busy = true;
+    this.banner = '';
+    this.browserFallback = false;
+    this.externalHomeFailed = false;
+    this.loadWatchdog = setTimeout(() => {
+      if (this.loadAttempt === attempt && this.busy && this.canNavigate()) {
+        this.failLoading('Threads 网页加载超时。可重试，或用系统浏览器对照。');
+        this.stopLoading();
+      }
+    }, LOAD_TIMEOUT_MS);
+  }
+
+  private failLoading(message: string): void {
+    this.finishLoading();
+    this.banner = message;
+    this.browserFallback = true;
+  }
+
   private loadHome(): void {
     if (!this.canNavigate()) {
       return;
     }
-    const attempt = ++this.loadAttempt;
+    this.beginLoading();
     try {
-      this.busy = true;
       this.controller.loadUrl(HOME_URL);
-      setTimeout(() => {
-        if (this.loadAttempt === attempt && this.busy && this.canNavigate()) {
-          this.stopLoading();
-          this.banner = '页面仍在加载，请检查网络或代理后点 ↻ 重试。';
-        }
-      }, LOAD_TIMEOUT_MS);
     } catch (_error) {
-      this.loadAttempt++;
-      this.busy = false;
-      this.banner = '页面尚未就绪，请点 ↻ 重试。';
+      this.failLoading('应用内网页尚未就绪，可重试或用系统浏览器打开。');
     }
   }
 
   private retry(): void {
-    if (this.canNavigate()) {
-      this.banner = '';
-      this.loadHome();
+    this.loadHome();
+  }
+
+  aboutToDisappear(): void {
+    this.webReady = false;
+    if (this.proxyWaiter !== undefined && appProxy.onSettled === this.proxyWaiter) {
+      appProxy.onSettled = undefined;
     }
+    this.proxyWaiter = undefined;
+    this.finishLoading();
   }
 
   private async openExternalHome(): Promise<void> {
@@ -350,12 +429,27 @@ struct Index {
         LoadingProgress().width(20).height(20).accessibilityText('加载中')
       }
       if (this.banner.length > 0) {
-        Row({ space: 8 }) {
-          Text(this.banner).fontSize(14).layoutWeight(1)
-          if (this.canNavigate()) {
+        Column({ space: 6 }) {
+          Text(this.banner).fontSize(14).width('100%')
+          if (this.browserFallback) {
+            Flex({ wrap: FlexWrap.Wrap }) {
+              if (this.canNavigate()) {
+                Button('重试网页').id('web-failure-retry').constraintSize({ minHeight: 48 })
+                  .buttonStyle(ButtonStyleMode.TEXTUAL).onClick(() => { this.retry(); })
+              }
+              if (!this.showSettings) {
+                Button('用系统浏览器打开').id('web-failure-browser').constraintSize({ minHeight: 48 })
+                  .buttonStyle(ButtonStyleMode.TEXTUAL).onClick(() => { this.openExternalHome(); })
+              }
+            }.width('100%')
+            if (!this.showSettings && this.externalHomeFailed) {
+              Text(`系统未能打开链接。请在浏览器中手动访问 ${HOME_URL}`).fontSize(14)
+            }
+          } else if (this.canNavigate()) {
             Button('关闭').onClick(() => { this.banner = ''; })
           }
         }
+        .alignItems(HorizontalAlign.Start)
         .width('100%')
         .padding({ left: 16, right: 16, top: 4, bottom: 4 })
       }
@@ -382,41 +476,42 @@ struct Index {
             return true;
           }
           if (!isAllowedNavigation(target)) {
-            this.banner = '已拦截站外跳转';
+            if (!this.browserFallback) {
+              this.failLoading('已拦截站外跳转。可重新加载 Threads，或在系统浏览器打开官网。');
+            }
             return true;
           }
           return false;
         })
         .onPageBegin((event) => {
-          if (this.canNavigate() && event.url !== 'about:blank') {
-            this.busy = true;
-            this.banner = '';
+          if (this.canNavigate() && isAllowedNavigation(event.url) && !this.busy && !this.browserFallback) {
+            this.beginLoading();
           }
         })
         .onPageEnd((event) => {
-          if (this.canNavigate() && event.url !== 'about:blank') {
-            this.loadAttempt++;
-            this.busy = false;
+          if (this.canNavigate() && isAllowedNavigation(event.url) && this.busy) {
+            this.finishLoading();
           }
         })
         .onErrorReceive((event) => {
-          if (this.canNavigate() && event.request.isMainFrame()) {
-            this.loadAttempt++;
-            this.busy = false;
-            this.banner = this.proxyActive.length > 0
-              ? '页面加载失败：检查代理连接后点 ↻ 重试'
-              : '页面加载失败：可检查网络或在 ⚙ 中设置代理';
+          if (this.canNavigate() && event.request.isMainFrame() && !this.browserFallback) {
+            this.failLoading(this.proxyActive.length > 0
+              ? 'Threads 网页加载失败。可检查应用内代理，或用系统浏览器对照。'
+              : 'Threads 网页加载失败。可重试，或用系统浏览器对照。');
           }
         })
         .onHttpErrorReceive((event) => {
-          if (this.canNavigate() && event.request.isMainFrame()) {
-            this.loadAttempt++;
-            this.busy = false;
-            this.banner = `网页响应异常（${event.response.getResponseCode()}），可点 ↻ 重试`;
+          if (this.canNavigate() && event.request.isMainFrame() && !this.browserFallback) {
+            this.failLoading(`网页响应异常（HTTP ${event.response.getResponseCode()}）。`);
           }
         })
         .onPermissionRequest((event) => { event.request.deny(); })
-        .onSslErrorEventReceive((event) => { event.handler.handleCancel(); })
+        .onSslErrorEventReceive((event) => {
+          event.handler.handleCancel();
+          if (this.canNavigate()) {
+            this.failLoading('无法验证网页的安全连接。已停止加载，不会忽略证书错误。');
+          }
+        })
     }
     .width('100%').height('100%')
   }

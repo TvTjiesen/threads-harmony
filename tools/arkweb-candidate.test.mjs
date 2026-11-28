@@ -1240,7 +1240,8 @@ test('candidate initializes only after Web attachment and gates navigation durin
 
 test('proxy transitions serialize requests; timeout blocks navigation until the original callback', () => {
   const transition = overlay.slice(overlay.indexOf('  private changeProxy('), overlay.indexOf('  private saveProxy():'));
-  assert.match(transition, /if \(!this\.webReady \|\| this\.proxyPending\)/);
+  assert.match(transition, /if \(!this\.webReady \|\| this\.proxyPending \|\| appProxy\.pending\)/);
+  assert.match(transition, /appProxy\.pending = true/);
   assert.match(transition, /this\.proxyPending = true/);
   assert.match(transition, /let timedOut: boolean = false/);
   const watchdog = transition.slice(transition.indexOf('const watchdog:'), transition.indexOf('const finish ='));
@@ -1292,19 +1293,32 @@ test('fake-timer execution of production changeProxy: timeout retains lock; late
     setTimeout: (callback) => { const id = ++nextTimer; timers.set(id, callback); return id; },
     clearTimeout: (id) => timers.delete(id)
   };
-  const method = overlay.slice(overlay.indexOf('  private changeProxy('), overlay.indexOf('  private saveProxy():'))
-    .replace('private changeProxy', 'changeProxy');
-  const Harness = vm.runInNewContext(stripTypeScriptTypes(`const LOAD_TIMEOUT_MS = 20;\nclass Harness {
+  const sharedState = overlay.slice(overlay.indexOf('class AppProxyState'), overlay.indexOf('function isAllowedNavigation'));
+  const methods = overlay.slice(overlay.indexOf('  private initializeNetwork('), overlay.indexOf('  private async openExternalHome('))
+    .replace(/^  private /gm, '  ');
+  const Harness = vm.runInNewContext(stripTypeScriptTypes(`const LOAD_TIMEOUT_MS = 20;
+  const HOME_URL = 'https://www.threads.com/';
+  const PREF_NAME = 'threads_settings', KEY_PROXY = 'proxy';
+  ${sharedState}
+  class Harness {
     webReady = true; proxyPending = false; startupPaused = true; proxyActive = ''; proxyInput = '';
-    banner = ''; busy = false; stops = 0; navigations = 0; saved = 'old-proxy';
-    stopLoading() { this.stops++; this.busy = false; }
-    persistProxy(rule) { this.saved = rule; return true; }
-    loadHome() { this.navigations++; }
-    ${method}
+    banner = ''; busy = false; stops = 0; navigations = 0;
+    loadAttempt = 0; loadWatchdog; proxyWaiter; saved = 'old-proxy';
+    controller = { stop: () => { this.stops++; }, loadUrl: () => { this.navigations++; } };
+    ${methods}
     get change() { return this.changeProxy.bind(this); }
-  }; Harness`), { ...timerApi, webview });
+  }; Harness`), { ...timerApi, webview, getContext: page => page, normalizeProxy: value => value,
+    preferences: { getPreferencesSync: page => ({ getSync: () => page.saved, putSync: (_key, value) => { page.saved = value; },
+      deleteSync: () => { page.saved = ''; }, flushSync: () => {} }) }
+  });
+  const preferenceBacked = (saved = 'old-proxy') => {
+    const page = new Harness();
+    page.saved = saved;
+    page.prefs = { putSync: (_key, value) => { page.saved = value; }, deleteSync: () => { page.saved = ''; }, flushSync: () => {} };
+    return page;
+  };
 
-  const h = new Harness();
+  const h = preferenceBacked();
   h.change('old-proxy', true);
   assert.equal(h.proxyPending, true);
   assert.equal(h.navigations, 0);
@@ -1318,24 +1332,38 @@ test('fake-timer execution of production changeProxy: timeout retains lock; late
   h.change('other-proxy', false);
   assert.equal(removeCalls, 0, 'timeout must not permit a competing removal');
   assert.equal(applyCalls, 1, 'timeout must not permit a competing application');
-  const startupCallback = pendingApply;
-  startupCallback();
-  assert.equal(h.proxyPending, false, 'late callback settles the original request');
-  assert.equal(h.startupPaused, true, 'late startup success requires explicit user confirmation');
-  assert.equal(h.navigations, 0, 'late startup success must not navigate');
-  assert.match(h.banner, /请在 ⚙ 中确认使用该代理/);
+  h.aboutToDisappear();
+  const abandoned = preferenceBacked('');
+  abandoned.initializeNetwork();
+  assert.equal(abandoned.canNavigate(), false);
+  abandoned.aboutToDisappear();
+  const reopened = preferenceBacked('');
+  reopened.initializeNetwork();
+  assert.equal(reopened.canNavigate(), false, 'reentry blocks even after the preference was cleared');
+  reopened.change('', false);
+  assert.equal(removeCalls, 0);
+  pendingApply();
+  assert.equal(reopened.proxyPending, false, 'late callback settles the shared request');
+  assert.equal(reopened.startupPaused, true, 'late startup success requires explicit user confirmation');
+  for (const page of [h, abandoned, reopened]) assert.equal(page.navigations, 0);
+  assert.match(reopened.banner, /请在 ⚙ 中确认使用该代理/);
 
-  const manual = new Harness();
-  manual.startupPaused = false;
+  reopened.change('old-proxy', false);
+  assert.equal(reopened.navigations, 1, 'explicit confirmation resumes the attached page');
+  reopened.aboutToDisappear();
+  const manual = preferenceBacked();
+  manual.initializeNetwork();
+  assert.equal(manual.navigations, 1);
   manual.change('new-proxy', false);
   assert.equal(manual.saved, 'old-proxy', 'do not persist a manual target before system confirmation');
   pendingApply();
   assert.equal(manual.saved, 'new-proxy');
-  assert.equal(manual.navigations, 1);
+  assert.equal(manual.navigations, 2);
+  manual.aboutToDisappear();
 
-  const removal = new Harness();
+  const removal = preferenceBacked('new-proxy');
   removal.startupPaused = false;
-  removal.proxyActive = 'old-proxy';
+  removal.proxyActive = 'new-proxy';
   removal.change('', false);
   const [removeTimerId, removeTimeout] = [...timers.entries()][0];
   timers.delete(removeTimerId);
@@ -1348,7 +1376,7 @@ test('fake-timer execution of production changeProxy: timeout retains lock; late
   assert.equal(removal.saved, '');
   assert.equal(removal.navigations, 1);
 
-  const failedStartup = new Harness();
+  const failedStartup = preferenceBacked();
   rejectApply = true;
   failedStartup.change('invalid-old-proxy', true);
   assert.equal(failedStartup.proxyPending, false, 'synchronous rejection settles the operation');

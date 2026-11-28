@@ -2,7 +2,16 @@
 
 状态：未测 / 通过 / 失败 / 不支持。模拟器与硬件分别记录，不把“未测”标作支持。
 
-## 设备验收候选（`native-device-readiness`）
+## Threads 网页诊断候选（`native-threads-live-web`）
+
+| 检查项 | 结果与边界 |
+| --- | --- |
+| 构建与回归 | Node 109/109，含生产代理逻辑的退出重入、晚到回调与超时确认；ArkWeb 与 overlay 字节一致。E 盘 clean 11.715 s，`CompileArkTS` 6.314 s、`SignHap` 1.498 s；签名 HAP 1,526,615 B，SHA-256 `b0ecf72b7121f9f551d783eb7482c8600e690693fa0bafc78b790a82c8f0d897`，已覆盖安装 API 26 手机模拟器。 |
+| 同设备失败与回退 | 进入 ArkWeb 后出现「重试网页」和「用系统浏览器打开」；点击重试后两项再次出现，点击「本地首页」回原生栏目。另一次点击兜底实际唤起华为浏览器，地址为 `threads.com`，显示 `NET_ERROR{ ERR_TIMED_OUT , -7}`。未看到官网首屏。未人为制造证书错误；安全拒绝及应用级代理等候另由回归覆盖。 |
+| Windows 网络对照 | 官网与 Graph `/me` 直连 curl 28、HTTP 000；已有回环代理 CONNECT 200 后目标 TLS 失败，curl 35、HTTP 000；同机 Microsoft 控制域直连 HTTP 200。CONNECT 不是目标响应；无关于目标账号或授权有效性的结论。 |
+| 未测 | 未改系统或应用代理，未启动中转、未登录或读真实帖子。Pura X View、MatePad Edge、官网正向、页面登录、Graph 授权和真实分页未测。按[设备与官网验收](docs/device-readiness.md)复测。 |
+
+## 设备验收候选（`native-device-readiness`，历史）
 
 | 检查项 | 结果与边界 |
 | --- | --- |

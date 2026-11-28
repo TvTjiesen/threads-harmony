@@ -417,6 +417,37 @@ test('reading never requests input focus; editing requests resize and restores t
   assert.match(paneSource, /TextArea\(\{ text: this\.draft,[\s\S]*?\.onChange\(\(value: string\) => this\.onDraft\(value\)\)\.onAppear\(\(\) => this\.focusEditor\(\)\)/);
 });
 
+test('discussion actions reflow without remounting the text input', () => {
+  const pane = new Pane();
+  assert.equal(pane.stackReplyActions(), false);
+  pane.paneWidth = 320;
+  assert.equal(pane.stackReplyActions(), true);
+  pane.paneWidth = 410;
+  assert.equal(pane.stackReplyActions(), false);
+  pane.largeText = true;
+  assert.equal(pane.stackReplyActions(), true);
+  assert.equal((paneSource.match(/this\.ReplyInput\(\)/g) ?? []).length, 1);
+  assert.match(paneSource, /flexBasis\(this\.stackReplyActions\(\) \? '100%' : '50%'\)/);
+});
+
+test('window resizing stabilizes the side rail and keeps the same reading anchor', () => {
+  const { page, other, frames } = session();
+  page.firstVisibleIndex = 1;
+  page.updateViewportWidth(839);
+  assert.equal(page.sideNavigation, false);
+  page.updateViewportWidth(840);
+  assert.equal(page.sideNavigation, true);
+  assert.equal(page.readingAnchor.postId, other.id);
+  for (const width of [838, 822, 816]) page.updateViewportWidth(width);
+  assert.equal(page.sideNavigation, true);
+  page.updateViewportWidth(815);
+  assert.equal(page.sideNavigation, false);
+  page.updateViewportWidth(0);
+  assert.equal(page.viewportWidth, 815);
+  assert.equal(frames.length, 1, 'resize samples in one frame only request one reading restore');
+  assert.equal(page.readingAnchor.postId, other.id);
+});
+
 test('reply navigation keeps originating filters, reading anchor and motion policy without jumping to Home', () => {
   for (const [tab, localReduce, systemReduce, animate] of [
     [ShellTab.Home, false, false, true], [ShellTab.Search, true, false, false],

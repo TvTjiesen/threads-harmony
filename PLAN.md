@@ -4,9 +4,13 @@
 
 交付可在 Pura X View 上独立安装、启动和日常使用的非官方 HarmonyOS 应用。ArkTS/ArkUI 负责原生界面和系统集成；在有稳定、受支持的数据能力前，Threads 官方网页负责内容与消息。安装原生 HAP 不等于所有页面都已原生实现。以用户账号在官方客户端的实际行为为对照；不把不可访问的数据能力、受限系统权限或网页推送算作已实现。
 
-**手机优先**：Pura X View 是首个真机验收目标。Windows DSH 主做开发、审查、回归与 ArkTS 编译；手机模拟器用于尽早检查窄屏布局和启动/重试路径（HarmonyOS 7.0.0 phone 镜像已下载，实例正在首次启动）；不能替代 Pura X View 的折叠、真实网络和登录验收。MatePad Edge 保留平板/2in1 补充验证及本机构建能力；WorkBuddy 只执行固定版本的小任务，不作为手机进度的前置。手机真机验收仍是发布门槛。
+**手机优先**：Pura X View 是首个真机验收目标。Windows DSH 主做开发、审查、回归与 ArkTS 编译；HarmonyOS 7.0.0 手机模拟器已用于签装、窄屏布局和启动/重试验证；不能替代 Pura X View 的折叠、真实网络和登录验收。MatePad Edge 保留平板/2in1 补充验证及本机构建能力；WorkBuddy 只执行固定版本的小任务，不作为手机进度的前置。手机真机验收仍是发布门槛。
 
-## 滚动计划：接下来五步
+## 当前整合候选与后续路线
+
+[产品路线与下一组五项](docs/product-roadmap.md)明确日用版门槛、验收步骤、设备分工及官方授权前置条件。以下表格保留为本轮 `native-experience-rc` 的五项合并范围，不代表这些项目均已在实机完成。
+
+## 本轮五项范围
 
 | 顺序 | 任务 | 验收条件 |
 | --- | --- | --- |
@@ -22,7 +26,7 @@
 
 - 同一份源代码和 Git 历史是进度事实源；项目内 `STATUS.md` 记录当前阶段、设备/SDK、构建与未验证项，`TEST-MATRIX.md` 记录可复现的设备结果。每个工作段结束更新它们。项目初始化为独立 Git 仓库，避免与工作区其他材料混在一起。
 - Windows DSH 仓库与 MatePad CodeArts 工作区是不同文件系统，不能假设目录直连或共享。CodeArts 本机实测工作区为 `/storage/Users/currentUser/Download/aitest`，且已能调用系统 CLT/Hvigor 并构建 API 26 原型；详细构建证据见 `STATUS.md`。MatePad CodeArts 已通过认证 GitHub MCP 完成一次真实私库读写和源码交接；已验证固定源码提交为 `f0caae1554dfbe691be9b9690bd59e007e4a14e6`，父提交 `6b5cdfac4315f9deb642bedacf69af8aa9dc8f9c`。CodeArts 沙箱虽没有 Git 命令行，但 MCP 能读写指定路径；该提交已在 MatePad 独立目录重建（另补两个本机图标），Windows 已核验构建回执。交接时读取固定 SHA、核对变更、在独立分支提交结果，禁止两端同时编辑同一分支。不要把私人签名密钥、账号会话或个人聊天内容提交或同步到云端。
-- MatePad Edge CodeArts（HarmonyOS PC 本机应用沙箱）已实测可调用系统 CLT 的 Node、Hvigor、ohpm、hdc、codelinter，并通过认证 GitHub MCP 读取固定源码、在独立目录构建和回写结果。交接版 HAP 尚未签名、安装、运行；DevEco GUI 对早期独立探针的签名安装成功不能代替该版本验收。模拟器尺寸测试不能证明真实通知或折叠硬件行为。
+- MatePad Edge CodeArts（HarmonyOS PC 本机应用沙箱）已实测可调用系统 CLT 的 Node、Hvigor、ohpm、hdc、codelinter，并通过认证 GitHub MCP 读取固定源码、在独立目录构建和回写结果。部分固定版已在 MatePad 签名、安装和运行，具体覆盖范围见[测试矩阵](TEST-MATRIX.md)；旧包签装不能代替当前整合候选的验收。模拟器尺寸测试不能证明真实通知或折叠硬件行为。
 - Pura X View 在手时：真机安装、Threads 登录和消息、文件选择、系统分享、推送/后台、折叠形态、最终功耗与性能验收。记录系统/API/工具版本及结果。
 - MatePad Edge 系统记录为 `QXS-W00 7.0.0.111(SP16C00E111R5P5)` / OpenHarmony 7.0.0.111 / API 26，不是 Windows/云桌面。早期沙箱报告的“无 SDK/Hvigor/HDC”已被后续 CLT 实测取代；本机 Node/Hvigor 构建及 DevEco GUI 对独立探针签名、安装、启动均有证据。当前修复候选仍需独立编译和设备验收，不替代 Pura X View 折叠手机验收。
 

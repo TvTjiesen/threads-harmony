@@ -23,6 +23,8 @@ export struct LibraryHub {
   onCompose: () => void = (): void => {};
   onSettings: () => void = (): void => {};
   onWeb: () => void = (): void => {};
+  onBrowse?: () => void;
+  onRetryRead?: () => void;
 
   private emptyTitle(): string {
     switch (this.mode) {
@@ -35,16 +37,27 @@ export struct LibraryHub {
 
   private emptyDetail(): string {
     switch (this.mode) {
-      case 1: return '在帖子下点按收藏，即可在这里找到它。';
-      case 2: return '点赞过的帖子会出现在这里。';
-      case 3: return '在原生界面添加的本机回复会出现在这里。';
-      default: return '写一条草稿，预览后可将它加入本机时间线。';
+      case 1: return '点按帖子下方的收藏按钮，就能在这里找到它。';
+      case 2: return '点按帖子下方的点赞按钮，就能在这里找到它。';
+      case 3: return '打开帖子并写下回复，你的本机回复就会出现在这里。';
+      default: return this.mediaMode === 0 ? '写一条草稿，预览后可将它加入本机时间线。' :
+        '切回「全部」可以查看其他本机帖子。';
+    }
+  }
+
+  private managementDetail(): string {
+    switch (this.mode) {
+      case 1: return '再次点按帖子的收藏按钮可取消收藏。';
+      case 2: return '再次点按帖子的点赞按钮可取消点赞。';
+      case 3: return '点按回复查看原帖，或用「删除回复」移除本机回复。';
+      default: return '可从「帖子操作」编辑；打开详情可删除本机帖子。';
     }
   }
 
   @Builder
   Profile() {
     Column({ space: 10 }) {
+      Text('我的').fontSize('15fp').fontWeight(FontWeight.Medium).fontColor($r('app.color.timeline_text_secondary'))
       Row({ space: 16 }) {
         Column({ space: 3 }) {
           Text(this.identity.name).id('library-identity-name').width('100%').fontSize('30fp')
@@ -57,7 +70,7 @@ export struct LibraryHub {
         }.width(56).height(56).borderRadius(28).backgroundColor($r('app.color.timeline_action'))
           .accessibilityLevel('no')
       }.width('100%').alignItems(VerticalAlign.Top)
-      Text(this.identity.bio.length > 0 ? this.identity.bio : '还没有简介')
+      Text(this.identity.bio.length > 0 ? this.identity.bio : '还没有简介，可在「编辑资料」添加')
         .id('library-identity-bio').width('100%').fontSize('16fp').wordBreak(WordBreak.BREAK_WORD)
         .fontColor(this.identity.bio.length > 0 ? $r('app.color.timeline_text_body') : $r('app.color.timeline_text_secondary'))
       Text('只保存在这台设备，不会同步到 Threads 账号。').width('100%').fontSize('13fp')
@@ -104,6 +117,45 @@ export struct LibraryHub {
       .onClick(() => this.onMode(value))
   }
 
+  @Builder
+  Status() {
+    if (this.busy || this.message.length > 0 || this.onRetryRead !== undefined) {
+      Column({ space: 6 }) {
+        Text(this.busy ? '正在处理本机内容…' : this.message || '暂时无法读取本机内容。')
+          .id('library-status').width('100%').fontSize('14fp')
+          .fontColor($r('app.color.timeline_text_primary')).accessibilityLevel('yes')
+        if (!this.busy && this.onRetryRead !== undefined) {
+          Button('重试读取').id('library-retry-read').buttonStyle(ButtonStyleMode.TEXTUAL)
+            .constraintSize({ minHeight: 48 }).fontColor($r('app.color.timeline_text_primary'))
+            .onClick(() => { this.onRetryRead?.(); })
+        }
+      }.width('100%').alignItems(HorizontalAlign.Start).padding(12).borderRadius(12)
+        .backgroundColor($r('app.color.timeline_surface_muted'))
+    }
+  }
+
+  @Builder
+  EmptyLibrary() {
+    Column({ space: 6 }) {
+      Text(this.emptyTitle()).width('100%').fontSize('17fp').fontWeight(FontWeight.Bold)
+        .fontColor($r('app.color.timeline_text_primary'))
+      Text(this.emptyDetail()).width('100%').fontSize('14fp').fontColor($r('app.color.timeline_text_secondary'))
+      if (this.mode === 0 && this.mediaMode !== 0) {
+        Button('查看全部帖子').id('library-empty-all-posts').buttonStyle(ButtonStyleMode.TEXTUAL)
+          .constraintSize({ minHeight: 48 }).fontColor($r('app.color.timeline_text_primary'))
+          .onClick(() => { this.onMediaMode(0); })
+      } else if (this.mode === 0) {
+        Button('写帖草稿').id('library-empty-compose').buttonStyle(ButtonStyleMode.TEXTUAL)
+          .constraintSize({ minHeight: 48 }).fontColor($r('app.color.timeline_text_primary'))
+          .onClick(() => this.onCompose())
+      } else if (this.onBrowse !== undefined) {
+        Button('去首页看看').id('library-empty-browse').buttonStyle(ButtonStyleMode.TEXTUAL)
+          .constraintSize({ minHeight: 48 }).fontColor($r('app.color.timeline_text_primary'))
+          .onClick(() => { this.onBrowse?.(); })
+      }
+    }.id('library-empty').width('100%').alignItems(HorizontalAlign.Start).padding({ top: 12, bottom: 16 })
+  }
+
   build() {
     Scroll() {
       Column({ space: 12 }) {
@@ -116,21 +168,17 @@ export struct LibraryHub {
         }.width('100%')
         if (this.mode === 0) {
           TabSegmentButtonV2({ items: this.mediaFilters, itemMaxFontScale: 2, selectedIndex: this.mediaMode,
-            $selectedIndex: (value: number) => this.onMediaMode(value) })
+            itemMinHeight: LengthMetrics.vp(48), $selectedIndex: (value: number) => this.onMediaMode(value) })
             .id('library-media-filter').width('100%').constraintSize({ maxWidth: 388 })
         }
-        if (this.busy || this.message.length > 0) {
-          Text(this.message.length > 0 ? this.message : '正在读取本机内容…').id('library-status')
-            .width('100%').fontSize('14fp').fontColor($r('app.color.timeline_text_secondary'))
-        }
+        this.Status()
         if (this.hasItems) {
-          Column({ space: 10 }) { this.items() }.width('100%').alignItems(HorizontalAlign.Start)
-        } else if (!this.busy) {
-          Column({ space: 6 }) {
-            Text(this.emptyTitle()).width('100%').fontSize('17fp').fontWeight(FontWeight.Bold)
-              .fontColor($r('app.color.timeline_text_primary'))
-            Text(this.emptyDetail()).width('100%').fontSize('14fp').fontColor($r('app.color.timeline_text_secondary'))
-          }.id('library-empty').width('100%').alignItems(HorizontalAlign.Start).padding({ top: 12, bottom: 16 })
+          Column({ space: 10 }) {
+            Text(this.managementDetail()).width('100%').fontSize('14fp').fontColor($r('app.color.timeline_text_secondary'))
+            this.items()
+          }.width('100%').alignItems(HorizontalAlign.Start)
+        } else if (!this.busy && this.onRetryRead === undefined) {
+          this.EmptyLibrary()
         }
       }.width('100%').constraintSize({ maxWidth: PROFILE_MAX_WIDTH }).alignItems(HorizontalAlign.Start)
         .padding({ left: 18, right: 18, top: 20, bottom: 24 })
@@ -152,7 +200,37 @@ export struct IdentityEditor {
 
   private fieldCount(value: string, limit: number): string {
     const count = identityLength(value);
-    return count < 0 ? `请检查输入，最多 ${limit} 个字符。` : `${count} / ${limit}`;
+    return count < 0 ? `最多 ${limit} 个字符` : `${count} / ${limit}`;
+  }
+
+  private nameError(): string {
+    const name = this.name.trim();
+    if (name.length === 0) { return '请输入名称。'; }
+    if (identityLength(name) > IDENTITY_NAME_LIMIT) { return `名称最多 ${IDENTITY_NAME_LIMIT} 个字符。`; }
+    return normalizeIdentity(name, '') === undefined ? '名称必须是单行，不能包含无效字符。' : '';
+  }
+
+  private cleanBio(): string {
+    return this.bio.replace(/\r\n?|[\u2028\u2029]/g, '\n').trim();
+  }
+
+  private bioError(): string {
+    const bio = this.cleanBio();
+    if (identityLength(bio) > IDENTITY_BIO_LIMIT) { return `简介最多 ${IDENTITY_BIO_LIMIT} 个字符。`; }
+    return normalizeIdentity('你', bio) === undefined ? '简介中包含无效字符。' : '';
+  }
+
+  private focusBio(event: SubmitEvent): void {
+    if (this.busy) { return; }
+    if (this.nameError().length > 0) {
+      event.keepEditableState();
+      return;
+    }
+    try {
+      this.getUIContext().getFocusController().requestFocus('identity-bio-input');
+    } catch (_error) {
+      // The editor may already be leaving the destination.
+    }
   }
 
   @Builder
@@ -181,10 +259,15 @@ export struct IdentityEditor {
             .padding({ left: 14, right: 14, top: 10, bottom: 10 }).borderRadius(12)
             .fontColor($r('app.color.timeline_text_primary')).placeholderColor($r('app.color.timeline_text_secondary'))
             .caretColor($r('app.color.timeline_text_primary')).backgroundColor($r('app.color.timeline_surface_muted'))
-            .accessibilityText('名称，必填').accessibilityDescription(`最多 ${IDENTITY_NAME_LIMIT} 个字符`)
+            .accessibilityText('名称，必填').accessibilityDescription(this.nameError() || `最多 ${IDENTITY_NAME_LIMIT} 个字符`)
+            .enterKeyType(EnterKeyType.Next).onSubmit((_key: EnterKeyType, event: SubmitEvent) => { this.focusBio(event); })
             .enabled(!this.busy).onChange((value: string) => this.onName(value))
           Text(this.fieldCount(this.name.trim(), IDENTITY_NAME_LIMIT)).width('100%').fontSize('13fp')
             .fontColor($r('app.color.timeline_text_secondary'))
+          if (this.nameError().length > 0) {
+            Text(this.nameError()).id('identity-validation').width('100%').fontSize('14fp')
+              .fontColor($r('app.color.timeline_text_primary')).accessibilityLevel('yes')
+          }
         }.width('100%').alignItems(HorizontalAlign.Start)
         Column({ space: 6 }) {
           this.FieldLabel('简介（选填）')
@@ -193,19 +276,22 @@ export struct IdentityEditor {
             .padding({ left: 14, right: 14, top: 10, bottom: 10 }).borderRadius(12)
             .fontColor($r('app.color.timeline_text_primary')).placeholderColor($r('app.color.timeline_text_secondary'))
             .caretColor($r('app.color.timeline_text_primary')).backgroundColor($r('app.color.timeline_surface_muted'))
-            .accessibilityText('简介，选填').accessibilityDescription(`最多 ${IDENTITY_BIO_LIMIT} 个字符`)
+            .accessibilityText('简介，选填').accessibilityDescription(this.bioError() || `最多 ${IDENTITY_BIO_LIMIT} 个字符`)
             .enabled(!this.busy).onChange((value: string) => this.onBio(value))
-          Text(this.fieldCount(this.bio.replace(/\r\n?/g, '\n').trim(), IDENTITY_BIO_LIMIT)).width('100%').fontSize('13fp')
+          Text(this.fieldCount(this.cleanBio(), IDENTITY_BIO_LIMIT)).width('100%').fontSize('13fp')
             .fontColor($r('app.color.timeline_text_secondary'))
+          if (this.bioError().length > 0) {
+            Text(this.bioError()).id(this.nameError().length === 0 ? 'identity-validation' : 'identity-bio-validation')
+              .width('100%').fontSize('14fp').fontColor($r('app.color.timeline_text_primary')).accessibilityLevel('yes')
+          }
         }.width('100%').alignItems(HorizontalAlign.Start)
-        if (this.message.length > 0) {
-          Text(this.message).id('identity-status').width('100%').fontSize('14fp')
-            .fontColor($r('app.color.timeline_text_primary'))
-        } else if (normalizeIdentity(this.name, this.bio) === undefined) {
-          Text(`请填写 1 至 ${IDENTITY_NAME_LIMIT} 个字符的单行名称，简介最多 ${IDENTITY_BIO_LIMIT} 个字符。`)
-            .id('identity-validation').width('100%').fontSize('14fp').fontColor($r('app.color.timeline_text_secondary'))
+        if (this.busy || this.message.length > 0) {
+          Text(this.busy ? '正在保存本机资料…' : this.message).id('identity-status').width('100%').fontSize('14fp')
+            .fontColor($r('app.color.timeline_text_primary')).accessibilityLevel('yes')
+            .padding(12).borderRadius(12).backgroundColor($r('app.color.timeline_surface_muted'))
         }
-        Button(this.busy ? '正在保存…' : '保存到本机', { type: ButtonType.Normal }).id('identity-save')
+        Button(this.busy ? '正在保存…' : this.message.length > 0 ? '重试保存' : '保存到本机',
+          { type: ButtonType.Normal }).id('identity-save')
           .width('100%').constraintSize({ minHeight: 48 }).padding({ left: 14, right: 14, top: 10, bottom: 10 })
           .borderRadius(10).fontSize('16fp').fontWeight(FontWeight.Medium)
           .fontColor($r('app.color.timeline_on_action')).backgroundColor($r('app.color.timeline_action'))

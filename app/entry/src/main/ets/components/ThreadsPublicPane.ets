@@ -12,6 +12,7 @@ export struct ThreadsPublicPane {
   @State private busy: boolean = false;
   @State private hasResult: boolean = false;
   @State private notice: string = '';
+  @State private appendNotice: string = '';
   @State private linkNotice: string = '';
   private serial: number = 0;
   private readonly searchController: SearchController = new SearchController();
@@ -26,6 +27,7 @@ export struct ThreadsPublicPane {
     this.posts = [];
     this.cursor = '';
     this.notice = '';
+    this.appendNotice = '';
     this.linkNotice = '';
     this.busy = false;
     this.hasResult = false;
@@ -38,6 +40,7 @@ export struct ThreadsPublicPane {
     const after = append ? this.cursor : '';
     this.busy = true;
     this.notice = '';
+    this.appendNotice = '';
     this.linkNotice = '';
     if (!append) {
       this.posts = [];
@@ -48,7 +51,7 @@ export struct ThreadsPublicPane {
       const page = await requestThreadsPosts(this.query, this.mode === 1, after);
       if (attempt !== this.serial) { return; }
       if (page.error) {
-        this.notice = page.error;
+        if (append) { this.appendNotice = page.error; } else { this.notice = page.error; }
         return;
       }
       const combined = this.posts.slice();
@@ -60,7 +63,10 @@ export struct ThreadsPublicPane {
       this.cursor = combined.length < 100 && page.nextCursor !== after ? page.nextCursor : '';
       this.hasResult = true;
     } catch (_error) {
-      if (attempt === this.serial) { this.notice = '请求暂未完成，请重试。'; }
+      if (attempt === this.serial) {
+        if (append) { this.appendNotice = '未能读取下一页，已加载的帖子仍在。'; }
+        else { this.notice = '请求暂未完成，请重试。'; }
+      }
     } finally {
       if (attempt === this.serial) { this.busy = false; }
     }
@@ -137,8 +143,15 @@ export struct ThreadsPublicPane {
         }, (post: PublicPost) => post.id)
         if (this.cursor) {
           ListItem() {
-            Button(this.busy ? '读取中…' : '加载更多').id('threads-public-more').buttonStyle(ButtonStyleMode.TEXTUAL)
-              .constraintSize({ minHeight: 48 }).enabled(!this.busy).onClick(() => { this.load(true); })
+            Column({ space: 4 }) {
+              if (this.appendNotice) {
+                Text(this.appendNotice).id('threads-public-page-error').width('100%').fontSize('14fp')
+                  .fontColor($r('app.color.timeline_text_body')).accessibilityLevel('yes')
+              }
+              Button(this.busy ? '读取中…' : (this.appendNotice ? '重试下一页' : '加载更多'))
+                .id('threads-public-more').buttonStyle(ButtonStyleMode.TEXTUAL)
+                .constraintSize({ minHeight: 48 }).enabled(!this.busy).onClick(() => { this.load(true); })
+            }.width('100%').alignItems(HorizontalAlign.Start)
           }
         }
       }.id('threads-public-list').width('100%').height('100%').constraintSize({ maxWidth: 680 })

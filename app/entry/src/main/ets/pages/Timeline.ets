@@ -152,6 +152,7 @@ struct Timeline {
   @State private confirmingDelete: boolean = false;
   @State private openingWeb: boolean = false;
   @State private viewportWidth: number = 0;
+  @State private sideNavigation: boolean = false;
   @State private contentWidth: number = 0;
   @StorageProp('timelineFontScale') @Watch('onReadingLayoutChange') private fontScale: number = 1;
   @State private animationTriggers: number[] = POSTS.map((_post: MockPost) => -1);
@@ -263,6 +264,17 @@ struct Timeline {
 
   private toolbarInList(): boolean {
     return this.fontScale >= LARGE_TEXT_SCALE;
+  }
+
+  private updateViewportWidth(width: number): void {
+    if (!Number.isFinite(width) || width <= 0 || width === this.viewportWidth) { return; }
+    const nextSideNavigation = width >= (this.sideNavigation ? SIDE_NAV_WIDTH - 24 : SIDE_NAV_WIDTH);
+    if (nextSideNavigation !== this.sideNavigation) {
+      this.rememberReadingPosition();
+      this.sideNavigation = nextSideNavigation;
+      this.onReadingLayoutChange();
+    }
+    this.viewportWidth = width;
   }
 
   private readingLaneCount(): number {
@@ -833,6 +845,7 @@ struct Timeline {
   private async saveIdentity(): Promise<void> {
     const value = normalizeIdentity(this.identityName, this.identityBio);
     if (this.identityBusy || this.identityConfirmLeave || value === undefined) { return; }
+    this.identityMessage = '';
     this.identityBusy = true;
     try {
       const store = await this.identityPreferences();
@@ -841,6 +854,7 @@ struct Timeline {
       this.identity = value;
       this.applyLibrary(this.library);
       this.closePost();
+      this.inform('本机资料已保存。');
     } catch (_error) {
       this.identityMessage = '未能保存，本次输入仍在。';
     } finally {
@@ -1582,10 +1596,10 @@ struct Timeline {
         }.width(36)
         Text(reply.author + '：' + reply.body)
           .fontSize(13).fontColor($r('app.color.timeline_text_secondary')).layoutWeight(1)
-          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-      }.width('100%').constraintSize({ minHeight: 44 }).accessibilityGroup(true)
-        .id('summary-' + post.id).accessibilityText('查看回复：' + reply.author)
-        .onClick(() => this.openPost(post, reply.id))
+          .maxLines(this.toolbarInList() ? 3 : 2).textOverflow({ overflow: TextOverflow.Ellipsis })
+      }.width('100%').constraintSize({ minHeight: 48 }).padding({ top: 4, bottom: 4 }).accessibilityGroup(true)
+        .id('summary-' + post.id).accessibilityText('查看 ' + reply.author + ' 的回复：' + reply.body)
+        .focusable(true).onClick(() => this.openPost(post, reply.id))
     }
   }
 
@@ -2168,7 +2182,10 @@ struct Timeline {
     LibraryHub({ identity: this.identity, mode: this.libraryMode, mediaMode: this.profileMediaMode,
       onMediaMode: (value: number) => { this.profileMediaMode = value; },
       hasItems: this.libraryMode === 3 ? this.localReplies.length > 0 : this.profilePosts().length > 0,
-      busy: this.libraryLoading || this.identityBusy, message: this.identityMessage || this.libraryMessage,
+      busy: this.libraryLoading || this.libraryBusy || this.identityBusy,
+      message: this.libraryReady ? (this.identityMessage || this.libraryMessage) : (this.libraryMessage || this.identityMessage),
+      onRetryRead: !this.libraryReady && !this.libraryLoading ? () => { this.loadLibrary(); } : undefined,
+      onBrowse: () => this.selectTab(ShellTab.Home),
       items: () => { this.ProfileItems() }, onMode: (value: number) => { this.libraryMode = value; },
       onEdit: () => { this.openIdentity(); }, onCompose: () => this.openComposer(), onSettings: () => this.openSettings(),
       onWeb: () => { this.openWeb(); } })
@@ -2181,14 +2198,14 @@ struct Timeline {
 
   @Builder
   Shell() {
-    ReadingTabs({ activeIndex: this.selectedTab, wide: this.viewportWidth >= SIDE_NAV_WIDTH,
+    ReadingTabs({ activeIndex: this.selectedTab, wide: this.sideNavigation,
       home: () => { this.Feed() }, search: () => { this.SearchRoot() },
       activity: () => { this.ActivityRoot() }, profile: () => { this.ProfileRoot() },
       onSelectTab: (index: number) => this.selectTab(index as ShellTab), onCompose: () => this.openComposer() })
       .width('100%').height('100%').backgroundColor($r('app.color.timeline_surface'))
       .onAreaChange((_oldArea: Area, newArea: Area) => {
         const width = Number(newArea.width);
-        if (Number.isFinite(width) && width > 0 && width !== this.viewportWidth) { this.viewportWidth = width; }
+        this.updateViewportWidth(width);
       })
   }
 

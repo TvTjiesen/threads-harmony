@@ -42,7 +42,7 @@ export struct ReadingTabs {
         .fontColor([$r('app.color.timeline_text_primary')]).accessibilityLevel('no')
     }
     .id('nav-compose').width(48).height(48).padding(0)
-    .backgroundColor(Color.Transparent).accessibilityText('发帖').onClick(() => this.onCompose())
+    .backgroundColor(Color.Transparent).focusable(true).accessibilityText('发帖').onClick(() => this.onCompose())
   }
 
   build() {

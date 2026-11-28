@@ -28,26 +28,64 @@ export struct DiscoveryPane {
   onPublicThreads: () => void = () => {};
 
   private readonly segments: SegmentButtonV2Items = new SegmentButtonV2Items([{ text: '帖子' }, { text: '作者' }]);
+  private readonly searchController: SearchController = new SearchController();
+  private readonly resultScroller: Scroller = new Scroller();
+
+  private changeQuery(value: string): void {
+    if (this.query !== value) {
+      this.onQuery(value);
+      this.resultScroller.scrollToIndex(0, false, ScrollAlign.START);
+    }
+  }
+
+  private submitQuery(value: string): void {
+    this.searchController.stopEditing();
+    const query = value.trim();
+    if (query !== this.query) { this.onQuery(query); }
+    this.resultScroller.scrollToIndex(0, false, ScrollAlign.START);
+  }
+
+  private selectMode(value: number): void {
+    if (this.mode !== value) {
+      this.onMode(value);
+      this.searchController.stopEditing();
+      this.resultScroller.scrollToIndex(0, false, ScrollAlign.START);
+    }
+  }
+
+  private selectTopic(topic: string): void {
+    this.searchController.stopEditing();
+    this.onTopic(topic);
+    this.resultScroller.scrollToIndex(0, false, ScrollAlign.START);
+  }
+
+  private clearAndEdit(): void {
+    this.changeQuery('');
+    try {
+      this.getUIContext().getFocusController().requestFocus('discovery-search');
+    } catch (_error) {
+      // The tab can lose focus while its results are being replaced.
+    }
+  }
 
   @Builder
   SearchBar() {
     Column({ space: 8 }) {
-      Row({ space: 8 }) {
-        Text('发现').fontSize(28).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
-          .layoutWeight(1)
-        Text('本机预览').fontSize(12).fontColor($r('app.color.timeline_text_secondary'))
-      }.width('100%')
-      Search({ value: this.query, placeholder: '搜索帖子或作者' })
+      Text('发现').fontSize('28fp').fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
+      Search({ value: this.query, placeholder: this.mode === 1 ? '搜索作者昵称或用户名' : '搜索帖子关键词',
+        controller: this.searchController })
         .id('discovery-search').width('100%').constraintSize({ minHeight: 48 }).maxLength(120)
+        .textFont({ size: '16fp' }).placeholderFont({ size: '16fp' })
         .backgroundColor($r('app.color.timeline_surface_muted')).fontColor($r('app.color.timeline_text_body'))
-        .placeholderColor($r('app.color.timeline_text_secondary')).accessibilityText('搜索本机帖子或示例作者')
-        .onChange((value: string) => this.onQuery(value))
+        .placeholderColor($r('app.color.timeline_text_secondary'))
+        .searchButton('搜索', { fontSize: '15fp', fontColor: $r('app.color.timeline_text_primary') })
+        .cancelButton({ style: CancelButtonStyle.INPUT })
+        .accessibilityText(this.mode === 1 ? '搜索示例作者' : '搜索本机和演示帖子')
+        .onChange((value: string) => this.changeQuery(value))
+        .onSubmit((value: string) => this.submitQuery(value))
       TabSegmentButtonV2({ items: this.segments, selectedIndex: this.mode, itemMaxFontScale: 2,
-        itemMinHeight: LengthMetrics.vp(44), $selectedIndex: (value: number) => this.onMode(value) })
+        itemMinHeight: LengthMetrics.vp(48), $selectedIndex: (value: number) => this.selectMode(value) })
         .id('discovery-mode').width('100%').constraintSize({ maxWidth: 280 })
-      Button('Threads 公开内容 · 开发联调').id('discovery-public-threads').buttonStyle(ButtonStyleMode.TEXTUAL)
-        .fontColor($r('app.color.timeline_text_secondary')).constraintSize({ minHeight: 48 })
-        .onClick(() => this.onPublicThreads())
     }.width('100%').alignItems(HorizontalAlign.Start).padding({ top: 10, bottom: 10 })
   }
 
@@ -61,7 +99,7 @@ export struct DiscoveryPane {
             .id('discovery-topic-' + topic).constraintSize({ minHeight: 48, minWidth: 48, maxWidth: '100%' })
             .padding({ left: 12, right: 12 }).fontSize(14).fontColor($r('app.color.timeline_text_body'))
             .backgroundColor($r('app.color.timeline_toolbar_button')).accessibilityText('搜索话题 ' + topic)
-            .onClick(() => this.onTopic(topic))
+            .onClick(() => this.selectTopic(topic))
         }, (topic: string) => topic)
       }.width('100%')
     }.width('100%').alignItems(HorizontalAlign.Start).padding({ top: 10, bottom: 8 })
@@ -95,12 +133,47 @@ export struct DiscoveryPane {
 
   @Builder
   EmptyResult() {
-    Column({ space: 4 }) {
-      Text(this.mode === 1 ? '未找到匹配的作者' : '未找到匹配的帖子')
-        .fontSize(16).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
-      Text(this.mode === 1 ? '试试作者昵称或用户名。' : '试试正文中的其他关键词。')
-        .fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
-    }.width('100%').alignItems(HorizontalAlign.Start).padding({ top: 16, bottom: 16 })
+    Column({ space: 6 }) {
+      Text(this.query.trim().length > 0 ? (this.mode === 1 ? '未找到匹配的作者' : '未找到匹配的帖子') :
+        (this.mode === 1 ? '暂无示例作者' : '暂无可浏览的帖子'))
+        .id('discovery-empty').width('100%').fontSize('17fp').fontWeight(FontWeight.Bold)
+        .fontColor($r('app.color.timeline_text_primary'))
+      if (this.query.trim().length > 0) {
+        Text(`没有「${this.query.trim()}」的结果。${this.mode === 1 ? '试试昵称或用户名。' : '试试更短的关键词。'}`)
+          .width('100%').wordBreak(WordBreak.BREAK_WORD).fontSize('14fp')
+          .fontColor($r('app.color.timeline_text_secondary'))
+        Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(4) } }) {
+          Button('清除搜索').id('discovery-clear-query').buttonStyle(ButtonStyleMode.TEXTUAL)
+            .constraintSize({ minHeight: 48 }).fontColor($r('app.color.timeline_text_primary'))
+            .onClick(() => this.clearAndEdit())
+          Button(this.mode === 1 ? '改搜帖子' : '改搜作者').id('discovery-switch-mode').buttonStyle(ButtonStyleMode.TEXTUAL)
+            .constraintSize({ minHeight: 48 }).fontColor($r('app.color.timeline_text_body'))
+            .onClick(() => this.selectMode(this.mode === 1 ? 0 : 1))
+        }.width('100%')
+      } else if (this.mode === 0 && this.topics.length > 0) {
+        Text('可以从上面的本机话题开始探索。').width('100%').fontSize('14fp')
+          .fontColor($r('app.color.timeline_text_secondary'))
+      }
+    }.width('100%').alignItems(HorizontalAlign.Start).padding({ top: 12, bottom: 16 })
+  }
+
+  @Builder
+  ScopeAndStatus() {
+    Column({ space: 6 }) {
+      this.status()
+      Text(this.mode === 1 ? '仅搜索示例作者，不连接 Threads 账号。' : '仅搜索本机与演示帖子，不含 Threads 站内结果。')
+        .width('100%').fontSize('13fp').fontColor($r('app.color.timeline_text_secondary'))
+      if (this.mode === 0 && this.query.trim().length === 0 && this.topics.length > 0) {
+        this.TopicChooser()
+      }
+    }.width('100%').alignItems(HorizontalAlign.Start).padding({ top: 8, bottom: 4 })
+  }
+
+  @Builder
+  PublicContentLink() {
+    Button('Threads 公开内容 · 开发联调').id('discovery-public-threads').buttonStyle(ButtonStyleMode.TEXTUAL)
+      .fontColor($r('app.color.timeline_text_secondary')).constraintSize({ minHeight: 48 })
+      .onClick(() => { this.searchController.stopEditing(); this.onPublicThreads(); })
   }
 
   build() {
@@ -108,14 +181,10 @@ export struct DiscoveryPane {
       Column() {
         this.SearchBar()
         Divider().strokeWidth(0.5).color($r('app.color.timeline_border'))
-        List({ space: 8 }) {
-          ListItem() {
-            Column({ space: 6 }) {
-              this.status()
-              if (this.mode === 0 && this.query.trim().length === 0 && this.topics.length > 0) {
-                this.TopicChooser()
-              }
-            }.width('100%').alignItems(HorizontalAlign.Start)
+        List({ scroller: this.resultScroller, space: 8 }) {
+          ListItem() { this.ScopeAndStatus() }
+          if (this.query.trim().length === 0) {
+            ListItem() { this.PublicContentLink() }
           }
           if (this.mode === 1 && this.authors.length > 0) {
             ForEach(this.authors, (author: DiscoveryAuthor) => {
@@ -125,6 +194,9 @@ export struct DiscoveryPane {
             this.posts()
           } else {
             ListItem() { this.EmptyResult() }
+          }
+          if (this.query.trim().length > 0) {
+            ListItem() { this.PublicContentLink() }
           }
         }.id('discovery-results').width('100%').layoutWeight(1).scrollBar(BarState.Auto)
           .padding({ bottom: 16 })

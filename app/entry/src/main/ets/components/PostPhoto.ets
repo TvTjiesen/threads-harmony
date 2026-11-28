@@ -3,6 +3,7 @@ const COMPACT_HEIGHT = 120;
 const VIEWER_ZOOM = 2;
 const PAGE_DURATION = 250;
 const LOAD_ERROR = '照片无法加载';
+const LOADING_PHOTO = '正在载入照片…';
 
 // The caller must resolve and verify the app-private file before passing its URI here.
 function isFileUri(uri: string): boolean {
@@ -15,6 +16,10 @@ function photoPosition(index: number, count: number): string {
 
 function photoIndex(index: number, count: number): number {
   return Number.isInteger(index) && index >= 0 && index < count ? index : 0;
+}
+
+function inPhotoWindow(index: number, current: number): boolean {
+  return Math.abs(index - current) <= 1;
 }
 
 @Component
@@ -131,8 +136,12 @@ export struct PostGallery {
       } else if (this.uris.length > 1) {
         Swiper(this.pager) {
           ForEach(this.uris, (uri: string, index: number) => {
-            PostPhoto({ uri: uri, elementId: 'post-photo-' + (index + 1),
-              galleryPosition: photoPosition(index, this.uris.length), onOpen: () => this.onOpen(index) })
+            Stack() {
+              if (inPhotoWindow(index, this.index)) {
+                PostPhoto({ uri: uri, elementId: 'post-photo-' + (index + 1),
+                  galleryPosition: photoPosition(index, this.uris.length), onOpen: () => this.onOpen(index) })
+              }
+            }.width('100%').height('100%')
           }, (uri: string, index: number) => index + ':' + uri)
         }.id('post-gallery').width('100%').aspectRatio(PREVIEW_RATIO).constraintSize({ minHeight: 96, maxHeight: 320 })
           .vertical(false).index(this.index).indicator(false).autoPlay(false).loop(false).effectMode(EdgeEffect.None)
@@ -155,14 +164,34 @@ struct ViewerPhotoPage {
   @Prop frameHeight: number = 0;
   onReadyChange: (ready: boolean) => void = (_ready: boolean): void => {};
   @State private failed: boolean = false;
+  @State private loaded: boolean = false;
+  private mounted: boolean = false;
+
+  aboutToAppear(): void {
+    this.mounted = true;
+  }
+
+  aboutToDisappear(): void {
+    this.mounted = false;
+  }
 
   @Builder
   PhotoImage() {
     Image(this.uri)
       .width(this.frameWidth).height(this.frameHeight).objectFit(ImageFit.Contain)
-      .accessibilityText(this.label).accessibilityLevel(this.active ? 'yes' : 'no')
-      .onComplete((event) => { if (event && event.loadingStatus === 1) { this.onReadyChange(true); } })
-      .onError(() => { this.failed = true; this.onReadyChange(false); })
+      .accessibilityText(this.label).accessibilityLevel(this.active && this.loaded ? 'yes' : 'no')
+      .onComplete((event) => {
+        if (this.mounted && !this.failed && !this.loaded && event && event.loadingStatus === 1) {
+          this.loaded = true;
+          this.onReadyChange(true);
+        }
+      })
+      .onError(() => {
+        if (this.mounted && !this.failed) {
+          this.failed = true;
+          this.onReadyChange(false);
+        }
+      })
   }
 
   build() {
@@ -181,6 +210,11 @@ struct ViewerPhotoPage {
         } else {
           this.PhotoImage()
         }
+        if (this.active && !this.loaded) {
+          Text(LOADING_PHOTO).id('photo-viewer-loading').fontSize('14fp').textAlign(TextAlign.Center)
+            .fontColor($r('app.color.timeline_text_secondary')).padding(16).hitTestBehavior(HitTestMode.None)
+            .accessibilityLevel('yes')
+        }
       }
     }.width('100%').height('100%')
   }
@@ -197,7 +231,7 @@ export struct PhotoViewer {
   @State private ready: boolean[] = [];
   @State private frameWidth: number = 0;
   @State private frameHeight: number = 0;
-  private galleryKey: string = '';
+  private lastUris: string[] = [];
   private pager: SwiperController = new SwiperController();
 
   aboutToAppear(): void {
@@ -205,23 +239,30 @@ export struct PhotoViewer {
   }
 
   private resetGallery(): void {
-    const key = JSON.stringify(this.uris);
-    if (key !== this.galleryKey) {
-      this.galleryKey = key;
-      this.ready = [];
+    if (this.uris.length !== this.lastUris.length || this.uris.some((uri: string, index: number) =>
+      uri !== this.lastUris[index])) {
+      this.ready = this.ready.slice(0, this.uris.length).map((ready: boolean, index: number) =>
+        ready && this.uris[index] === this.lastUris[index]);
+      this.lastUris = this.uris.slice();
       this.resetInitialIndex();
     }
   }
 
   private resetInitialIndex(): void {
-    this.zoomed = false;
-    this.index = photoIndex(this.initialIndex, this.uris.length);
+    this.selectPhoto(photoIndex(this.initialIndex, this.uris.length));
   }
 
   private pageChanged(index: number): void {
     if (this.index !== index) {
-      this.zoomed = false;
-      this.index = photoIndex(index, this.uris.length);
+      this.selectPhoto(photoIndex(index, this.uris.length));
+    }
+  }
+
+  private selectPhoto(index: number): void {
+    this.zoomed = false;
+    this.index = index;
+    if (this.ready.some((ready: boolean, page: number) => ready && !inPhotoWindow(page, index))) {
+      this.ready = this.ready.map((ready: boolean, page: number) => ready && inPhotoWindow(page, index));
     }
   }
 
@@ -233,7 +274,7 @@ export struct PhotoViewer {
   }
 
   private setPhotoReady(uri: string, index: number, ready: boolean): void {
-    if (this.uris[index] === uri && (this.ready[index] === true) !== ready) {
+    if (this.uris[index] === uri && inPhotoWindow(index, this.index) && (this.ready[index] === true) !== ready) {
       const next = this.ready.slice();
       next[index] = ready;
       this.ready = next;
@@ -260,10 +301,14 @@ export struct PhotoViewer {
         if (this.uris.length > 0) {
           Swiper(this.pager) {
             ForEach(this.uris, (uri: string, index: number) => {
-              ViewerPhotoPage({ uri: uri, label: this.uris.length === 1 ? '帖子照片' : photoPosition(index, this.uris.length),
-                active: index === this.index, zoomed: index === this.index && this.zoomed,
-                frameWidth: this.frameWidth, frameHeight: this.frameHeight,
-                onReadyChange: (ready: boolean) => this.setPhotoReady(uri, index, ready) })
+              Stack() {
+                if (inPhotoWindow(index, this.index)) {
+                  ViewerPhotoPage({ uri: uri, label: this.uris.length === 1 ? '帖子照片' : photoPosition(index, this.uris.length),
+                    active: index === this.index, zoomed: index === this.index && this.zoomed,
+                    frameWidth: this.frameWidth, frameHeight: this.frameHeight,
+                    onReadyChange: (ready: boolean) => this.setPhotoReady(uri, index, ready) })
+                }
+              }.width('100%').height('100%')
             }, (uri: string, index: number) => index + ':' + uri)
           }.id('photo-viewer-swiper').width('100%').height('100%').vertical(false).index(this.index)
             .indicator(false).autoPlay(false).loop(false).effectMode(EdgeEffect.None)

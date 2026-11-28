@@ -40,6 +40,7 @@ export struct ConversationPane {
   @Prop @Watch('syncKeyboardMode') confirmLeave: boolean = false;
   @Prop largeText: boolean = false;
   @Prop busy: boolean = false;
+  @State private paneWidth: number = 0;
   onBack: () => void = (): void => {};
   onEdit: (id: string) => void = (_id: string): void => {};
   onExpand: () => void = (): void => {};
@@ -144,6 +145,10 @@ export struct ConversationPane {
     return '回复 ' + (row.toAuthor.startsWith('@') ? row.toAuthor : '@' + row.toAuthor);
   }
 
+  private stackReplyActions(): boolean {
+    return this.largeText || (this.paneWidth > 0 && this.paneWidth < 340);
+  }
+
   @Builder
   Heading() {
     Row({ space: 12 }) {
@@ -230,6 +235,27 @@ export struct ConversationPane {
   }
 
   @Builder
+  ReplyInput() {
+    TextArea({ text: this.draft, placeholder: '写下你的回复…' })
+      .id('convo-input').width('100%').constraintSize({ minHeight: 48, maxHeight: this.largeText ? 96 : 80 })
+      .padding({ top: 8, right: 10, bottom: 8, left: 10 }).maxLength(REPLY_LIMIT).fontSize(16)
+      .fontColor($r('app.color.timeline_text_body')).placeholderColor($r('app.color.timeline_text_muted'))
+      .borderRadius(12).backgroundColor($r('app.color.timeline_surface_muted')).enableKeyboardOnFocus(true)
+      .accessibilityText('本机回复内容，回复 ' + this.recipientLabel()).accessibilityDescription(this.contextLine)
+      .enabled(!this.busy).onChange((value: string) => this.onDraft(value)).onAppear(() => this.focusEditor())
+  }
+
+  @Builder
+  ReplySubmit() {
+    Button(this.busy ? '正在保存…' : '添加', { type: ButtonType.Capsule })
+      .id('convo-submit').constraintSize({ minHeight: 48 }).padding({ left: 12, right: 12 }).fontSize(15)
+      .fontColor($r('app.color.timeline_on_action')).backgroundColor($r('app.color.timeline_action'))
+      .accessibilityText('添加本机回复，不发送到 Threads')
+      .enabled(!this.busy && this.draft.trim().length > 0 && this.draft.length <= REPLY_LIMIT)
+      .onClick(() => this.onSend())
+  }
+
+  @Builder
   Editor() {
     Column({ space: 4 }) {
       Row({ space: 8 }) {
@@ -240,21 +266,12 @@ export struct ConversationPane {
       }.width('100%')
       Text('上下文：' + this.contextLine).width('100%').fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
         .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-      Row({ space: 8 }) {
-        TextArea({ text: this.draft, placeholder: '写下你的回复…' })
-          .id('convo-input').layoutWeight(1).constraintSize({ minHeight: 48, maxHeight: this.largeText ? 96 : 80 })
-          .padding({ top: 8, right: 10, bottom: 8, left: 10 }).maxLength(REPLY_LIMIT).fontSize(16)
-          .fontColor($r('app.color.timeline_text_body')).placeholderColor($r('app.color.timeline_text_muted'))
-          .borderRadius(12).backgroundColor($r('app.color.timeline_surface_muted')).enableKeyboardOnFocus(true)
-          .accessibilityText('本机回复内容，回复 ' + this.recipientLabel()).accessibilityDescription(this.contextLine)
-          .enabled(!this.busy).onChange((value: string) => this.onDraft(value)).onAppear(() => this.focusEditor())
-        Button('添加', { type: ButtonType.Capsule })
-          .id('convo-submit').constraintSize({ minHeight: 48 }).padding({ left: 12, right: 12 }).fontSize(15)
-          .fontColor($r('app.color.timeline_on_action')).backgroundColor($r('app.color.timeline_action'))
-          .accessibilityText('添加本机回复，不发送到 Threads')
-          .enabled(!this.busy && this.draft.trim().length > 0 && this.draft.length <= REPLY_LIMIT)
-           .onClick(() => this.onSend())
-      }.width('100%').alignItems(VerticalAlign.Bottom)
+      Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.End,
+        space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(8) } }) {
+        Column() { this.ReplyInput() }
+          .flexBasis(this.stackReplyActions() ? '100%' : '50%').flexGrow(1)
+        this.ReplySubmit()
+      }.width('100%')
     }.width('100%').alignItems(HorizontalAlign.Start).padding({ top: 6, bottom: 8 })
   }
 
@@ -299,11 +316,15 @@ export struct ConversationPane {
         if (this.confirmLeave) {
           Scroll() { this.LeaveDecision() }.width('100%').constraintSize({ maxHeight: '75%' })
         } else if (this.expanded) {
-          Scroll() { this.Editor() }.width('100%').constraintSize({ maxHeight: '75%' })
+          Scroll() { this.Editor() }.width('100%').constraintSize({ maxHeight: '60%' })
         } else {
           this.CollapsedEntry()
         }
       }.width('100%').height('100%').constraintSize({ maxWidth: 640 }).padding({ left: 16, right: 16 })
+        .onAreaChange((_previous: Area, current: Area) => {
+          const width = Number(current.width);
+          if (Number.isFinite(width) && width > 0 && width !== this.paneWidth) { this.paneWidth = width; }
+        })
     }.width('100%').height('100%').backgroundColor($r('app.color.timeline_surface'))
   }
 }

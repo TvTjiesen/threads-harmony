@@ -1,8 +1,11 @@
 const COVER_RATIO = 16 / 9;
 const COMPACT_HEIGHT = 120;
 const SKIP_SECONDS = 5;
+const PROGRESS_STEPS_PER_SECOND = 4;
 const PLAYBACK_ERROR = '无法播放此视频，可重试或返回。';
 const MISSING_VIDEO = '本机视频文件不可用。';
+const LOADING_VIDEO = '正在载入视频…';
+const MISSING_POSTER = '无视频封面';
 
 function isLocalUri(uri: string): boolean {
   return uri.startsWith('file://') && uri.length > 'file://'.length;
@@ -43,15 +46,20 @@ export struct PostVideo {
     this.posterFailed = false;
   }
 
+  private hasPoster(): boolean {
+    return !this.posterFailed && isLocalUri(this.posterUri);
+  }
+
   private coverLabel(label: string): string {
     const seconds = durationSeconds(this.durationMs);
-    return label + (seconds > 0 ? '，时长 ' + spokenDuration(seconds) : '，时长未知');
+    return label + (this.hasPoster() ? '' : '，' + MISSING_POSTER) +
+      (seconds > 0 ? '，时长 ' + spokenDuration(seconds) : '，时长未知');
   }
 
   @Builder
   Cover() {
     Stack({ alignContent: Alignment.Center }) {
-      if (!this.posterFailed && isLocalUri(this.posterUri)) {
+      if (this.hasPoster()) {
         Image(this.posterUri).width('100%').height('100%').objectFit(ImageFit.Cover).autoResize(true)
           .accessibilityLevel('no').onError(() => { this.posterFailed = true; })
       }
@@ -67,6 +75,12 @@ export struct PostVideo {
           .fontSize('12fp').fontWeight(FontWeight.Medium).fontColor(Color.White).backgroundColor('#C0000000')
           .padding({ left: 8, right: 8, top: 3, bottom: 3 }).borderRadius(8).accessibilityLevel('no')
       }.width('100%').height('100%').padding(8).hitTestBehavior(HitTestMode.None)
+      if (!this.hasPoster()) {
+        Stack({ alignContent: Alignment.TopStart }) {
+          Text(MISSING_POSTER).fontSize('12fp').fontColor(Color.White).backgroundColor('#C0000000')
+            .padding({ left: 8, right: 8, top: 3, bottom: 3 }).borderRadius(8).accessibilityLevel('no')
+        }.width('100%').height('100%').padding(8).hitTestBehavior(HitTestMode.None)
+      }
     }.width('100%').height('100%')
   }
 
@@ -92,7 +106,7 @@ export struct PostVideo {
 
 @Component
 export struct PostVideoPlayer {
-  @Prop uri: string = '';
+  @Prop @Watch('onSourceChange') uri: string = '';
   @Prop posterUri: string = '';
   @Prop durationMs: number = 0;
   @Prop @Watch('onActiveChange') active: boolean = false;
@@ -105,30 +119,64 @@ export struct PostVideoPlayer {
   @State private playbackPosition: number = 0;
   @State private scrubbing: boolean = false;
   @State private scrubPosition: number = 0;
+  @State private session: number = 0;
   private controller: VideoController = new VideoController();
   private mounted: boolean = false;
+  private boundUri: string = '';
+  private exactPosition: number = 0;
 
   aboutToAppear(): void {
     this.mounted = true;
+    this.boundUri = this.uri;
   }
 
   aboutToDisappear(): void {
     this.stopForExit();
   }
 
+  private onSourceChange(): void {
+    if (this.mounted && this.boundUri !== this.uri) {
+      this.resetPlayback();
+    }
+  }
+
   private onActiveChange(): void {
-    if (!this.active) {
+    if (!this.active && this.mounted) {
+      const shouldPause = this.wantsPlayback;
       this.wantsPlayback = false;
       this.scrubbing = false;
-      this.controller.pause();
+      if (shouldPause) { this.controller.pause(); }
     }
   }
 
   private stopForExit(): void {
     if (this.mounted) {
       this.mounted = false;
-      this.controller.stop();
+      this.wantsPlayback = false;
+      if (!this.failed && isLocalUri(this.boundUri)) { this.controller.stop(); }
     }
+  }
+
+  private resetPlayback(): void {
+    const oldController = this.controller;
+    const shouldStop = !this.failed && isLocalUri(this.boundUri);
+    this.session += 1;
+    this.boundUri = this.uri;
+    this.controller = new VideoController();
+    this.prepared = false;
+    this.mediaDuration = 0;
+    this.wantsPlayback = false;
+    this.scrubbing = false;
+    this.scrubPosition = 0;
+    this.finished = false;
+    this.exactPosition = 0;
+    this.playbackPosition = 0;
+    this.failed = false;
+    if (shouldStop) { oldController.stop(); }
+  }
+
+  private isCurrentSession(session: number): boolean {
+    return this.mounted && !this.failed && session === this.session;
   }
 
   private totalSeconds(): number {
@@ -147,14 +195,18 @@ export struct PostVideoPlayer {
     const total = this.totalSeconds();
     if (!this.canControl() || total <= 0 || !Number.isFinite(seconds)) { return; }
     const target = Math.max(0, Math.min(total, seconds));
+    const atEnd = target >= total;
+    if (target === this.exactPosition && target === this.playbackPosition && this.finished === atEnd) { return; }
+    this.exactPosition = target;
     this.playbackPosition = target;
-    this.finished = target >= total;
+    this.finished = atEnd;
     this.controller.setCurrentTime(target, SeekMode.Accurate);
   }
 
   private sliderChanged(percent: number, mode: SliderChangeMode): void {
-    if (!this.canControl()) { return; }
-    const target = this.totalSeconds() * percent / 100;
+    const total = this.totalSeconds();
+    if (!this.canControl() || total <= 0 || !Number.isFinite(percent)) { return; }
+    const target = total * Math.max(0, Math.min(100, percent)) / 100;
     if (mode === SliderChangeMode.Begin || mode === SliderChangeMode.Moving) {
       this.scrubbing = true;
       this.scrubPosition = target;
@@ -176,29 +228,74 @@ export struct PostVideoPlayer {
     this.controller.start();
   }
 
-  private updatePosition(time: number): void {
-    if (this.mounted && !this.failed && !this.scrubbing && !this.finished && Number.isFinite(time) && time >= 0) {
-      const total = this.totalSeconds();
-      this.playbackPosition = total > 0 ? Math.min(time, total) : time;
+  private preparedPlayback(session: number, duration: number): void {
+    if (this.isCurrentSession(session)) {
+      this.mediaDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
+      this.prepared = true;
     }
   }
 
-  private failPlayback(): void {
-    if (!this.mounted || this.failed) { return; }
+  private startedPlayback(session: number): void {
+    if (this.isCurrentSession(session) && (!this.active || !this.wantsPlayback)) { this.controller.pause(); }
+  }
+
+  private pausedPlayback(session: number): void {
+    if (this.isCurrentSession(session)) { this.wantsPlayback = false; }
+  }
+
+  private finishedPlayback(session: number): void {
+    if (!this.isCurrentSession(session)) { return; }
+    this.wantsPlayback = false;
+    this.scrubbing = false;
+    this.finished = true;
+    if (this.totalSeconds() > 0) {
+      this.exactPosition = this.totalSeconds();
+      this.playbackPosition = this.exactPosition;
+    }
+  }
+
+  private updatePosition(session: number, time: number, seeked: boolean): void {
+    if (!this.isCurrentSession(session) || !this.prepared || this.scrubbing || this.finished ||
+      !Number.isFinite(time) || time < 0 || (!seeked && !this.wantsPlayback)) { return; }
+    const total = this.totalSeconds();
+    const exact = total > 0 ? Math.min(time, total) : time;
+    if (!seeked && exact < this.exactPosition) { return; }
+    this.exactPosition = exact;
+    // Native progress can vary in cadence; render a quarter-second grid, not every sample.
+    const position = seeked || (total > 0 && exact === total) ? exact :
+      Math.floor(exact * PROGRESS_STEPS_PER_SECOND) / PROGRESS_STEPS_PER_SECOND;
+    if (seeked ? position !== this.playbackPosition : position > this.playbackPosition) {
+      this.playbackPosition = position;
+    }
+  }
+
+  private failPlayback(session: number): void {
+    if (!this.isCurrentSession(session)) { return; }
     this.failed = true;
     this.prepared = false;
     this.wantsPlayback = false;
     this.scrubbing = false;
-    this.controller.pause();
+    this.controller.stop();
   }
 
   private retryPlayback(): void {
     if (!this.active || !this.mounted || !this.failed) { return; }
-    this.controller = new VideoController();
-    this.playbackPosition = 0;
-    this.mediaDuration = 0;
-    this.finished = false;
-    this.failed = false;
+    this.resetPlayback();
+  }
+
+  @Builder
+  VideoSurface(session: number) {
+    Video({ src: this.uri, previewUri: isLocalUri(this.posterUri) ? this.posterUri : '', controller: this.controller })
+      .id('post-video-surface').width('100%').height('100%').objectFit(ImageFit.Contain)
+      .autoPlay(false).controls(false).loop(false).focusable(false).hitTestBehavior(HitTestMode.None)
+      .accessibilityLevel('no')
+      .onPrepared((info: PreparedInfo) => { this.preparedPlayback(session, info.duration); })
+      .onStart(() => { this.startedPlayback(session); })
+      .onPause(() => { this.pausedPlayback(session); })
+      .onFinish(() => { this.finishedPlayback(session); })
+      .onSeeked((info: PlaybackInfo) => { this.updatePosition(session, info.time, true); })
+      .onUpdate((info: PlaybackInfo) => { this.updatePosition(session, info.time, false); })
+      .onError(() => { this.failPlayback(session); })
   }
 
   @Builder
@@ -216,7 +313,7 @@ export struct PostVideoPlayer {
           .constraintSize({ minWidth: 48, minHeight: 48 }).fontSize('14fp')
           .fontColor($r('app.color.timeline_text_primary')).backgroundColor($r('app.color.timeline_toolbar_button'))
           .enabled(this.canControl() && this.totalSeconds() > 0 && this.playbackPosition > 0).accessibilityText('后退 5 秒')
-          .onClick(() => { this.seekTo(this.playbackPosition - SKIP_SECONDS); })
+          .onClick(() => { this.seekTo(this.exactPosition - SKIP_SECONDS); })
         Button(this.wantsPlayback ? '暂停' : this.finished ? '重播' : '播放', { type: ButtonType.Capsule })
           .id('post-video-play-toggle').constraintSize({ minWidth: 64, minHeight: 48 }).fontSize('16fp')
           .fontColor($r('app.color.timeline_on_action')).backgroundColor($r('app.color.timeline_action'))
@@ -226,7 +323,7 @@ export struct PostVideoPlayer {
           .constraintSize({ minWidth: 48, minHeight: 48 }).fontSize('14fp')
           .fontColor($r('app.color.timeline_text_primary')).backgroundColor($r('app.color.timeline_toolbar_button'))
           .enabled(this.canControl() && this.totalSeconds() > this.playbackPosition).accessibilityText('前进 5 秒')
-          .onClick(() => { this.seekTo(this.playbackPosition + SKIP_SECONDS); })
+          .onClick(() => { this.seekTo(this.exactPosition + SKIP_SECONDS); })
       }.justifyContent(FlexAlign.Center).width('100%')
     }.width('100%').padding({ left: 12, right: 12, bottom: 12, top: 6 })
   }
@@ -260,31 +357,14 @@ export struct PostVideoPlayer {
         }.width('100%').layoutWeight(1).justifyContent(FlexAlign.Center).padding(16)
       } else {
         Stack() {
-          Video({ src: this.uri, previewUri: isLocalUri(this.posterUri) ? this.posterUri : '', controller: this.controller })
-            .id('post-video-surface').width('100%').height('100%').objectFit(ImageFit.Contain)
-            .autoPlay(false).controls(false).loop(false).focusable(false).hitTestBehavior(HitTestMode.None)
-            .accessibilityLevel('no')
-            .onPrepared((info: PreparedInfo) => {
-              if (this.mounted && !this.failed) {
-                this.mediaDuration = Number.isFinite(info.duration) && info.duration > 0 ? info.duration : 0;
-                this.prepared = true;
-              }
-            })
-            .onStart(() => {
-              // A queued start may arrive after the destination or app lost visibility.
-              if (!this.active || !this.mounted || !this.wantsPlayback || this.failed) { this.controller.pause(); }
-            })
-            .onPause(() => { if (this.mounted) { this.wantsPlayback = false; } })
-            .onFinish(() => {
-              if (this.mounted && !this.failed) {
-                this.wantsPlayback = false;
-                this.finished = true;
-                if (this.totalSeconds() > 0) { this.playbackPosition = this.totalSeconds(); }
-              }
-            })
-            .onSeeked((info: PlaybackInfo) => { this.updatePosition(info.time); })
-            .onUpdate((info: PlaybackInfo) => { this.updatePosition(info.time); })
-            .onError(() => { this.failPlayback(); })
+          ForEach([this.session], (session: number) => {
+            this.VideoSurface(session)
+          }, (session: number) => String(session))
+          if (!this.prepared) {
+            Text(LOADING_VIDEO).id('post-video-loading').fontSize('14fp').textAlign(TextAlign.Center)
+              .fontColor(Color.White).backgroundColor('#C0000000').borderRadius(8).padding(8)
+              .hitTestBehavior(HitTestMode.None).accessibilityLevel('yes')
+          }
         }.width('100%').layoutWeight(1).backgroundColor(Color.Black)
         this.PlayerControls()
       }

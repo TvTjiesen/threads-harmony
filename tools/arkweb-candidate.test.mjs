@@ -489,8 +489,10 @@ test('the parent wires the four reading pages and the independent composer to th
   let profile;
   const topics = ['主题'];
   const shell = vm.runInNewContext(stripTypeScriptTypes(`class Shell {
-    selectedTab = 2; viewportWidth = 400; searchQuery = '初始'; discoveryMode = 1; libraryMode = 0;
-    identity = { name: '本机名称', bio: '' }; localReplies = []; libraryLoading = false; identityBusy = false;
+    selectedTab = 2; sideNavigation = false; searchQuery = '初始'; discoveryMode = 1; libraryMode = 0;
+    identity = { name: '本机名称', bio: '' }; localReplies = []; libraryLoading = false; libraryReady = true;
+    libraryBusy = false; identityBusy = false;
+    loadLibrary() { visits.push('retry library'); }
     identityMessage = ''; libraryMessage = '';
     Feed() { visits.push('home'); } activityEntries() { return ['activity']; }
     discoveryAuthors() { return ['author']; } discoveryPosts() { return ['post']; }

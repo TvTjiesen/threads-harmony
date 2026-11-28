@@ -1,4 +1,4 @@
-import { SymbolGlyphModifier } from '@kit.ArkUI';
+import { ColorMetrics, LengthMetrics, SymbolGlyphModifier } from '@kit.ArkUI';
 import { ExtendBarMode, HdsBarLayoutMode, HdsBarStyle, HdsTabs, hdsMaterial } from '@kit.UIDesignKit';
 
 const RAIL_WIDTH = 96;
@@ -42,7 +42,10 @@ export struct ReadingTabs {
         .fontColor([$r('app.color.timeline_text_primary')]).accessibilityLevel('no')
     }
     .id('nav-compose').width(48).height(48).padding(0)
-    .backgroundColor(Color.Transparent).focusable(true).accessibilityText('发帖').onClick(() => this.onCompose())
+    .backgroundColor(Color.Transparent).focusable(true)
+    .focusBox({ margin: LengthMetrics.vp(-2),
+      strokeColor: ColorMetrics.resourceColor($r('app.color.timeline_text_primary')), strokeWidth: LengthMetrics.vp(2) })
+    .accessibilityGroup(true).accessibilityText('发帖').onClick(() => this.onCompose())
   }
 
   build() {

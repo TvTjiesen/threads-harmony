@@ -1387,24 +1387,57 @@ test('fake-timer execution of production changeProxy: timeout retains lock; late
   rejectApply = false;
 });
 
-test('system browser fallback opens only the fixed Threads URL and shows a manual fallback on failure', async () => {
-  const home = app.match(/^const HOME_URL: string = .+;$/m)?.[0];
-  assert.ok(home, 'the ArkWeb page must declare a fixed home URL');
+test('browser handoff sends the clean failed public path, while settings always opens home', async () => {
+  const constants = app.slice(app.indexOf('const HOME_URL:'), app.indexOf('const PREF_NAME:'));
+  const routes = app.slice(app.indexOf('function isAllowedNavigation('), app.indexOf('// ArkWeb ProxyConfig'));
   const method = app.slice(app.indexOf('  private async openExternalHome('), app.indexOf('  private goBack('))
-    .replace('private async', 'async');
-  const Harness = vm.runInNewContext(stripTypeScriptTypes(`${home}\nclass Harness {
+    .replace(/^  private /gm, '  ');
+  const Harness = vm.runInNewContext(stripTypeScriptTypes(`${constants}\n${routes}\nclass Harness {
     externalHomeFailed = true;
+    externalPageFailedUrl = '';
+    browserFallback = true;
+    retryTarget = HOME_URL;
+    loadAttempt = 1;
     proxyActive = 'proxy.example:8080';
     proxyPending = true;
     getUIContext() { return { getHostContext: () => this.context }; }
     ${method}
-  }; Harness`));
+  }; Harness`), { url: { URL: { parseURL: value => new URL(value) } } });
   const page = new Harness();
   const opened = [];
   page.context = { openLink: async (url, options) => { opened.push([url, { ...options }]); } };
   await page.openExternalHome();
-  assert.deepEqual(opened, [['https://www.threads.com/', { appLinkingOnly: false }]], 'no proxy or user-supplied URL is forwarded');
+  const home = 'https://www.threads.com/';
+  const post = `${home}@alice/post/ABC_123`;
+  assert.deepEqual(opened, [[home, { appLinkingOnly: false }]]);
   assert.equal(page.externalHomeFailed, false);
+  page.retryTarget = `${post}?tracking=1#reply`;
+  await page.openExternalPage();
+  assert.deepEqual(opened.at(-1), [post, { appLinkingOnly: false }]);
+  await page.openExternalHome();
+  assert.deepEqual(opened.at(-1), [home, { appLinkingOnly: false }]);
+  for (const disallowed of [`${home}login`, `${home}messages`, 'https://evil.example/@alice', 'https://user:secret@threads.com/@alice']) {
+    page.retryTarget = disallowed;
+    await page.openExternalPage();
+    assert.deepEqual(opened.at(-1), [home, { appLinkingOnly: false }]);
+  }
+  page.browserFallback = false;
+  const callCount = opened.length;
+  await page.openExternalPage();
+  assert.equal(opened.length, callCount);
+  page.browserFallback = true;
+  page.retryTarget = `${post}?tracking=1#reply`;
+  page.context = { openLink: async () => { throw new Error('no browser handler'); } };
+  await page.openExternalPage();
+  assert.equal(page.externalPageFailedUrl, post);
+  assert.equal(page.externalHomeFailed, false);
+  let rejectLaunch;
+  page.context = { openLink: () => new Promise((_resolve, reject) => { rejectLaunch = reject; }) };
+  const pending = page.openExternalPage();
+  page.loadAttempt++;
+  rejectLaunch(new Error('old attempt'));
+  await pending;
+  assert.equal(page.externalPageFailedUrl, '', 'a late failure must not reappear on the next attempt');
   page.context = { openLink: async () => { throw new Error('no browser handler'); } };
   await page.openExternalHome();
   assert.equal(page.externalHomeFailed, true);
@@ -1434,7 +1467,8 @@ test('web chrome preserves distinct navigation, a dismissible network sheet and 
   const notice = builder(app, 'WebNotice');
   assert.match(notice, /FlexWrap\.Wrap/);
   assert.match(notice, /if \(this\.canNavigate\(\)\) \{\s+Button\('重试网页'\)\.id\('web-failure-retry'\)/);
-  assert.match(notice, /'web-failure-browser'[\s\S]*?this\.openExternalHome\(\)/);
+  assert.match(notice, /'web-failure-browser'[\s\S]*?this\.openExternalPage\(\)/);
+  assert.match(notice, /if \(this\.externalPageFailedUrl\.length > 0\) \{\s+Text\(`[^`]*\$\{this\.externalPageFailedUrl\}`\)/);
 });
 
 test('refresh and recovery stay on public Threads routes without replaying private URLs', () => {

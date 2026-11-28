@@ -94,6 +94,7 @@ struct Index {
   private startupPaused: boolean = true;
   @State private proxyPending: boolean = false;
   @State private externalHomeFailed: boolean = false;
+  @State private externalPageFailedUrl: string = '';
   private proxyWaiter: (() => void) | undefined = undefined;
 
   private initializeNetwork(): void {
@@ -320,6 +321,7 @@ struct Index {
     this.banner = '';
     this.browserFallback = false;
     this.externalHomeFailed = false;
+    this.externalPageFailedUrl = '';
     this.loadWatchdog = setTimeout(() => {
       if (this.loadAttempt === attempt && this.busy && this.canNavigate()) {
         this.failLoading('Threads 网页加载超时。可重试，或用系统浏览器对照。');
@@ -411,15 +413,31 @@ struct Index {
 
   private async openExternalHome(): Promise<void> {
     this.externalHomeFailed = false;
+    this.externalHomeFailed = !(await this.launchExternal(HOME_URL));
+  }
+
+  private async openExternalPage(): Promise<void> {
+    if (!this.browserFallback) {
+      return;
+    }
+    const target = publicThreadsTarget(this.retryTarget) || HOME_URL;
+    const attempt = this.loadAttempt;
+    this.externalPageFailedUrl = '';
+    if (!(await this.launchExternal(target)) && this.browserFallback && this.loadAttempt === attempt) {
+      this.externalPageFailedUrl = target;
+    }
+  }
+
+  private async launchExternal(target: string): Promise<boolean> {
     try {
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined;
       if (!context) {
-        this.externalHomeFailed = true;
-        return;
+        return false;
       }
-      await context.openLink(HOME_URL, { appLinkingOnly: false });
+      await context.openLink(target, { appLinkingOnly: false });
+      return true;
     } catch (_error) {
-      this.externalHomeFailed = true;
+      return false;
     }
   }
 
@@ -557,15 +575,15 @@ struct Index {
                 .buttonStyle(ButtonStyleMode.TEXTUAL).onClick(() => { this.retry(); })
             }
             Button('用系统浏览器打开').id('web-failure-browser').constraintSize({ minHeight: 48, maxWidth: '100%' })
-              .buttonStyle(ButtonStyleMode.TEXTUAL).onClick(() => { this.openExternalHome(); })
+              .buttonStyle(ButtonStyleMode.TEXTUAL).onClick(() => { this.openExternalPage(); })
           } else if (this.canNavigate()) {
             Button('关闭').id('web-notice-dismiss').constraintSize({ minHeight: 48 })
               .buttonStyle(ButtonStyleMode.TEXTUAL).onClick(() => { this.banner = ''; })
           }
         }.width('100%')
-        if (this.browserFallback && this.externalHomeFailed) {
-          Text(`系统未能打开链接。请在浏览器中手动访问 ${HOME_URL}`).fontSize(14)
-            .fontColor($r('app.color.timeline_text_body'))
+        if (this.externalPageFailedUrl.length > 0) {
+          Text(`系统未能打开链接。请在浏览器中手动访问 ${this.externalPageFailedUrl}`).fontSize(14)
+            .fontColor($r('app.color.timeline_text_body')).wordBreak(WordBreak.BREAK_WORD)
         }
       }.width('100%').alignItems(HorizontalAlign.Start)
         .padding({ left: 16, right: 16, top: 10, bottom: 4 })

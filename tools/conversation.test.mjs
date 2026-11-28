@@ -448,6 +448,26 @@ test('window resizing stabilizes the side rail and keeps the same reading anchor
   assert.equal(page.readingAnchor.postId, other.id);
 });
 
+test('feed lanes use actual width minus gutters and preserve the anchor across content reflow', () => {
+  const { page, other, frames } = session();
+  page.viewportWidth = 1000;
+  page.firstVisibleIndex = 1;
+  assert.equal(page.readingLaneCount(), 1, 'unmeasured feed starts safely with one lane');
+  page.updateFeedWidth(715);
+  assert.equal(page.readingLaneCount(), 1);
+  page.rememberReadingPosition();
+  page.updateFeedWidth(716);
+  assert.equal(page.readingLaneCount(), 2);
+  page.updateFeedWidth(708);
+  page.updateFeedWidth(0);
+  assert.equal(page.readingLaneCount(), 1);
+  assert.equal(page.contentWidth, 708);
+  assert.equal(frames.length, 1);
+  assert.deepEqual({ ...page.readingAnchor }, { postId: other.id, clipped: 13 });
+  frames.shift().onIdle(0);
+  assert.equal(page.restorePending, false);
+});
+
 test('reply navigation keeps originating filters, reading anchor and motion policy without jumping to Home', () => {
   for (const [tab, localReduce, systemReduce, animate] of [
     [ShellTab.Home, false, false, true], [ShellTab.Search, true, false, false],

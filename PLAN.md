@@ -8,7 +8,7 @@
 
 ## 当前整合候选与后续路线
 
-[产品路线与下一组五项](docs/product-roadmap.md)明确日用版门槛、验收步骤、设备分工及官方授权前置条件。以下表格保留为本轮 `native-experience-rc` 的五项合并范围，不代表这些项目均已在实机完成。
+[产品路线与下一批五项](docs/product-roadmap.md)明确日用版门槛、验收步骤、设备分工及官方授权前置条件。设备就绪流程见[设备与官网验收](docs/device-readiness.md)。以下表格保留为 `native-experience-rc` 的历史范围，不代表这些项目均已在实机完成。
 
 ## 本轮五项范围
 

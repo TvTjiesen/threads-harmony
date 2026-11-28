@@ -27,6 +27,7 @@ const LARGE_TEXT_SCALE = 1.4;
 const WIDE_VIEWPORT = 680;
 const SIDE_NAV_WIDTH = 840;
 const MAX_LIST_WIDTH = 1248;
+const FEED_INLINE_PADDING = 18;
 const REPLY_LIMIT = LOCAL_REPLY_BODY_LIMIT;
 const POST_DETAIL = 'PostDetail';
 const PUBLIC_THREADS = 'PublicThreads';
@@ -277,8 +278,18 @@ struct Timeline {
     this.viewportWidth = width;
   }
 
+  private updateFeedWidth(width: number): void {
+    if (!Number.isFinite(width) || width <= 0 || width === this.contentWidth) { return; }
+    const previousWidth = this.contentWidth;
+    // An area callback can arrive after the list has already reflowed. Keep the last stable post anchor.
+    this.contentWidth = width;
+    if (previousWidth > 0 && Math.min(previousWidth, MAX_LIST_WIDTH) !== Math.min(width, MAX_LIST_WIDTH)) {
+      this.onReadingLayoutChange();
+    }
+  }
+
   private readingLaneCount(): number {
-    return (this.contentWidth || this.viewportWidth) >= WIDE_VIEWPORT && !this.toolbarInList() ? 2 : 1;
+    return this.contentWidth - 2 * FEED_INLINE_PADDING >= WIDE_VIEWPORT && !this.toolbarInList() ? 2 : 1;
   }
 
   private rememberReadingPosition(): void {
@@ -1587,19 +1598,22 @@ struct Timeline {
   @Builder
   SummaryEntry(post: MockPost, reply?: DemoReply) {
     if (reply !== undefined) {
-      Row({ space: 12 }) {
-        Column({ space: 3 }) {
-          Divider().vertical(true).height(8).strokeWidth(1).color($r('app.color.timeline_border'))
-          Text(reply.author.substring(0, 1)).width(22).height(22).fontSize('11vp')
-            .backgroundColor($r('app.color.timeline_surface_muted')).fontColor($r('app.color.timeline_text_secondary'))
-            .borderRadius(11).textAlign(TextAlign.Center).accessibilityLevel('no')
-        }.width(36)
-        Text(reply.author + '：' + reply.body)
-          .fontSize(13).fontColor($r('app.color.timeline_text_secondary')).layoutWeight(1)
-          .maxLines(this.toolbarInList() ? 3 : 2).textOverflow({ overflow: TextOverflow.Ellipsis })
-      }.width('100%').constraintSize({ minHeight: 48 }).padding({ top: 4, bottom: 4 }).accessibilityGroup(true)
+      Button({ type: ButtonType.Normal }) {
+        Row({ space: 12 }) {
+          Column({ space: 3 }) {
+            Divider().vertical(true).height(8).strokeWidth(1).color($r('app.color.timeline_border'))
+            Text(reply.author.substring(0, 1)).width(22).height(22).fontSize('11vp')
+              .backgroundColor($r('app.color.timeline_surface_muted')).fontColor($r('app.color.timeline_text_secondary'))
+              .borderRadius(11).textAlign(TextAlign.Center).accessibilityLevel('no')
+          }.width(36)
+          Text(reply.author + '：' + reply.body)
+            .fontSize(13).fontColor($r('app.color.timeline_text_secondary')).layoutWeight(1)
+            .maxLines(this.toolbarInList() ? 3 : 2).textOverflow({ overflow: TextOverflow.Ellipsis })
+        }.width('100%')
+      }.width('100%').constraintSize({ minHeight: 48 }).padding({ top: 4, bottom: 4, left: 0, right: 0 })
+        .buttonStyle(ButtonStyleMode.TEXTUAL).accessibilityGroup(true)
         .id('summary-' + post.id).accessibilityText('查看 ' + reply.author + ' 的回复：' + reply.body)
-        .focusable(true).onClick(() => this.openPost(post, reply.id))
+        .onClick(() => this.openPost(post, reply.id))
     }
   }
 
@@ -1616,6 +1630,7 @@ struct Timeline {
               if (authorLink && !inDetail && !post.local) {
                 Text(post.name).id('post-author-' + post.id).fontSize(16).fontWeight(FontWeight.Bold)
                   .fontColor($r('app.color.timeline_text_primary')).accessibilityText('查看作者 ' + post.name)
+                  .focusable(true).accessibilityRole(AccessibilityRoleType.BUTTON)
                   .onClick(() => this.openAuthor(post.id))
               } else {
                 Text(post.local ? this.identity.name : post.name).fontSize(16).fontWeight(FontWeight.Bold)
@@ -1634,7 +1649,8 @@ struct Timeline {
           } else if (!inDetail) {
             Text(post.body.trim() ? post.body : (post.video !== undefined ? '视频帖子' : '图片帖子'))
               .id('body-' + post.id).fontSize(16).fontColor($r('app.color.timeline_text_body')).width('100%')
-              .textAlign(TextAlign.Start).accessibilityText('打开原帖：' + (post.body.trim() || (post.video !== undefined ? '视频帖子' : '图片帖子'))).onClick(() => this.openPost(post))
+              .textAlign(TextAlign.Start).accessibilityText('打开原帖：' + (post.body.trim() || (post.video !== undefined ? '视频帖子' : '图片帖子')))
+               .focusable(true).accessibilityRole(AccessibilityRoleType.BUTTON).onClick(() => this.openPost(post))
           }
           if (completeThread) {
             Column() {
@@ -2241,7 +2257,7 @@ struct Timeline {
       .layoutWeight(1)
       .width('100%')
       .constraintSize({ maxWidth: MAX_LIST_WIDTH })
-      .padding({ left: 18, right: 18, bottom: 12 })
+      .padding({ left: FEED_INLINE_PADDING, right: FEED_INLINE_PADDING, bottom: 12 })
       .scrollBar(BarState.Auto)
       .onScrollIndex((start: number) => { this.firstVisibleIndex = start; })
       .onDidScroll((_offset: number, state: ScrollState) => {
@@ -2252,14 +2268,7 @@ struct Timeline {
       .onScrollStop(() => this.rememberReadingPosition())
     }.width('100%').height('100%')
       .onAreaChange((_oldArea: Area, newArea: Area) => {
-        const width = Number(newArea.width);
-        if (Number.isFinite(width) && width > 0 && width !== this.contentWidth) {
-          const previousWidth = this.contentWidth;
-          this.contentWidth = width;
-          if (previousWidth > 0 && Math.min(previousWidth, MAX_LIST_WIDTH) !== Math.min(width, MAX_LIST_WIDTH)) {
-            this.onReadingLayoutChange();
-          }
-        }
+        this.updateFeedWidth(Number(newArea.width));
       })
   }
 

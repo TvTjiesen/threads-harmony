@@ -168,7 +168,7 @@ export struct ConversationPane {
     Column({ space: 6 }) {
       this.rootPost()
       Button('回复原帖', { type: ButtonType.Capsule })
-        .id('convo-reply-root').constraintSize({ minHeight: 44 }).buttonStyle(ButtonStyleMode.TEXTUAL)
+        .id('convo-reply-root').constraintSize({ minHeight: 48 }).buttonStyle(ButtonStyleMode.TEXTUAL)
         .fontSize(14).fontColor($r('app.color.timeline_text_body')).onClick(() => this.editReply(''))
       Divider().strokeWidth(0.5).color($r('app.color.timeline_border'))
       Text(`讨论 · ${this.rows.length} 条回复`).margin({ top: 10 }).fontSize(17).fontWeight(FontWeight.Bold)
@@ -208,7 +208,7 @@ export struct ConversationPane {
             (row.local ? '，本机回复，' : '，') + this.replyRelation(row) + '：' + row.body)
         Button('回复', { type: ButtonType.Capsule })
           .id('convo-reply-' + row.id).buttonStyle(ButtonStyleMode.TEXTUAL)
-          .padding({ left: 0, right: 10 }).constraintSize({ minHeight: 44, minWidth: 48 })
+          .padding({ left: 0, right: 10 }).constraintSize({ minHeight: 48, minWidth: 48 })
           .fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
           .accessibilityText('回复 ' + row.author + ' 的这条回复').onClick(() => this.editReply(row.id))
         Divider().strokeWidth(0.5).color($r('app.color.timeline_border'))

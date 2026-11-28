@@ -163,7 +163,11 @@ export struct DiscoveryPane {
       this.status()
       Text(this.mode === 1 ? '仅搜索示例作者，不连接 Threads 账号。' : '仅搜索本机与演示帖子，不含 Threads 站内结果。')
         .width('100%').fontSize('13fp').fontColor($r('app.color.timeline_text_secondary'))
-      if (this.mode === 0 && this.query.trim().length === 0 && this.topics.length > 0) {
+      if (this.query.trim().length > 0 && (this.mode === 0 ? this.hasPosts : this.authors.length > 0)) {
+        Button('清除搜索').id('discovery-clear-results').buttonStyle(ButtonStyleMode.TEXTUAL)
+          .constraintSize({ minHeight: 48 }).fontColor($r('app.color.timeline_text_primary'))
+          .onClick(() => { this.searchController.stopEditing(); this.changeQuery(''); })
+      } else if (this.mode === 0 && this.query.trim().length === 0 && this.topics.length > 0) {
         this.TopicChooser()
       }
     }.width('100%').alignItems(HorizontalAlign.Start).padding({ top: 8, bottom: 4 })

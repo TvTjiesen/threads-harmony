@@ -369,7 +369,7 @@ test('reading reflow keeps a post ID, adjusts for the large-text toolbar and def
   let rect = { height: 120, y: -28 };
   const Timeline = vm.runInNewContext(stripTypeScriptTypes(`class Timeline {
     timelineVisible = true; restorePending = false; restoreScheduled = false;
-    viewportWidth = 400; fontScale = 1; firstVisibleIndex = 1; timelinePosts = POSTS;
+    viewportWidth = 400; contentWidth = 400; fontScale = 1; firstVisibleIndex = 1; timelinePosts = POSTS;
     selectedTab = ShellTab.Home; followingOnly = false; followedIds = ['p2']; hiddenIds = [];
     followingTabAnchor = { postId: '', clipped: 0 };
     detailPaths = { size: () => 0 };
@@ -377,7 +377,8 @@ test('reading reflow keeps a post ID, adjusts for the large-text toolbar and def
     getUIContext() { return { postFrameCallback: (frame) => frames.push(frame) }; }
     ${methods}
   }; Timeline`), {
-    POSTS: [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }], LARGE_TEXT_SCALE: 1.4, WIDE_VIEWPORT: 680, ShellTab: { Home: 0 },
+    POSTS: [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }], LARGE_TEXT_SCALE: 1.4, WIDE_VIEWPORT: 680,
+    FEED_INLINE_PADDING: 18, ShellTab: { Home: 0 },
     LayoutFrame: class { constructor(task) { this.task = task; } }, frames,
     ScrollAlign: { START: 'start' }, LengthMetrics: { vp: (n) => n }
   });
@@ -391,6 +392,7 @@ test('reading reflow keeps a post ID, adjusts for the large-text toolbar and def
   assert.equal(page.readingAnchor.postId, 'p2');
   assert.equal(page.readingAnchor.clipped, 28);
   page.viewportWidth = 820;
+  page.contentWidth = 820;
   assert.equal(page.readingLaneCount(), 2);
   page.contentWidth = 400;
   assert.equal(page.readingLaneCount(), 1, 'a narrow content pane on a wide window must still use one lane');

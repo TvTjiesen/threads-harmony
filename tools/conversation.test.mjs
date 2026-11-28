@@ -27,7 +27,8 @@ class NavPathStack {
   pushPath(entry, animate) { this.entries.push(entry); this.animations.push(animate); }
   pop(result, animate) { this.animations.push(animate); this.entries.pop()?.onPop?.(result); }
 }
-const platform = { FrameCallback: class {}, Scroller: class {}, ScrollAlign: { START: 'start' } };
+const platform = { FrameCallback: class {}, Scroller: class {}, TextAreaController: class {},
+  ScrollAlign: { START: 'start' } };
 const { Timeline, ShellTab } = vm.runInNewContext(stripTypeScriptTypes(`${stateClass(source)}\n({ Timeline, ShellTab });`,
   { mode: 'transform' }), {
   ...library, ...identity, ...platform, NavPathStack, SegmentButtonV2Items: class {}, LengthMetrics: { vp: n => n }

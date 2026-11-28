@@ -741,10 +741,13 @@ test('post detail uses one stack entry and saves replies only to the local libra
 test('composer and preview keep primary actions outside scrolling, with shared thread rows and guarded exit', () => {
   const editor = builder(timelineSource, 'ComposerContent');
   const preview = builder(timelineSource, 'PostPreviewContent');
-  assert.match(editor, /\.layoutWeight\(1\)\.align\(Alignment\.Top\)\.scrollBar\(BarState\.Auto\)\s+if \(this\.postDraftReady\) \{ this\.ComposerFooter\(\) \}/);
+  assert.match(editor, /\.layoutWeight\(1\)\.align\(Alignment\.Top\)\.scrollBar\(BarState\.Auto\)\s+\.onAppear\(\(\) => this\.restoreComposerOffset\(\)\)\s+if \(this\.postDraftReady\) \{ this\.ComposerFooter\(\) \}/);
   assert.match(preview, /\.layoutWeight\(1\)\.align\(Alignment\.Top\)\.scrollBar\(BarState\.Auto\)[\s\S]*'composer-preview-confirm'/);
   assert.match(preview, /this\.makePart\(this\.previewBody, this\.previewPhotoKeys, this\.previewVideo\)[\s\S]*ForEach\(this\.previewContinuation/);
-  assert.match(builder(timelineSource, 'ComposerFooter'), /this\.draftDecision !== DraftDecision\.None[\s\S]*this\.ComposerDecision\(\)[\s\S]*this\.canSavePostDraft\(\)[\s\S]*this\.canPreviewPostDraft\(\)/);
+  assert.match(builder(timelineSource, 'ComposerFooter'), /this\.draftDecision !== DraftDecision\.None[\s\S]*this\.ComposerDecision\(\)[\s\S]*this\.ComposerActions\(\)[\s\S]*maxHeight: this\.composerActionHeight\(\)/);
+  assert.match(builder(timelineSource, 'ComposerActions'), /this\.canSavePostDraft\(\)[\s\S]*this\.canPreviewPostDraft\(\)/);
+  assert.match(editor, /ForEach\(\[this\.composerInputVersion\][\s\S]*this\.updateComposerInput\(version, value\)/);
+  assert.match(builder(timelineSource, 'DetailDestination'), /\.onWillShow\(\(\) => this\.setComposerKeyboard\(true\)\)\s+\.onWillHide\(\(\) => this\.setComposerKeyboard\(false\)\)/);
   assert.match(builder(timelineSource, 'ComposerHeading'), /this\.requestComposerExit\(\)/);
 });
 
@@ -761,6 +764,12 @@ test('post drafts persist explicitly and preview posts are added once without mo
       draftPhotoKeys = []; savedDraftPhotoKeys = []; previewPhotoKeys = []; viewerPhotoKeys = []; viewerPhotoIndex = 0;
       draftParts = [{ body: '' }]; activeDraftPart = 0; savedContinuation = []; previewContinuation = [];
       photoPicking = false;
+      composerInputVersion = 0; composerHeight = 0; viewportWidth = 0; fontScale = 1;
+      composerVisible = false; composerKeyboardMode = undefined; previewReturnOffset = -1;
+      inputStops = 0; scrollY = 0; frames = []; keyboardMode = KeyboardAvoidMode.OFFSET;
+      composerInput = { stopEditing: () => { this.inputStops++; } };
+      composerScroller = { currentOffset: () => ({ yOffset: this.scrollY }),
+        scrollTo: ({ yOffset }) => { this.scrollY = yOffset; } };
       library = emptyLibrary(); libraryReady = false; libraryLoading = false; libraryBusy = false; identity = emptyIdentity();
       likedIds = []; followedIds = []; savedIds = [];
       timelinePosts = [...POSTS]; animationTriggers = [0, -1];
@@ -775,7 +784,9 @@ test('post drafts persist explicitly and preview posts are added once without mo
         };
         this.stores = stores;
       }
-      getUIContext() { return { getHostContext: () => this.stores }; }
+      getUIContext() { return { getHostContext: () => this.stores,
+        getKeyboardAvoidMode: () => this.keyboardMode, setKeyboardAvoidMode: (mode) => { this.keyboardMode = mode; },
+        postFrameCallback: (callback) => this.frames.push(callback) }; }
       rememberReadingPosition() { this.anchorCaptures++; }
       ${timelineMethods('  onPageShow(', '  onPageHide(')}
       scheduleReadingRestore() {}
@@ -785,6 +796,8 @@ test('post drafts persist explicitly and preview posts are added once without mo
     }
     ({ Composer, DraftDecision, ShellTab });`, { mode: 'transform' }), {
     ...libraryModel, ...identityModel,
+    LARGE_TEXT_SCALE: 1.4, KeyboardAvoidMode: { OFFSET: 0, RESIZE: 1, NONE: 2 },
+    LayoutFrame: class { constructor(run) { this.run = run; } },
     POSTS: [{ id: 'p1', body: 'First example' }, { id: 'p2', body: 'Second example' }], SAMPLE_REPLIES: [],
     discardPostPhoto: (_context, key) => { discardedPhotos.push(key); },
     discardPostVideo: (_context, key) => { discardedVideos.push(key); },
@@ -1122,11 +1135,51 @@ test('post drafts persist explicitly and preview posts are added once without mo
   thread.removeDraftPart();
   assert.equal(thread.draftParts.length, 3);
   assert.equal(thread.draftVideo.key, secondVideo.key);
+  const secondInput = thread.composerInputVersion;
+  thread.updateComposerInput(secondInput, 'second searchable');
+  thread.scrollY = 80;
+  const stops = thread.inputStops;
+  thread.selectDraftPart(0);
+  assert.equal(thread.inputStops, stops + 1);
+  assert.equal(thread.scrollY, 0, 'switching exposes the new segment rather than keeping a stale attachment offset');
+  thread.updateComposerInput(secondInput, 'late change from previous input');
+  assert.equal(thread.postDraft, 'first segment');
+  thread.selectDraftPart(2);
+  assert.equal(thread.postDraft, 'second searchable');
   await thread.savePostDraft(false);
   assert.deepEqual(JSON.parse(disk), { body: 'first segment', continuation: [{ body: '', photoKeys: [thirdPhoto] },
     { body: 'second searchable', video: secondVideo }] });
+  thread.setComposerKeyboard(true);
+  thread.setComposerKeyboard(true);
+  assert.equal(thread.keyboardMode, 1);
+  thread.viewportWidth = 320;
+  assert.equal(thread.stackedComposerActions(), true);
+  thread.viewportWidth = 420;
+  assert.equal(thread.stackedComposerActions(), false);
+  thread.fontScale = 1.75;
+  assert.equal(thread.stackedComposerActions(), true);
+  thread.composerHeight = 200;
+  assert.equal(thread.composerActionHeight(), 92);
+  thread.composerHeight = 75;
+  assert.equal(thread.composerActionHeight(), 48);
+  thread.scrollY = 90;
   thread.openPostPreview();
   assert.deepEqual(Array.from(thread.previewContinuation, part => part.body), ['', 'second searchable']);
+  thread.updateComposerInput(thread.composerInputVersion, 'late change while previewing');
+  assert.equal(thread.postDraft, 'second searchable');
+  thread.requestComposerExit();
+  thread.scrollY = 0;
+  thread.restoreComposerOffset();
+  thread.frames.shift().run();
+  assert.equal(thread.scrollY, 90);
+  assert.equal(thread.activeDraftPart, 2);
+  thread.setComposerKeyboard(false);
+  assert.equal(thread.keyboardMode, 0);
+  thread.setComposerKeyboard(true);
+  thread.keyboardMode = 2;
+  thread.setComposerKeyboard(false);
+  assert.equal(thread.keyboardMode, 2, 'do not override a newer mode after leaving');
+  thread.openPostPreview();
   await thread.addPreviewToTimeline();
   const published = JSON.parse(libraryDisk).posts[0];
   assert.deepEqual(published.continuation, JSON.parse(disk).continuation);

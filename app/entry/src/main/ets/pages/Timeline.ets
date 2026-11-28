@@ -1,7 +1,7 @@
 import { accessibility } from '@kit.AccessibilityKit';
 import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
-import { FrameCallback, LengthMetrics, router, SegmentButtonV2Items, TabSegmentButtonV2 } from '@kit.ArkUI';
+import { FrameCallback, KeyboardAvoidMode, LengthMetrics, router, SegmentButtonV2Items, TabSegmentButtonV2 } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { systemShare } from '@kit.ShareKit';
 import { canPublishThread, decodeLibrary, decodePostDraft, emptyLibrary, encodeLibrary, isPostPhotoKey, LibraryPost, isPostVideoKey,
@@ -192,6 +192,13 @@ struct Timeline {
   @State private activeDraftPart: number = 0;
   @State private savedContinuation: ThreadPart[] = [];
   @State private previewContinuation: ThreadPart[] = [];
+  @State private composerInputVersion: number = 0;
+  @State private composerHeight: number = 0;
+  private readonly composerInput: TextAreaController = new TextAreaController();
+  private readonly composerScroller: Scroller = new Scroller();
+  private composerKeyboardMode: KeyboardAvoidMode | undefined = undefined;
+  private composerVisible: boolean = false;
+  private previewReturnOffset: number = -1;
   private library: LocalLibrary = emptyLibrary();
   private postSequence: number = 0;
   private postDraftLoadId: number = 0;
@@ -1076,7 +1083,51 @@ struct Timeline {
     return parts;
   }
 
+  private updateComposerInput(version: number, value: string): void {
+    if (version !== this.composerInputVersion || !this.canChangeDraftPhotos()) { return; }
+    this.postDraft = value;
+    this.postDraftMessage = '';
+  }
+
+  private setComposerKeyboard(visible: boolean): void {
+    this.composerVisible = visible;
+    const ui = this.getUIContext();
+    if (visible && this.composerKeyboardMode === undefined) {
+      this.composerKeyboardMode = ui.getKeyboardAvoidMode();
+      ui.setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
+    } else if (!visible && this.composerKeyboardMode !== undefined) {
+      if (ui.getKeyboardAvoidMode() === KeyboardAvoidMode.RESIZE) {
+        ui.setKeyboardAvoidMode(this.composerKeyboardMode);
+      }
+      this.composerKeyboardMode = undefined;
+    }
+  }
+
+  private stopComposerInput(): void {
+    this.composerInput.stopEditing();
+  }
+
+  private stackedComposerActions(): boolean {
+    return this.fontScale >= LARGE_TEXT_SCALE || (this.viewportWidth > 0 && this.viewportWidth < 340);
+  }
+
+  private composerActionHeight(): number {
+    return this.composerHeight > 0 ? Math.max(48, this.composerHeight * 0.46) : 360;
+  }
+
+  private restoreComposerOffset(): void {
+    if (this.previewReturnOffset < 0) { return; }
+    const offset = this.previewReturnOffset;
+    this.previewReturnOffset = -1;
+    this.getUIContext().postFrameCallback(new LayoutFrame(() => {
+      if (this.composerVisible && !this.showingPostPreview) {
+        this.composerScroller.scrollTo({ xOffset: 0, yOffset: offset, animation: false });
+      }
+    }));
+  }
+
   private setComposerParts(parts: ThreadPart[], index: number): void {
+    this.composerInputVersion += 1;
     this.draftParts = parts;
     this.activeDraftPart = index;
     this.postDraft = parts[index].body;
@@ -1092,15 +1143,19 @@ struct Timeline {
   private selectDraftPart(index: number): void {
     if (!this.canChangeDraftPhotos() || index === this.activeDraftPart || !Number.isInteger(index) ||
       index < 0 || index >= this.draftParts.length) { return; }
+    this.stopComposerInput();
     this.setComposerParts(this.composerParts(), index);
+    this.composerScroller.scrollTo({ xOffset: 0, yOffset: 0, animation: false });
     this.postDraftMessage = '';
   }
 
   private addDraftPart(): void {
     if (!this.canChangeDraftPhotos() || this.draftParts.length >= MAX_THREAD_PARTS) { return; }
+    this.stopComposerInput();
     const parts = this.composerParts();
     parts.push({ body: '' });
     this.setComposerParts(parts, parts.length - 1);
+    this.composerScroller.scrollTo({ xOffset: 0, yOffset: 0, animation: false });
     this.postDraftMessage = '';
   }
 
@@ -1109,6 +1164,7 @@ struct Timeline {
     const next = current + direction;
     if (!this.canChangeDraftPhotos() || (direction !== -1 && direction !== 1) || next < 0 ||
       next >= this.draftParts.length) { return; }
+    this.stopComposerInput();
     const parts = this.composerParts();
     const moved = parts[current];
     parts[current] = parts[next];
@@ -1123,6 +1179,7 @@ struct Timeline {
     const parts = this.composerParts();
     const removed = parts.splice(this.activeDraftPart, 1);
     this.setComposerParts(parts, Math.min(this.activeDraftPart, parts.length - 1));
+    this.composerScroller.scrollTo({ xOffset: 0, yOffset: 0, animation: false });
     this.draftDecision = DraftDecision.None;
     this.postDraftMessage = '';
     this.releaseParts(removed);
@@ -1149,7 +1206,9 @@ struct Timeline {
     this.restoreSavedParts();
     this.postDraftMessage = '';
     this.draftDecision = DraftDecision.None;
+    this.previewReturnOffset = -1;
     this.detailPaths.pushPath({ name: POST_COMPOSER, onPop: () => {
+      this.previewReturnOffset = -1;
       const abandoned = this.composerParts();
       this.restoreSavedParts();
       this.postDraftLoadId += 1;
@@ -1348,6 +1407,9 @@ struct Timeline {
     if (!this.canPreviewPostDraft()) {
       return;
     }
+    const offset = this.composerScroller.currentOffset()?.yOffset ?? 0;
+    this.previewReturnOffset = Number.isFinite(offset) ? Math.max(0, offset) : 0;
+    this.stopComposerInput();
     const parts = this.composerParts();
     this.previewBody = parts[0].body;
     this.previewPhotoKeys = parts[0].photoKeys ?? [];
@@ -1401,10 +1463,13 @@ struct Timeline {
       this.closePostPreview();
     } else if (this.draftDecision !== DraftDecision.None) {
       this.draftDecision = DraftDecision.None;
-    } else if (this.draftChanged()) {
-      this.draftDecision = DraftDecision.Leave;
     } else {
-      this.leaveComposer();
+      this.stopComposerInput();
+      if (this.draftChanged()) {
+        this.draftDecision = DraftDecision.Leave;
+      } else {
+        this.leaveComposer();
+      }
     }
   }
 
@@ -1419,6 +1484,7 @@ struct Timeline {
       : !this.canSavePostDraft()) {
       return;
     }
+    this.stopComposerInput();
     const old = [...this.savedParts(), ...this.composerParts()];
     const parts: ThreadPart[] = clear ? [{ body: '' }] : this.composerParts();
     const root = parts[0];
@@ -1649,15 +1715,15 @@ struct Timeline {
 
   @Builder
   ComposerHeading(preview: boolean) {
-    Row({ space: 8 }) {
+    Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center, space: { main: LengthMetrics.vp(8) } }) {
       Button(preview ? '返回编辑' : '返回').id(preview ? 'composer-preview-back' : 'composer-back')
         .buttonStyle(ButtonStyleMode.TEXTUAL).constraintSize({ minWidth: 48, minHeight: 48 })
         .padding({ left: 4, right: 8 }).fontColor($r('app.color.timeline_text_secondary'))
         .enabled(preview ? !this.libraryBusy : !this.photoPicking && (!this.postDraftReady || !this.postDraftBusy))
         .onClick(() => this.requestComposerExit())
       Text(preview ? (this.previewContinuation.length > 0 ? '串帖预览' : '帖子预览') : '写帖草稿')
-        .fontSize(21).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary')).layoutWeight(1)
-        .accessibilityLevel('yes')
+        .fontSize(21).fontWeight(FontWeight.Bold).fontColor($r('app.color.timeline_text_primary'))
+        .constraintSize({ maxWidth: '100%' }).wordBreak(WordBreak.BREAK_WORD).accessibilityLevel('yes')
     }.width('100%').padding({ left: 18, right: 18, top: 4, bottom: 4 })
     Divider().strokeWidth(0.5).color($r('app.color.timeline_border'))
   }
@@ -1686,14 +1752,16 @@ struct Timeline {
         }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 18, right: 18, top: 12, bottom: 12 })
       }.width('100%').layoutWeight(1).align(Alignment.Top).scrollBar(BarState.Auto)
       Divider().strokeWidth(0.5).color($r('app.color.timeline_border'))
-      Column({ space: 4 }) {
-        this.LibraryStatus()
-        Button(this.libraryBusy ? '正在保存…' : '加入本机时间线')
-          .id('composer-preview-confirm').width('100%').constraintSize({ minHeight: 48 })
-          .padding({ left: 14, right: 14, top: 8, bottom: 8 })
-          .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
-          .enabled(this.libraryReady && !this.libraryBusy).onClick(() => { this.addPreviewToTimeline(); })
-      }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 18, right: 18, top: 8, bottom: 8 })
+      Scroll() {
+        Column({ space: 4 }) {
+          this.LibraryStatus()
+          Button(this.libraryBusy ? '正在保存…' : '加入本机时间线')
+            .id('composer-preview-confirm').width('100%').constraintSize({ minHeight: 48 })
+            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+            .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
+            .enabled(this.libraryReady && !this.libraryBusy).onClick(() => { this.addPreviewToTimeline(); })
+        }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 18, right: 18, top: 8, bottom: 8 })
+      }.width('100%').constraintSize({ maxHeight: this.composerActionHeight() }).scrollBar(BarState.Auto)
     }.width('100%').height('100%').constraintSize({ maxWidth: 640 })
   }
 
@@ -1771,12 +1839,14 @@ struct Timeline {
           '之前保存到本机的内容会保留。')
         .fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
       Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(4) } }) {
-        Button('继续编辑').id('composer-keep').constraintSize({ minHeight: 48 }).padding({ left: 14, right: 14 })
+        Button('继续编辑').id('composer-keep').constraintSize({ minHeight: 48, maxWidth: '100%' })
+          .width(this.stackedComposerActions() ? '100%' : 'auto').padding({ left: 14, right: 14 })
           .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
           .onClick(() => { this.draftDecision = DraftDecision.None; })
         Button(this.draftDecision === DraftDecision.Clear ? '确认清空' :
           this.draftDecision === DraftDecision.RemovePart ? '确认删除此段' : '放弃修改并返回')
-          .id('composer-discard').constraintSize({ minHeight: 48 }).buttonStyle(ButtonStyleMode.TEXTUAL)
+          .id('composer-discard').constraintSize({ minHeight: 48, maxWidth: '100%' })
+          .width(this.stackedComposerActions() ? '100%' : 'auto').buttonStyle(ButtonStyleMode.TEXTUAL)
           .fontColor($r('app.color.timeline_text_body'))
           .onClick(() => {
             if (this.draftDecision === DraftDecision.Clear) {
@@ -1794,32 +1864,42 @@ struct Timeline {
   @Builder
   ComposerFooter() {
     Divider().strokeWidth(0.5).color($r('app.color.timeline_border'))
-    if (this.draftDecision !== DraftDecision.None) {
-      Scroll() { this.ComposerDecision() }.width('100%').constraintSize({ maxHeight: '60%' })
-    } else {
-      Column({ space: 4 }) {
+    Scroll() {
+      if (this.draftDecision !== DraftDecision.None) {
+        this.ComposerDecision()
+      } else {
+        this.ComposerActions()
+      }
+    }.width('100%').constraintSize({ maxHeight: this.composerActionHeight() }).scrollBar(BarState.Auto)
+  }
+
+  @Builder
+  ComposerActions() {
+    Column({ space: 4 }) {
         if (this.postDraftMessage.length > 0) {
           Text(this.postDraftMessage).fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
         }
         Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.End, space: { main: LengthMetrics.vp(10), cross: LengthMetrics.vp(4) } }) {
           Button(this.postDraftBusy ? '正在写入…' : '保存草稿').id('composer-save')
-            .buttonStyle(ButtonStyleMode.TEXTUAL).constraintSize({ minHeight: 48 }).padding({ left: 12, right: 12 })
+            .buttonStyle(ButtonStyleMode.TEXTUAL).constraintSize({ minHeight: 48, maxWidth: '100%' })
+            .width(this.stackedComposerActions() ? '100%' : 'auto').padding({ left: 12, right: 12 })
             .fontColor($r('app.color.timeline_text_body'))
             .enabled(this.canSavePostDraft()).onClick(() => { this.savePostDraft(false); })
           Button(this.draftParts.length > 1 ? '预览整串' : '预览帖子').id('thread-preview')
-            .constraintSize({ minHeight: 48 }).padding({ left: 16, right: 16, top: 8, bottom: 8 })
+            .constraintSize({ minHeight: 48, maxWidth: '100%' })
+            .width(this.stackedComposerActions() ? '100%' : 'auto')
+            .padding({ left: 16, right: 16, top: 8, bottom: 8 })
             .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
             .enabled(this.canPreviewPostDraft()).onClick(() => this.openPostPreview())
         }.width('100%')
-      }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 18, right: 18, top: 8, bottom: 8 })
-    }
+    }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 18, right: 18, top: 8, bottom: 8 })
   }
 
   @Builder
   ComposerContent() {
     Column() {
       this.ComposerHeading(false)
-      Scroll() {
+      Scroll(this.composerScroller) {
         Column({ space: 10 }) {
           Text('只保存在这台设备，不会发布到 Threads。').fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
           if (this.postDraftReady) {
@@ -1828,16 +1908,19 @@ struct Timeline {
               onSelect: (index: number) => this.selectDraftPart(index), onAdd: () => this.addDraftPart(),
               onMove: (direction: number) => this.moveDraftPart(direction),
               onRemove: () => { if (this.canChangeDraftPhotos() && this.draftParts.length > 1) {
+                this.stopComposerInput();
                 this.draftDecision = DraftDecision.RemovePart;
               } } })
-            TextArea({ text: this.postDraft, placeholder: '此刻，想写点什么？' }).id('draft-part-body')
-              .width('100%').constraintSize({ minHeight: 132, maxHeight: 260 }).maxLength(POST_DRAFT_LIMIT)
-              .padding({ top: 10, bottom: 10, left: 0, right: 0 }).fontSize(16)
-              .fontColor($r('app.color.timeline_text_body')).placeholderColor($r('app.color.timeline_text_muted'))
-              .backgroundColor(Color.Transparent).borderRadius(0)
-              .accessibilityText('写帖草稿正文')
-              .enabled(!this.postDraftBusy && !this.photoPicking && this.draftDecision === DraftDecision.None)
-              .onChange((value: string) => { this.postDraft = value; this.postDraftMessage = ''; })
+            ForEach([this.composerInputVersion], (version: number) => {
+              TextArea({ text: this.postDraft, controller: this.composerInput, placeholder: '此刻，想写点什么？' })
+                .id('draft-part-body').width('100%').constraintSize({ minHeight: 132, maxHeight: 260 }).maxLength(POST_DRAFT_LIMIT)
+                .padding({ top: 10, bottom: 10, left: 0, right: 0 }).fontSize(16)
+                .fontColor($r('app.color.timeline_text_body')).placeholderColor($r('app.color.timeline_text_muted'))
+                .backgroundColor(Color.Transparent).borderRadius(0)
+                .accessibilityText('写帖草稿正文')
+                .enabled(!this.postDraftBusy && !this.photoPicking && this.draftDecision === DraftDecision.None)
+                .onChange((value: string) => this.updateComposerInput(version, value))
+            }, (version: number) => version.toString())
             Text(`${this.postDraft.length} / ${POST_DRAFT_LIMIT}`).fontSize(12)
               .width('100%').textAlign(TextAlign.End).fontColor($r('app.color.timeline_text_secondary'))
             this.ComposerAttachments()
@@ -1849,7 +1932,10 @@ struct Timeline {
               this.savedDraftVideo !== undefined || this.savedContinuation.length > 0) {
               Button('清空本机草稿').id('composer-clear').constraintSize({ minHeight: 48 })
                 .buttonStyle(ButtonStyleMode.TEXTUAL).fontColor($r('app.color.timeline_text_secondary'))
-                .enabled(this.canChangeDraftPhotos()).onClick(() => { this.draftDecision = DraftDecision.Clear; })
+                .enabled(this.canChangeDraftPhotos()).onClick(() => {
+                  this.stopComposerInput();
+                  this.draftDecision = DraftDecision.Clear;
+                })
             }
           } else if (this.postDraftBusy) {
             Text('正在读取本机草稿…').fontSize(14).fontColor($r('app.color.timeline_text_secondary'))
@@ -1859,6 +1945,7 @@ struct Timeline {
           }
         }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 18, right: 18, top: 12, bottom: 16 })
       }.width('100%').layoutWeight(1).align(Alignment.Top).scrollBar(BarState.Auto)
+        .onAppear(() => this.restoreComposerOffset())
       if (this.postDraftReady) { this.ComposerFooter() }
     }.width('100%').height('100%').constraintSize({ maxWidth: 640 })
   }
@@ -1969,7 +2056,13 @@ struct Timeline {
             this.ComposerContent()
           }
         }.width('100%').height('100%').alignItems(HorizontalAlign.Center)
+          .onAreaChange((_previous: Area, current: Area) => {
+            const height = Number(current.height);
+            if (Number.isFinite(height) && height > 0) { this.composerHeight = height; }
+          })
       }.hideTitleBar(true).backgroundColor($r('app.color.timeline_surface'))
+        .onWillShow(() => this.setComposerKeyboard(true))
+        .onWillHide(() => this.setComposerKeyboard(false))
         .onBackPressed(() => {
           this.requestComposerExit();
           return true;

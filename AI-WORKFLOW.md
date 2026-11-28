@@ -31,7 +31,7 @@
 | 用户 | 设备上的身份授权、DevEco 调试签名、安装/启动及登录等必须由本人掌控的动作；在 MatePad 上运行 WorkBuddy 的明确小任务；提供真实设备现象 | 不必写代码；只回传分支/commit、退出码、产物字节数或第一条脱敏错误，不发送凭据/代理地址 |
 | 华为官方工具（DevEco Studio、HarmonyOS CLT/Hvigor、DevEco CLI、hdc 等） | DSH 使用 Studio 自带 Hvigor 在 Windows 本机做 ArkTS 编译；CLI 用于补充文档检索；MatePad 工具链留给 WorkBuddy 的设备专属核验 | Windows SDK 为 API 26 `26.0.1.120` Beta1；固定版本编译仅在临时副本对齐 `compileSdkVersion`；HarmonyOS 7.0.0 phone 模拟器此前由 HDC 连通，但本轮未复核在线状态；未验证物理设备 |
 
-DSH 完成一项改动并通过本地回归后，推送固定 SHA，先写好 MatePad 验收提示词，再从该版本开独立分支继续开发。每份提示词只围绕一个验收主题；WorkBuddy 完成即回报，不修改业务代码，不负责合并或重构。只构建的任务不签装；明确要求本机运行的任务由用户在 DevEco 本机授权签名和安装。回报实际构建 SHA、设备现象和脱敏证据，不上传 HAP。Windows 本地工具证据与限制见 [华为工具验证](HUAWEI-TOOLS.md)。
+DSH 完成一项改动并通过本地回归后，推送固定 SHA，写好 MatePad 验收提示词，并滚动更新后续五步计划（每步说明目标与验收条件），再从该版本开独立分支继续开发。每份提示词只围绕一个验收主题；WorkBuddy 完成即回报，不修改业务代码，不负责合并或重构。只构建的任务不签装；明确要求本机运行的任务由用户在 DevEco 本机授权签名和安装。回报实际构建 SHA、设备现象和脱敏证据，不上传 HAP。Windows 本地工具证据与限制见 [华为工具验证](HUAWEI-TOOLS.md)。
 
 ## 已验证：MatePad 本机 CLT 构建链
 

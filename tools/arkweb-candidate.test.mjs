@@ -49,8 +49,8 @@ function luminance(hex) {
 test('ArkWeb source remains the reviewed proxy implementation and Stage keeps it as a page', () => {
   assert.match(overlay, /private changeProxy\(/);
   assert.match(app, /private changeProxy\(/);
-  assert.match(app, /if \(Number\(router\.getLength\(\)\) > 1\) \{\s+Button\('本地首页'/);
-  assert.match(app, /accessibilityText\('返回本地模拟时间线'\)\.onClick\(\(\) => \{ router\.back\(\); \}\)/);
+  const toolbar = builder(app, 'WebToolbar');
+  assert.match(toolbar, /if \(Number\(router\.getLength\(\)\) > 1\) \{\s+this\.WebAction\([^\n]+?'web-local-home', \(\) => \{ router\.back\(\); \}\)/);
   const back = app.slice(app.indexOf('  private goBack('), app.indexOf('  @Builder'));
   assert.match(back, /this\.canNavigate\(\)[\s\S]*?this\.controller\.accessBackward\(\)[\s\S]*?this\.controller\.backward\(\)[\s\S]*?router\.back\(\)/);
   assert.match(back, /if \(Number\(router\.getLength\(\)\) > 1\) \{\s+router\.back\(\);\s+return true;/);
@@ -1410,8 +1410,26 @@ test('system browser fallback opens only the fixed Threads URL and shows a manua
   page.context = undefined;
   await page.openExternalHome();
   assert.equal(page.externalHomeFailed, true);
-  assert.match(app, /Button\('通过系统打开 Threads 网页'\)\.onClick\(\(\) => \{ this\.openExternalHome\(\); \}\)/);
+  assert.match(builder(app, 'SettingsPanel'), /Button\('通过系统打开 Threads 网页'\)\.id\('web-settings-browser'\)[\s\S]*?\.onClick\(\(\) => \{ this\.openExternalHome\(\); \}\)/);
   assert.match(app, /if \(this\.externalHomeFailed\) \{\s+Text\(`[^`]*\$\{HOME_URL\}`\)/);
+});
+
+test('web chrome preserves distinct navigation, a dismissible network sheet and accessible recovery', () => {
+  const actions = builder(app, 'WebAction');
+  assert.match(actions, /\.width\(48\)\.height\(48\)/);
+  assert.match(actions, /\.focusable\(true\)\.accessibilityText\(label\)/);
+  const bar = builder(app, 'WebToolbar');
+  assert.match(bar, /'web-back', \(\) => \{ this\.goBack\(\); \}/);
+  assert.match(bar, /'web-reload', \(\) => \{ this\.retry\(\); \}/);
+  assert.match(app, /\.bindSheet\(\$\$this\.showSettings, this\.SettingsPanel\(\), \{[\s\S]*?showClose: false/);
+  const settings = builder(app, 'SettingsPanel');
+  assert.match(settings, /Scroll\(\)/);
+  assert.match(settings, /'web-settings-done'[\s\S]*?this\.showSettings = false/);
+  assert.match(settings, /'web-proxy-save'[\s\S]*?enabled\(this\.webReady && !this\.proxyPending\)/);
+  const notice = builder(app, 'WebNotice');
+  assert.match(notice, /FlexWrap\.Wrap/);
+  assert.match(notice, /if \(this\.canNavigate\(\)\) \{\s+Button\('重试网页'\)\.id\('web-failure-retry'\)/);
+  assert.match(notice, /'web-failure-browser'[\s\S]*?this\.openExternalHome\(\)/);
 });
 
 test('candidate keeps navigation, TLS, permission, and HTTP error guardrails', () => {

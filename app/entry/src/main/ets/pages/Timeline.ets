@@ -1851,7 +1851,7 @@ struct Timeline {
           Button(this.libraryBusy ? '正在保存…' : '加入本机时间线')
             .id('composer-preview-confirm').width('100%').constraintSize({ minHeight: 48 })
             .padding({ left: 14, right: 14, top: 8, bottom: 8 })
-            .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
+            .buttonStyle(ButtonStyleMode.EMPHASIZED)
             .enabled(this.libraryReady && !this.libraryBusy).onClick(() => { this.addPreviewToTimeline(); })
         }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 18, right: 18, top: 8, bottom: 8 })
       }.width('100%').constraintSize({ maxHeight: this.composerActionHeight() }).scrollBar(BarState.Auto)
@@ -1969,22 +1969,20 @@ struct Timeline {
   @Builder
   ComposerActions() {
     Column({ space: 4 }) {
-        if (this.postDraftMessage.length > 0) {
-          Text(this.postDraftMessage).fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
-        }
-        Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.End, space: { main: LengthMetrics.vp(10), cross: LengthMetrics.vp(4) } }) {
-          Button(this.postDraftBusy ? '正在写入…' : '保存草稿').id('composer-save')
-            .buttonStyle(ButtonStyleMode.TEXTUAL).constraintSize({ minHeight: 48, maxWidth: '100%' })
-            .width(this.stackedComposerActions() ? '100%' : 'auto').padding({ left: 12, right: 12 })
-            .fontColor($r('app.color.timeline_text_body'))
-            .enabled(this.canSavePostDraft()).onClick(() => { this.savePostDraft(false); })
-          Button(this.draftParts.length > 1 ? '预览整串' : '预览帖子').id('thread-preview')
-            .constraintSize({ minHeight: 48, maxWidth: '100%' })
-            .width(this.stackedComposerActions() ? '100%' : 'auto')
-            .padding({ left: 16, right: 16, top: 8, bottom: 8 })
-            .backgroundColor($r('app.color.timeline_action')).fontColor($r('app.color.timeline_on_action'))
-            .enabled(this.canPreviewPostDraft()).onClick(() => this.openPostPreview())
-        }.width('100%')
+      if (this.postDraftMessage.length > 0) {
+        Text(this.postDraftMessage).fontSize(13).fontColor($r('app.color.timeline_text_secondary'))
+      }
+      Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.End, space: { main: LengthMetrics.vp(10), cross: LengthMetrics.vp(4) } }) {
+        Button(this.postDraftBusy ? '正在写入…' : '保存草稿').id('composer-save')
+          .buttonStyle(ButtonStyleMode.NORMAL).constraintSize({ minHeight: 48, maxWidth: '100%' })
+          .width(this.stackedComposerActions() ? '100%' : 'auto').padding({ left: 12, right: 12 })
+          .enabled(this.canSavePostDraft()).onClick(() => { this.savePostDraft(false); })
+        Button(this.draftParts.length > 1 ? '预览整串' : '预览帖子').id('thread-preview')
+          .buttonStyle(ButtonStyleMode.EMPHASIZED).constraintSize({ minHeight: 48, maxWidth: '100%' })
+          .width(this.stackedComposerActions() ? '100%' : 'auto')
+          .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+          .enabled(this.canPreviewPostDraft()).onClick(() => this.openPostPreview())
+      }.width('100%')
     }.width('100%').alignItems(HorizontalAlign.Start).padding({ left: 18, right: 18, top: 8, bottom: 8 })
   }
 

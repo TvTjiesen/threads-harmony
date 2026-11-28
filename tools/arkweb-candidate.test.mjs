@@ -749,7 +749,10 @@ test('composer and preview keep primary actions outside scrolling, with shared t
   assert.match(preview, /\.layoutWeight\(1\)\.align\(Alignment\.Top\)\.scrollBar\(BarState\.Auto\)[\s\S]*'composer-preview-confirm'/);
   assert.match(preview, /this\.makePart\(this\.previewBody, this\.previewPhotoKeys, this\.previewVideo\)[\s\S]*ForEach\(this\.previewContinuation/);
   assert.match(builder(timelineSource, 'ComposerFooter'), /this\.draftDecision !== DraftDecision\.None[\s\S]*this\.ComposerDecision\(\)[\s\S]*this\.ComposerActions\(\)[\s\S]*maxHeight: this\.composerActionHeight\(\)/);
-  assert.match(builder(timelineSource, 'ComposerActions'), /this\.canSavePostDraft\(\)[\s\S]*this\.canPreviewPostDraft\(\)/);
+  const actions = builder(timelineSource, 'ComposerActions');
+  assert.match(actions, /Button\([^\n]*'保存草稿'\)\.id\('composer-save'\)\s+\.buttonStyle\(ButtonStyleMode\.NORMAL\)[^\n]*minHeight: 48[\s\S]*?\.enabled\(this\.canSavePostDraft\(\)\)\.onClick/);
+  assert.match(actions, /Button\([^\n]*'预览帖子'\)\.id\('thread-preview'\)\s+\.buttonStyle\(ButtonStyleMode\.EMPHASIZED\)[^\n]*minHeight: 48[\s\S]*?\.enabled\(this\.canPreviewPostDraft\(\)\)\.onClick/);
+  assert.match(preview, /'composer-preview-confirm'[\s\S]*?\.buttonStyle\(ButtonStyleMode\.EMPHASIZED\)/);
   assert.match(editor, /ForEach\(\[this\.composerInputVersion\][\s\S]*this\.updateComposerInput\(version, value\)/);
   assert.match(builder(timelineSource, 'DetailDestination'), /\.onWillShow\(\(\) => this\.setComposerKeyboard\(true\)\)\s+\.onWillHide\(\(\) => this\.setComposerKeyboard\(false\)\)/);
   assert.match(builder(timelineSource, 'ComposerHeading'), /this\.requestComposerExit\(\)/);
